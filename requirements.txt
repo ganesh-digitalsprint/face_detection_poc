@@ -1,0 +1,25 @@
+fastapi
+uvicorn[standard]
+
+# Face Recognition / Computer Vision
+deepface[tensorflow]
+tf-keras
+opencv-python
+numpy
+
+# Database
+sqlalchemy
+psycopg2-binary
+
+# Vector Database
+qdrant-client
+
+# Configuration / Validation
+pydantic
+pydantic-settings
+python-dotenv
+python-multipart
+
+# Testing
+pytest
+httpx

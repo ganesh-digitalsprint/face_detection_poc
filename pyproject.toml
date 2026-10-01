@@ -1,0 +1,23 @@
+[project]
+name = "face-detection"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "deepface[tensorflow]",
+    "opencv-python",
+    "numpy",
+    "sqlalchemy>=2",
+    "psycopg2-binary",
+    "qdrant-client",
+    "pydantic",
+    "pydantic-settings",
+    "python-dotenv",
+    "python-multipart",
+    "pytest>=9.1.1",
+    "httpx>=0.28.1",
+    "tf-keras>=2.21.0",
+]
