@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import detection, health, recognition, registration
+from app.api.routes import detection, health, recognition, registration, streams, video
 from app.api.errors import install_error_handlers
 from app.core.config import settings
 from app.core.logging import get_logger, setup_logging
@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.exception("Model warm-up failed; continuing without it")
     logger.info("FastAPI application startup completed: %s v%s", settings.APP_NAME, settings.APP_VERSION)
     yield
+    streams.stream_manager.stop_all()
     if get_engine.cache_info().currsize:  # only if an engine was ever created
         get_engine().dispose()
     qdrant.close()
@@ -78,6 +79,8 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(registration.router)
     app.include_router(recognition.router)
+    app.include_router(video.router)
+    app.include_router(streams.router)
     app.include_router(detection.router)
 
     @app.get("/", tags=["root"])

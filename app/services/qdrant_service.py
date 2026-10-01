@@ -32,13 +32,14 @@ class QdrantService:
     @property
     def client(self) -> QdrantClient:
         if self._client is None:
-            if not settings.QDRANT_URL.strip() or not settings.QDRANT_API_KEY.strip():
+            api_key = settings.QDRANT_API_KEY.get_secret_value().strip()
+            if not settings.QDRANT_URL.strip() or not api_key:
                 raise QdrantConnectionError(
                     "QDRANT_URL and QDRANT_API_KEY are required to start the backend."
                 )
             try:
                 self._client = QdrantClient(
-                    url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY
+                    url=settings.QDRANT_URL, api_key=api_key
                 )
             except Exception as exc:
                 raise QdrantConnectionError(

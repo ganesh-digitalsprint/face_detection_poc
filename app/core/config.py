@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DistanceMetric = Literal["cosine", "euclidean", "euclidean_l2"]
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
         "postgresql+psycopg2://postgres:root@localhost:5432/face_recognition_db"
     )
     QDRANT_URL: str = "https://d0f75223-0ea8-44dd-9fe4-8b1e3d403d96.eu-west-1-0.aws.cloud.qdrant.io"
-    QDRANT_API_KEY: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6YjZhMTM3MWItZDcxZS00YjljLTkzMTYtNjc3NjQxYWRkNjcwIn0.fFo_UXwmXVnlTIEJchz6NpGKaffR2EJA8Na23FqRWwY"
+    QDRANT_API_KEY: SecretStr = SecretStr("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6YjZhMTM3MWItZDcxZS00YjljLTkzMTYtNjc3NjQxYWRkNjcwIn0.fFo_UXwmXVnlTIEJchz6NpGKaffR2EJA8Na23FqRWwY")
     QDRANT_COLLECTION_NAME: str = Field(default="face_embeddings", min_length=1)
 
     # ------------------------------------------------------------------
@@ -73,11 +73,16 @@ class Settings(BaseSettings):
     # Video / webcam
     # ------------------------------------------------------------------
     # Run database recognition once every N frames per track (not every frame).
-    RECOGNITION_INTERVAL_FRAMES: int = Field(default=10, ge=1)
+    RECOGNITION_INTERVAL_FRAMES: int = Field(default=15, ge=1)
     # Maximum number of faces processed per frame/image.
     MAX_FACES: int = Field(default=20, ge=1)
     # OpenCV camera index used for webcam input.
     WEBCAM_INDEX: int = Field(default=0, ge=0)
+    RTSP_URLS: list[SecretStr] = Field(default_factory=list)
+    RTSP_RECONNECT_ATTEMPTS: int = Field(default=5, ge=0)
+    RTSP_RECONNECT_DELAY_SECONDS: float = Field(default=2.0, ge=0.1)
+    RTSP_READ_TIMEOUT_MS: int = Field(default=5000, ge=100)
+    MAX_VIDEO_UPLOAD_MB: int = Field(default=500, ge=1)
     # Longest allowed frame side in pixels; larger frames are downscaled
     # (aspect ratio preserved) before processing.
     VIDEO_MAX_FRAME_SIZE: int = Field(default=1280, ge=64)
@@ -88,7 +93,11 @@ class Settings(BaseSettings):
     # Minimum bounding-box IoU for a detection to continue an existing track.
     TRACK_IOU_THRESHOLD: float = Field(default=0.3, gt=0.0, le=1.0)
     # A track is removed after this many consecutive frames without a match.
-    TRACK_MAX_MISSED_FRAMES: int = Field(default=15, ge=1)
+    MAX_TRACK_MISSED_FRAMES: int = Field(
+        default=15, ge=1,
+        validation_alias=AliasChoices("MAX_TRACK_MISSED_FRAMES", "TRACK_MAX_MISSED_FRAMES"),
+    )
+    TRACK_MAX_MISSED_FRAMES: int = Field(default=15, ge=1, exclude=True)
     # A track that already has an identity only changes it (to another person
     # or to Unknown) after this many CONSECUTIVE contradicting recognitions.
     # 1 = change immediately. Guards against a single blurry frame flipping IDs.
@@ -101,6 +110,8 @@ class Settings(BaseSettings):
     ENROLLMENT_UPLOAD_DIR: Path = Path("uploads/enrollment")
     # Where test / evaluation images are saved.
     TEST_UPLOAD_DIR: Path = Path("uploads/test")
+    VIDEO_UPLOAD_DIR: Path = Path("uploads/video-input")
+    VIDEO_OUTPUT_DIR: Path = Path("uploads/video-output")
 
     @field_validator("FACE_RECOGNITION_MODEL", "FACE_DETECTOR_BACKEND")
     @classmethod
@@ -117,6 +128,8 @@ class Settings(BaseSettings):
         """
         self.ENROLLMENT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         self.TEST_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        self.VIDEO_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        self.VIDEO_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

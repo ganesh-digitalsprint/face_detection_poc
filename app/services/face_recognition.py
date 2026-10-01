@@ -28,6 +28,8 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+import numpy as np
+import supervision as sv
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -117,6 +119,7 @@ class Track:
     name: str | None = None
     distance: float | None = None
     similarity: float | None = None
+    last_outcome: RecognitionOutcome | None = None
     # Contradicting-result hysteresis (see record_recognition).
     _pending_key: int | None = field(default=None, repr=False)
     _pending_count: int = field(default=0, repr=False)
@@ -145,6 +148,7 @@ class Track:
           only after ``confirmations`` consecutive contradicting results.
         """
         self.last_recognition_frame = frame_number
+        self.last_outcome = outcome
         if outcome is None:
             return
 
@@ -171,62 +175,69 @@ class Track:
 
 
 class FaceTracker:
-    """Lightweight IoU multi-face tracker.
+    """Session-local ByteTrack association plus recognition state per track."""
 
-    Each frame, detections are matched to existing tracks by bounding-box IoU
-    (best pairs first, one-to-one). Unmatched detections start new tracks;
-    tracks unseen for ``max_missed_frames`` consecutive frames are removed.
-    Track ids increase monotonically and are never reused. Matching is purely
-    geometric, so two Unknown faces are never merged.
-    """
-
-    def __init__(self, iou_threshold: float, max_missed_frames: int) -> None:
+    def __init__(self, iou_threshold: float, max_missed_frames: int, frame_rate: float) -> None:
         self._iou_threshold = iou_threshold
         self._max_missed = max_missed_frames
         self._tracks: list[Track] = []
-        self._next_id = 1
+        self._byte_track = sv.ByteTrack(
+            track_activation_threshold=0.05,
+            lost_track_buffer=max(1, round(max_missed_frames * 30 / max(frame_rate, 1.0))),
+            minimum_matching_threshold=iou_threshold,
+            frame_rate=max(frame_rate, 1.0),
+            minimum_consecutive_frames=1,
+        )
 
     @property
     def active_tracks(self) -> list[Track]:
         """All live tracks, including ones not seen in the latest frame."""
         return list(self._tracks)
 
-    def update(self, boxes: Sequence[BoundingBox], frame_number: int) -> list[Track]:
-        """Match this frame's detections; returns their tracks in detection order."""
-        pairs = [
-            (iou, t_idx, d_idx)
-            for t_idx, track in enumerate(self._tracks)
-            for d_idx, box in enumerate(boxes)
-            if (iou := track.bbox.iou(box)) >= self._iou_threshold
-        ]
-        pairs.sort(key=lambda p: p[0], reverse=True)
+    def update(
+        self, boxes: Sequence[BoundingBox], frame_number: int,
+        confidences: Sequence[float | None] | None = None,
+    ) -> list[Track]:
+        """Associate detections with ByteTrack; return visible tracks in input order."""
+        xyxy = np.asarray([box.to_xyxy() for box in boxes], dtype=np.float32).reshape(-1, 4)
+        confidence_values = confidences if confidences is not None else [None] * len(boxes)
+        scores = np.asarray([
+            1.0 if confidences is None or confidence is None else confidence
+            for confidence in confidence_values
+        ], dtype=np.float32)
+        detections = sv.Detections(xyxy=xyxy, confidence=scores)
+        tracked = self._byte_track.update_with_detections(detections)
+        tracker_ids = tracked.tracker_id
+        if tracker_ids is None:
+            tracker_ids = np.full(len(boxes), -1, dtype=np.int64)
 
-        det_to_track: dict[int, Track] = {}
-        used_tracks: set[int] = set()
-        for _, t_idx, d_idx in pairs:
-            if t_idx in used_tracks or d_idx in det_to_track:
+        by_id = {track.track_id: track for track in self._tracks}
+        visible: list[Track] = []
+        seen_ids: set[int] = set()
+        # Supervision filters out detections that have not yet been activated,
+        # so its result can be shorter than the input. Use its returned boxes
+        # alongside IDs instead of zipping IDs to the unfiltered detections.
+        for coordinates, raw_id in zip(tracked.xyxy, tracker_ids, strict=False):
+            track_id = int(raw_id)
+            if track_id < 0:
                 continue
-            used_tracks.add(t_idx)
-            det_to_track[d_idx] = self._tracks[t_idx]
-
-        for t_idx, track in enumerate(self._tracks):
-            if t_idx not in used_tracks:
-                track.consecutive_missed_frames += 1
-        for d_idx, track in det_to_track.items():
-            track.bbox = boxes[d_idx]
+            x1, y1, x2, y2 = (int(round(value)) for value in coordinates)
+            box = BoundingBox(x1, y1, max(1, x2 - x1), max(1, y2 - y1))
+            track = by_id.get(track_id)
+            if track is None:
+                track = Track(track_id=track_id, bbox=box, last_seen_frame=frame_number)
+                self._tracks.append(track)
+                by_id[track_id] = track
+                logger.debug("ByteTrack created track %s at frame %s", track_id, frame_number)
+            track.bbox = box
             track.last_seen_frame = frame_number
             track.consecutive_missed_frames = 0
-
-        visible: list[Track] = []
-        for d_idx, box in enumerate(boxes):
-            track = det_to_track.get(d_idx)
-            if track is None:
-                track = Track(self._next_id, box, frame_number)
-                self._next_id += 1
-                self._tracks.append(track)
-                logger.debug("Created track %s at frame %s", track.track_id, frame_number)
             visible.append(track)
+            seen_ids.add(track_id)
 
+        for track in self._tracks:
+            if track.track_id not in seen_ids:
+                track.consecutive_missed_frames += 1
         kept = [t for t in self._tracks if t.consecutive_missed_frames < self._max_missed]
         for track in self._tracks:
             if track.consecutive_missed_frames >= self._max_missed:
@@ -262,6 +273,7 @@ class FaceRecognitionService:
         iou_threshold: float | None = None,
         max_missed_frames: int | None = None,
         identity_change_confirmations: int | None = None,
+        tracker_frame_rate: float = 30.0,
     ) -> None:
         self._session = session
         self._detection = detection or get_face_detection_service()
@@ -281,13 +293,21 @@ class FaceRecognitionService:
             identity_change_confirmations or settings.TRACK_IDENTITY_CHANGE_CONFIRMATIONS
         )
         self._iou_threshold = iou_threshold or settings.TRACK_IOU_THRESHOLD
-        self._max_missed = max_missed_frames or settings.TRACK_MAX_MISSED_FRAMES
-        self._tracker = FaceTracker(self._iou_threshold, self._max_missed)
+        self._max_missed = max_missed_frames or settings.MAX_TRACK_MISSED_FRAMES
+        self._tracker_frame_rate = tracker_frame_rate
+        self._tracker = FaceTracker(self._iou_threshold, self._max_missed, tracker_frame_rate)
 
     # -- session lifecycle -------------------------------------------------
     def reset(self) -> None:
         """Start a new video/session: clears all tracks; ids restart at 1."""
-        self._tracker = FaceTracker(self._iou_threshold, self._max_missed)
+        self._tracker = FaceTracker(self._iou_threshold, self._max_missed, self._tracker_frame_rate)
+
+    def set_tracker_frame_rate(self, frame_rate: float) -> None:
+        """Set source FPS before processing begins; lost-track timeout stays frame based."""
+        self._tracker_frame_rate = max(float(frame_rate), 1.0)
+        self._tracker = FaceTracker(
+            self._iou_threshold, self._max_missed, self._tracker_frame_rate
+        )
 
     @property
     def active_tracks(self) -> list[Track]:
@@ -373,7 +393,10 @@ class FaceRecognitionService:
             logger.exception("Frame %s could not be processed; skipping", frame_number)
             return FrameResult(frame_number, [], _elapsed_ms(started))
 
-        tracks = self._tracker.update([d.bbox for d in detections], frame_number)
+        tracks = self._tracker.update(
+            [d.bbox for d in detections], frame_number,
+            [d.detection_confidence for d in detections],
+        )
         faces: list[RecognitionResult] = []
         for track in tracks:
             if track.recognition_due(frame_number, self._interval):

@@ -6,6 +6,7 @@ deepface[tensorflow]
 tf-keras
 opencv-python
 numpy
+supervision
 
 # Database
 sqlalchemy
