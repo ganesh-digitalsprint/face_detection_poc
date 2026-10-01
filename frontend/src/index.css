@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #3c5ba4;
+  --color-brand-dark: #52289f;
+  --color-accent: #e22a90;
+  --color-navy: #1c2b4d;
+}
+
+body {
+  @apply bg-slate-50 text-slate-800 antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
