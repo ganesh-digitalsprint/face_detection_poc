@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -45,10 +46,11 @@ def process_video_file(
 ) -> tuple[Path, int]:
     """Process an uploaded video, releasing capture/writer on every exit path."""
     settings.VIDEO_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = settings.VIDEO_OUTPUT_DIR / f"recognized_{uuid.uuid4().hex}.mp4"
+    output_path = settings.VIDEO_OUTPUT_DIR / f"recognized_{uuid.uuid4().hex}.webm"
     capture = capture_factory(str(source_path))
     writer = None
     frame_number = 0
+    latest_result: FrameResult | None = None
     completed = False
     try:
         if not capture.isOpened():
@@ -61,7 +63,9 @@ def process_video_file(
         if width <= 0 or height <= 0:
             raise VideoProcessingError("Video has invalid frame dimensions.")
         recognition.set_tracker_frame_rate(fps)
-        codec = cv2.VideoWriter_fourcc(*"mp4v")
+        # VP8 in WebM is broadly supported by browser <video> players. MP4V
+        # output can be valid for OpenCV yet show a zero-duration player in browsers.
+        codec = cv2.VideoWriter_fourcc(*"VP80")
         writer = writer_factory(str(output_path), codec, fps, (width, height))
         if not writer.isOpened():
             raise VideoProcessingError("Could not create the annotated output video.")
@@ -70,11 +74,20 @@ def process_video_file(
             ok, frame = capture.read()
             if not ok:
                 break
-            result = recognition.process_frame(frame, frame_number)
+            if frame_number % settings.VIDEO_PROCESS_INTERVAL_FRAMES == 0:
+                latest_result = recognition.process_frame(frame, frame_number)
+            elif latest_result is None:
+                # Defensive fallback if processing ever begins at a nonzero frame.
+                latest_result = recognition.process_frame(frame, frame_number)
+            result = replace(latest_result, frame_number=frame_number)
             writer.write(annotate_frame(frame, result))
             frame_number += 1
         if frame_number == 0:
             raise VideoProcessingError("Video contains no readable frames.")
+        writer.release()
+        writer = None
+        if not output_path.is_file() or output_path.stat().st_size == 0:
+            raise VideoProcessingError("Could not encode the annotated video.")
         completed = True
         return output_path, frame_number
     finally:

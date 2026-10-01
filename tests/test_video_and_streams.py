@@ -7,6 +7,7 @@ import numpy as np
 
 from app.services.face_recognition import (
     FaceRecognitionService,
+    FrameResult,
     RecognitionOutcome,
     Track,
 )
@@ -53,7 +54,7 @@ def test_video_processing_releases_capture_and_writer(tmp_path, monkeypatch):
         released = False
 
         def __init__(self, _path):
-            self.frames = [np.zeros((16, 16, 3), dtype=np.uint8)]
+            self.frames = [np.zeros((16, 16, 3), dtype=np.uint8) for _ in range(5)]
 
         def isOpened(self): return True
         def get(self, key):
@@ -66,26 +67,34 @@ def test_video_processing_releases_capture_and_writer(tmp_path, monkeypatch):
 
     class FakeWriter:
         released = False
+        frames_written = 0
 
-        def __init__(self, *_args): pass
+        def __init__(self, output_path="unused", *_args): self.output_path = output_path
         def isOpened(self): return True
-        def write(self, _frame): pass
-        def release(self): self.released = True
+        def write(self, _frame): self.frames_written += 1
+        def release(self):
+            self.released = True
+            with open(self.output_path, "wb") as output:
+                output.write(b"encoded video")
 
     import app.services.video_processing as video_module
     monkeypatch.setattr(video_module.settings, "VIDEO_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(video_module.settings, "VIDEO_PROCESS_INTERVAL_FRAMES", 3)
     capture, writer = FakeCapture("unused"), FakeWriter()
     recognition = Mock()
-    recognition.process_frame.return_value = SimpleNamespace(faces=[])
+    recognition.process_frame.side_effect = lambda _frame, index: FrameResult(index, [], 1.0)
     output, count = process_video_file(
         tmp_path / "input.mp4", recognition,
         capture_factory=lambda _path: capture,
-        writer_factory=lambda *_args: writer,
+        writer_factory=lambda path, *_args: (setattr(writer, "output_path", path) or writer),
     )
-    assert count == 1
+    assert count == 5
     assert output.parent == tmp_path
     assert capture.released and writer.released
-    assert recognition.process_frame.call_count == 1
+    assert recognition.process_frame.call_args_list[0].args[1] == 0
+    assert recognition.process_frame.call_args_list[1].args[1] == 3
+    assert recognition.process_frame.call_count == 2
+    assert writer.frames_written == 5
 
 
 def test_stream_manager_uses_webcam_setting_and_releases_failed_rtsp(monkeypatch):

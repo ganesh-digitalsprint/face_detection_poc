@@ -55,8 +55,8 @@ def recognize_video(
 
     return FileResponse(
         output_path,
-        media_type="video/mp4",
-        filename="recognized_video.mp4",
+        media_type="video/webm",
+        filename="recognized_video.webm",
         background=BackgroundTask(_remove_output, output_path),
     )
 

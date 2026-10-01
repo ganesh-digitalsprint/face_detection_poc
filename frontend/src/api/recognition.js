@@ -15,7 +15,7 @@ export const verifyFace = (personCode, file) => {
   return client.post('/api/v1/recognition/verify', data).then((r) => r.data);
 };
 
-// -> video/mp4 blob (FileResponse).
+// -> video/webm blob (FileResponse), encoded as browser-compatible VP8.
 export const recognizeVideo = (file) => {
   const data = new FormData();
   data.append('video', file);

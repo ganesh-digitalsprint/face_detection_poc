@@ -112,6 +112,9 @@ class Settings(BaseSettings):
     TEST_UPLOAD_DIR: Path = Path("uploads/test")
     VIDEO_UPLOAD_DIR: Path = Path("uploads/video-input")
     VIDEO_OUTPUT_DIR: Path = Path("uploads/video-output")
+    # Run face detection, tracking and recognition once per N source frames;
+    # skipped frames retain the latest annotations in the output video.
+    VIDEO_PROCESS_INTERVAL_FRAMES: int = Field(default=3, ge=1)
 
     @field_validator("FACE_RECOGNITION_MODEL", "FACE_DETECTOR_BACKEND")
     @classmethod
