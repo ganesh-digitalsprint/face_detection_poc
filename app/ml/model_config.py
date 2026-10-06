@@ -1,26 +1,11 @@
-"""Configuration and constants for the face recognition model.
-
-The primary model is ArcFace, accessed through DeepFace. This module holds
-configuration only: no DeepFace calls and no database code. Another model can
-be evaluated later by changing ``FACE_RECOGNITION_MODEL`` and registering its
-embedding dimension below, without touching the FastAPI application.
-"""
+"""Resolved DeepFace configuration derived from YAML model/runtime choices."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
 
-from app.core.config import DistanceMetric, settings
-
-# Primary recognition model (DeepFace model name).
-ARCFACE_MODEL_NAME = "ArcFace"
-
-# Embedding dimensions of DeepFace models. ArcFace produces 512-d vectors.
-# Add an entry here when evaluating another model.
-EMBEDDING_DIMENSIONS: dict[str, int] = {
-    ARCFACE_MODEL_NAME: 512,
-}
+from app.core.ml_config import DistanceMetric, get_ml_config
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,31 +27,20 @@ class FaceModelConfig:
     distance_metric: DistanceMetric
     embedding_dimension: int
     threshold: float
+    detector_fallback_backends: tuple[str, ...] = ()
 
 
 @lru_cache(maxsize=1)
 def get_face_model_config() -> FaceModelConfig:
-    """Build the active model configuration from application settings.
-
-    Raises:
-        ValueError: If the configured model has no registered embedding
-            dimension in ``EMBEDDING_DIMENSIONS``.
-    """
-    model_name = settings.FACE_RECOGNITION_MODEL
-    try:
-        dimension = EMBEDDING_DIMENSIONS[model_name]
-    except KeyError as exc:
-        supported = ", ".join(sorted(EMBEDDING_DIMENSIONS))
-        raise ValueError(
-            f"Unsupported FACE_RECOGNITION_MODEL '{model_name}'. "
-            f"Register its embedding dimension in EMBEDDING_DIMENSIONS "
-            f"(currently supported: {supported})."
-        ) from exc
+    """Build the active model configuration from YAML and env overrides."""
+    profile = get_ml_config()
+    model_name = profile.recognition_model
 
     return FaceModelConfig(
         model_name=model_name,
-        detector_backend=settings.FACE_DETECTOR_BACKEND,
-        distance_metric=settings.FACE_DISTANCE_METRIC,
-        embedding_dimension=dimension,
-        threshold=settings.FACE_RECOGNITION_THRESHOLD,
+        detector_backend=profile.detector_backend,
+        distance_metric=profile.distance_metric,
+        embedding_dimension=profile.embedding_dimension,
+        threshold=profile.threshold,
+        detector_fallback_backends=tuple(profile.detector_fallback_backends),
     )

@@ -14,7 +14,7 @@ from fastapi.responses import Response
 
 from app.api.dependencies import read_upload_image
 from app.api.errors import ErrorResponse
-from app.core.config import settings
+from app.core.ml_config import get_ml_config
 from app.ml.deepface_service import DetectedFaceInfo
 from app.schemas.face import BoundingBox, DetectedFace, FaceDetectionResponse
 from app.services.face_detection import FaceDetectionService, get_face_detection_service
@@ -44,7 +44,7 @@ def detect_faces(
 ) -> FaceDetectionResponse:
     """Detect faces in an uploaded image. Detection only: nobody is identified."""
     frame = read_upload_image(image)
-    faces = service.detect(frame, max_side=settings.VIDEO_MAX_FRAME_SIZE)
+    faces = service.detect(frame, max_side=get_ml_config().max_frame_size)
     return FaceDetectionResponse(
         faces_detected=len(faces), faces=[_to_schema(f) for f in faces]
     )
@@ -60,6 +60,6 @@ def detect_faces_annotated(
 ) -> Response:
     """Return the uploaded image as a JPEG with detected faces outlined."""
     frame = read_upload_image(image)
-    for face in service.detect(frame, max_side=settings.VIDEO_MAX_FRAME_SIZE):
+    for face in service.detect(frame, max_side=get_ml_config().max_frame_size):
         annotate_face(frame, face.bbox)
     return Response(content=encode_image(frame, ".jpg"), media_type="image/jpeg")

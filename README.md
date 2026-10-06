@@ -43,12 +43,32 @@ Key `.env` settings:
 |----------|---------|
 | `DATABASE_URL` | PostgreSQL SQLAlchemy URL |
 | `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_COLLECTION_NAME` | Qdrant cluster holding embeddings. Never commit real keys |
-| `FACE_RECOGNITION_MODEL` | Embedding model (default `ArcFace`) |
-| `FACE_RECOGNITION_THRESHOLD` | Max cosine **distance** counted as a match (default `0.68`, provisional; calibrate on your data) |
+| `RECOGNITION_MODEL` | Optional recognition model override from `config/models.yaml` |
+| `PERFORMANCE_PROFILE` | Optional runtime profile override from `config/models.yaml` |
+| `COMPUTE_DEVICE` | Optional `auto`, `cpu`, or `gpu` override from `config/models.yaml` |
 | `RTSP_URLS` | JSON list of CCTV/RTSP URLs. Stays server-side; clients only send an index |
 | `WEBCAM_INDEX` | OpenCV index of the webcam on the **server** machine |
 | `MAX_VIDEO_UPLOAD_MB` | Video upload cap (default 500) |
 | `CORS_ALLOW_ORIGINS` | Allowed browser origins (default `["http://localhost:3000"]`) |
+
+Edit `config/models.yaml` to choose a recognition model independently from a
+performance profile. `recognition_model` selects ArcFace, Facenet, or VGG-Face;
+`active_performance_profile` selects `accurate`, `balanced`, or `fast`. You can
+override them independently with `RECOGNITION_MODEL` and
+`PERFORMANCE_PROFILE` in `.env`. Recognition model thresholds and distance
+metrics live under `recognition_models`; detector preference/fallbacks and
+video/tracking settings live under `performance_profiles`. Calibrate each
+model's threshold on your own data. Switching recognition models uses a
+model-specific Qdrant collection (`QDRANT_COLLECTION_NAME` remains the ArcFace
+collection name), so embeddings produced by different models are not mixed.
+The independent `compute.device` setting defaults to `auto`: it uses GPU only
+when the selected DeepFace framework successfully runs a GPU operation. Set
+`cpu` to force CPU or `gpu` to fail startup if a usable GPU is unavailable.
+DeepFace/ArcFace inherit device placement from TensorFlow or PyTorch; OpenCV
+Haar detection and ByteTrack remain CPU based.
+For the TensorFlow backend, startup enables the installed `tf-keras` compatibility
+mode before importing TensorFlow. This avoids Keras 3 symbolic-tensor errors in
+the current RetinaFace package.
 
 ### Frontend
 
@@ -224,7 +244,7 @@ Stop a webcam or RTSP session and release the capture device and its database se
 
 ## Notes and limitations
 
-- `FACE_RECOGNITION_THRESHOLD=0.68` is DeepFace's published ArcFace/cosine default. Re-evaluate it on your own data and cameras.
+- The `accurate` profile starts with ArcFace/cosine threshold `0.68`; calibrate every profile's threshold on your own data and cameras.
 - The webcam stream uses the camera on the machine running the backend, not the browser's camera.
 - There is no authentication; this is a POC and should not be exposed publicly as is.
 - Stream sessions live in memory and are lost on server restart.

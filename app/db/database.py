@@ -1,8 +1,8 @@
 """PostgreSQL / SQLAlchemy 2.x database configuration.
 
-The engine is created lazily on first use (never at import time), and tables
-are never created automatically. Call ``init_db()`` explicitly from a setup
-step or startup hook.
+The engine is created lazily on first use (never at import time). ``init_db()``
+is called during application startup and safely creates any missing tables for
+the explicitly imported ORM models; it does not drop or alter existing tables.
 """
 
 from __future__ import annotations
@@ -164,3 +164,15 @@ def init_db() -> None:
         raise DatabaseConnectionError("Database initialization failed") from exc
     logger.info("Database tables verified/created")
     logger.info("Database initialization completed successfully")
+
+
+__all__ = [
+    "Base",
+    "DatabaseConnectionError",
+    "SessionLocal",
+    "check_database_connection",
+    "get_db",
+    "get_engine",
+    "init_db",
+    "session_scope",
+]

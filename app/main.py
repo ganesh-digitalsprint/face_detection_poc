@@ -16,10 +16,13 @@ from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import detection, health, recognition, registration, streams, video
+from app.api.routes import detection, employees, health, recognition, registration, streams, video
+from app.api.routes import vault_authorization
 from app.api.errors import install_error_handlers
 from app.core.config import settings
+from app.core.compute import get_compute_config
 from app.core.logging import get_logger, setup_logging
+from app.core.ml_config import get_ml_config
 from app.db.database import get_engine, init_db
 from app.ml.deepface_service import FaceProcessingError, get_deepface_service
 from app.services.qdrant_service import get_qdrant_service
@@ -30,6 +33,12 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup: create upload folders (and optionally warm the model). Shutdown: close DB pool."""
+    ml_config = get_ml_config()
+    logger.info("Using recognition model: %s", ml_config.recognition_model)
+    logger.info("Using performance profile: %s", ml_config.performance_profile)
+    logger.info("Using face detection backend: %s", ml_config.detector_backend)
+    get_compute_config()
+
     settings.ensure_directories()
     qdrant = get_qdrant_service()
     try:
@@ -77,6 +86,8 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health.router)
+    app.include_router(employees.employee_router)
+    app.include_router(vault_authorization.router)
     app.include_router(registration.router)
     app.include_router(recognition.router)
     app.include_router(video.router)

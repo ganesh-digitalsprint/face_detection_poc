@@ -33,6 +33,7 @@ import supervision as sv
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.ml_config import get_ml_config
 from app.core.logging import get_logger
 from app.db.repositories import (
     EmbeddingMatch,
@@ -285,15 +286,16 @@ class FaceRecognitionService:
         if self._config.distance_metric != "cosine":
             raise ValueError(
                 "Database search is implemented for cosine distance only "
-                f"(FACE_DISTANCE_METRIC={self._config.distance_metric!r})"
+                f"(active profile distance_metric={self._config.distance_metric!r})"
             )
 
-        self._interval = recognition_interval_frames or settings.RECOGNITION_INTERVAL_FRAMES
+        profile = get_ml_config()
+        self._interval = recognition_interval_frames or profile.recognition_interval_frames
         self._confirmations = (
-            identity_change_confirmations or settings.TRACK_IDENTITY_CHANGE_CONFIRMATIONS
+            identity_change_confirmations or profile.identity_change_confirmations
         )
-        self._iou_threshold = iou_threshold or settings.TRACK_IOU_THRESHOLD
-        self._max_missed = max_missed_frames or settings.MAX_TRACK_MISSED_FRAMES
+        self._iou_threshold = iou_threshold or profile.iou_threshold
+        self._max_missed = max_missed_frames or profile.max_missed_frames
         self._tracker_frame_rate = tracker_frame_rate
         self._tracker = FaceTracker(self._iou_threshold, self._max_missed, tracker_frame_rate)
 
@@ -325,7 +327,7 @@ class FaceRecognitionService:
         """
         started = time.perf_counter()
         validate_image(image)
-        faces = self._detection.detect(image, max_side=settings.VIDEO_MAX_FRAME_SIZE)
+        faces = self._detection.detect(image, max_side=get_ml_config().max_frame_size)
         results = [
             self._to_result(None, face.bbox, self._recognize(image, face.bbox))
             for face in faces
@@ -351,7 +353,7 @@ class FaceRecognitionService:
         person_id = person.id
 
         face = self._detection.detect_single_face(
-            image, max_side=settings.VIDEO_MAX_FRAME_SIZE
+            image, max_side=get_ml_config().max_frame_size
         )
         result = self._embedding.generate_embedding_for_bbox(image, face.bbox)
         matches = self._embeddings.search_similar_embeddings(
@@ -387,7 +389,7 @@ class FaceRecognitionService:
         try:
             validate_image(frame)
             detections = self._detection.detect(
-                frame, max_side=settings.VIDEO_MAX_FRAME_SIZE
+                frame, max_side=get_ml_config().max_frame_size
             )
         except (InvalidImageError, FaceDetectionError):
             logger.exception("Frame %s could not be processed; skipping", frame_number)

@@ -5,7 +5,9 @@ from __future__ import annotations
 from functools import lru_cache
 import json
 import math
-from uuid import uuid4
+import threading
+from dataclasses import dataclass
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -25,9 +27,26 @@ class EmbeddingDimensionError(ValueError):
     """An embedding does not match the configured DeepFace model dimension."""
 
 
+@dataclass(frozen=True, slots=True)
+class EmployeeEnrollmentSnapshot:
+    """Qdrant point sets needed to compensate a failed PostgreSQL update."""
+
+    collection_name: str
+    previous_points: tuple[models.PointStruct, ...]
+    new_point_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EmployeeFaceMatch:
+    employee_id: str
+    authorized_employee_id: int
+    distance: float
+
+
 class QdrantService:
     def __init__(self, client: QdrantClient | None = None) -> None:
         self._client = client
+        self._employee_enrollment_lock = threading.RLock()
 
     @property
     def client(self) -> QdrantClient:
@@ -49,7 +68,11 @@ class QdrantService:
 
     @property
     def collection_name(self) -> str:
-        return settings.QDRANT_COLLECTION_NAME
+        model_name = get_face_model_config().model_name
+        if model_name == "ArcFace":
+            return settings.QDRANT_COLLECTION_NAME
+        model_suffix = model_name.lower().replace("-", "_")
+        return f"{settings.QDRANT_COLLECTION_NAME}_{model_suffix}"
 
     def close(self) -> None:
         if self._client is not None:
@@ -61,7 +84,8 @@ class QdrantService:
         config = get_face_model_config()
         if config.distance_metric != "cosine":
             raise QdrantConnectionError(
-                "Qdrant face search is configured for cosine distance; set FACE_DISTANCE_METRIC=cosine."
+                "Qdrant face search is configured for cosine distance; set "
+                "distance_metric: cosine in config/models.yaml."
             )
         logger.info("Connecting to Qdrant Cloud")
         try:
@@ -120,6 +144,8 @@ class QdrantService:
         expected = {
             "model_name": models.PayloadSchemaType.KEYWORD,
             "person_id": models.PayloadSchemaType.INTEGER,
+            "employee_id": models.PayloadSchemaType.KEYWORD,
+            "authorized_employee_id": models.PayloadSchemaType.INTEGER,
         }
         schema = client.get_collection(self.collection_name).payload_schema or {}
         for field_name, field_type in expected.items():
@@ -174,6 +200,183 @@ class QdrantService:
             )
         except Exception as exc:
             raise QdrantConnectionError("Failed to delete face embedding from Qdrant.") from exc
+
+    def replace_employee_enrollment(
+        self,
+        *,
+        employee_id: str,
+        authorized_employee_id: int,
+        vectors: list[list[float]],
+        model_name: str,
+    ) -> EmployeeEnrollmentSnapshot:
+        """Safely replace one employee's points, retaining the old set until upsert succeeds.
+
+        Point IDs are deterministic within an enrollment generation and unique across
+        generations, which allows a new set to be prepared before the old set is removed.
+        """
+        with self._employee_enrollment_lock:
+            return self._replace_employee_enrollment(
+                employee_id=employee_id,
+                authorized_employee_id=authorized_employee_id,
+                vectors=vectors,
+                model_name=model_name,
+            )
+
+    def _replace_employee_enrollment(
+        self,
+        *,
+        employee_id: str,
+        authorized_employee_id: int,
+        vectors: list[list[float]],
+        model_name: str,
+    ) -> EmployeeEnrollmentSnapshot:
+        if not 1 <= len(vectors) <= 3:
+            raise ValueError("An enrollment must contain between one and three embeddings")
+        for vector in vectors:
+            self._validate(vector)
+
+        collection = self.collection_name
+        client = self.client
+        old_points = self._get_employee_enrollment_points(
+            client, collection, authorized_employee_id
+        )
+        generation = str(uuid4())
+        points: list[models.PointStruct] = []
+        for index, vector in enumerate(vectors):
+            point_id = str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"employee-enrollment:{authorized_employee_id}:{generation}:{index}",
+                )
+            )
+            points.append(
+                models.PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload={
+                        "employee_id": employee_id,
+                        "authorized_employee_id": authorized_employee_id,
+                        "model_name": model_name,
+                        "enrollment_id": generation,
+                        "image_index": index,
+                    },
+                )
+            )
+
+        try:
+            client.upsert(collection_name=collection, points=points, wait=True)
+        except Exception as exc:
+            self._best_effort_delete_points(client, collection, [point.id for point in points])
+            logger.error("Qdrant face enrollment upsert failed for employee '%s'", employee_id)
+            raise QdrantConnectionError("Failed to store employee face enrollment in Qdrant.") from exc
+
+        snapshot = EmployeeEnrollmentSnapshot(
+            collection_name=collection,
+            previous_points=tuple(old_points),
+            new_point_ids=tuple(point.id for point in points),
+        )
+        try:
+            self._delete_point_ids(
+                client, collection, [str(point.id) for point in old_points]
+            )
+        except Exception as exc:
+            try:
+                self._restore_enrollment_snapshot(client, snapshot)
+            except Exception:
+                logger.exception("Could not restore previous Qdrant enrollment after replacement failure")
+            logger.error("Qdrant could not remove the previous enrollment for employee '%s'", employee_id)
+            raise QdrantConnectionError("Failed to replace employee face enrollment in Qdrant.") from exc
+
+        logger.info(
+            "Stored %s face enrollment embeddings for employee '%s'",
+            len(points),
+            employee_id,
+        )
+        return snapshot
+
+    def rollback_employee_enrollment(self, snapshot: EmployeeEnrollmentSnapshot) -> None:
+        """Restore the previous point generation after a PostgreSQL commit failure."""
+        with self._employee_enrollment_lock:
+            try:
+                self._restore_enrollment_snapshot(self.client, snapshot)
+            except Exception as exc:
+                logger.exception("Could not restore prior Qdrant employee enrollment")
+                raise QdrantConnectionError(
+                    "Could not restore the previous employee face enrollment in Qdrant."
+                ) from exc
+
+    @staticmethod
+    def _get_employee_enrollment_points(
+        client: QdrantClient, collection: str, authorized_employee_id: int
+    ) -> list[models.PointStruct]:
+        points: list[models.PointStruct] = []
+        offset = None
+        while True:
+            records, offset = client.scroll(
+                collection_name=collection,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="authorized_employee_id",
+                            match=models.MatchValue(value=authorized_employee_id),
+                        )
+                    ]
+                ),
+                limit=256,
+                offset=offset,
+                with_payload=True,
+                with_vectors=True,
+            )
+            points.extend(
+                models.PointStruct(
+                    id=record.id,
+                    vector=record.vector,
+                    payload=record.payload or {},
+                )
+                for record in records
+                if record.vector is not None
+            )
+            if offset is None:
+                return points
+
+    @classmethod
+    def _restore_enrollment_snapshot(
+        cls, client: QdrantClient, snapshot: EmployeeEnrollmentSnapshot
+    ) -> None:
+        cleanup_error: Exception | None = None
+        try:
+            cls._delete_point_ids(client, snapshot.collection_name, list(snapshot.new_point_ids))
+        except Exception as exc:
+            cleanup_error = exc
+        if snapshot.previous_points:
+            try:
+                client.upsert(
+                    collection_name=snapshot.collection_name,
+                    points=list(snapshot.previous_points),
+                    wait=True,
+                )
+            except Exception as exc:
+                cleanup_error = cleanup_error or exc
+        if cleanup_error is not None:
+            raise cleanup_error
+
+    @staticmethod
+    def _delete_point_ids(client: QdrantClient, collection: str, point_ids: list[str]) -> None:
+        if point_ids:
+            client.delete(
+                collection_name=collection,
+                points_selector=models.PointIdsList(points=point_ids),
+                wait=True,
+            )
+
+    @classmethod
+    def _best_effort_delete_points(
+        cls, client: QdrantClient, collection: str, point_ids: list[str]
+    ) -> None:
+        try:
+            cls._delete_point_ids(client, collection, point_ids)
+        except Exception:
+            logger.exception("Qdrant enrollment points may need cleanup")
 
     def delete_person_embeddings(self, person_id: int) -> None:
         try:
@@ -230,6 +433,53 @@ class QdrantService:
         except Exception as exc:
             logger.error("Qdrant face similarity search failed due to a client or connection error")
             raise QdrantConnectionError("Qdrant face similarity search failed.") from exc
+
+    def search_employee_face(
+        self, embedding: list[float], *, model_name: str, limit: int = 64
+    ) -> EmployeeFaceMatch | None:
+        """Return the nearest employee enrollment point from the configured collection."""
+        self._validate(embedding)
+        try:
+            response = self.client.query_points(
+                collection_name=self.collection_name,
+                query=embedding,
+                query_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="model_name", match=models.MatchValue(value=model_name)
+                        )
+                    ],
+                    must_not=[
+                        models.IsEmptyCondition(
+                            is_empty=models.PayloadField(key="employee_id")
+                        )
+                    ],
+                ),
+                limit=max(1, limit),
+                with_payload=True,
+            )
+            for point in response.points:
+                payload = point.payload or {}
+                try:
+                    employee_id = str(payload["employee_id"])
+                    authorization_id = int(payload["authorized_employee_id"])
+                    distance = 1.0 - float(point.score)
+                except (KeyError, TypeError, ValueError):
+                    continue
+                return EmployeeFaceMatch(
+                    employee_id=employee_id,
+                    authorized_employee_id=authorization_id,
+                    distance=max(0.0, min(distance, 2.0)),
+                )
+            return None
+        except UnexpectedResponse as exc:
+            logger.error("Qdrant rejected employee face search (HTTP %s)", exc.status_code)
+            raise QdrantConnectionError("Qdrant rejected the employee face search.") from exc
+        except QdrantConnectionError:
+            raise
+        except Exception as exc:
+            logger.error("Qdrant employee face search failed due to a client or connection error")
+            raise QdrantConnectionError("Qdrant employee face search failed.") from exc
 
     @staticmethod
     def _validate(vector: list[float]) -> None:

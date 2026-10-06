@@ -31,6 +31,7 @@ class FaceDetectionService:
         *,
         max_side: int | None = None,
         max_faces: int | None = None,
+        require_landmarks: bool = False,
     ) -> list[DetectedFaceInfo]:
         """Detect all faces, largest first. Returns ``[]`` when there are none.
 
@@ -49,7 +50,9 @@ class FaceDetectionService:
         working, scale = (
             resize_max_side(image, max_side) if max_side else (image, 1.0)
         )
-        faces = self._deepface.detect_faces(working, max_faces=max_faces)
+        faces = self._deepface.detect_faces(
+            working, max_faces=max_faces, require_landmarks=require_landmarks
+        )
         if scale == 1.0:
             return faces
 
@@ -58,11 +61,21 @@ class FaceDetectionService:
         for face in faces:
             box = _scale_bbox(face.bbox, 1.0 / scale).clamp(width, height)
             if box is not None:
-                restored.append(DetectedFaceInfo(box, face.detection_confidence))
+                restored.append(
+                    DetectedFaceInfo(
+                        box,
+                        face.detection_confidence,
+                        _scale_landmarks(face.landmarks, 1.0 / scale),
+                    )
+                )
         return restored
 
     def detect_single_face(
-        self, image: Image, *, max_side: int | None = None
+        self,
+        image: Image,
+        *,
+        max_side: int | None = None,
+        require_landmarks: bool = False,
     ) -> DetectedFaceInfo:
         """Return the only face in the image.
 
@@ -70,7 +83,9 @@ class FaceDetectionService:
             NoFaceDetectedError: No face found.
             MultipleFacesError: More than one face found.
         """
-        faces = self.detect(image, max_side=max_side)
+        faces = self.detect(
+            image, max_side=max_side, require_landmarks=require_landmarks
+        )
         if not faces:
             raise NoFaceDetectedError("No face detected")
         if len(faces) > 1:
@@ -86,6 +101,17 @@ def _scale_bbox(bbox: BoundingBox, factor: float) -> BoundingBox:
         max(int(round(bbox.width * factor)), 1),
         max(int(round(bbox.height * factor)), 1),
     )
+
+
+def _scale_landmarks(
+    landmarks: dict[str, tuple[int, int]] | None, factor: float
+) -> dict[str, tuple[int, int]] | None:
+    if landmarks is None:
+        return None
+    return {
+        name: (int(round(point[0] * factor)), int(round(point[1] * factor)))
+        for name, point in landmarks.items()
+    }
 
 
 @lru_cache(maxsize=1)

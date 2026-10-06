@@ -11,8 +11,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import get_db
+from app.db.authorization_repository import AuthorizedEmployeeRepository
+from app.db.employee_repositories import EmployeeRepository
+from app.services.liveness_service import LivenessService, get_liveness_service
 from app.services.face_recognition import FaceRecognitionService
 from app.services.face_registration import FaceRegistrationService
+from app.services.employee_registration import EmployeeRegistrationService
+from app.services.authorization_registration import AuthorizationRegistrationService
+from app.services.face_enrollment import FaceEnrollmentService
+from app.services.vault_authentication import VaultAuthenticationService
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
@@ -40,6 +47,36 @@ def read_upload_image(upload: UploadFile) -> np.ndarray:
 
 def get_registration_service(session: Session = Depends(get_db)) -> FaceRegistrationService:
     return FaceRegistrationService(session)
+
+
+def get_employee_registration_service(
+    session: Session = Depends(get_db),
+) -> EmployeeRegistrationService:
+    return EmployeeRegistrationService(session)
+
+
+def get_authorization_registration_service(
+    session: Session = Depends(get_db),
+) -> AuthorizationRegistrationService:
+    return AuthorizationRegistrationService(
+        EmployeeRepository(session), AuthorizedEmployeeRepository(session)
+    )
+
+
+def get_face_enrollment_service(
+    session: Session = Depends(get_db),
+) -> FaceEnrollmentService:
+    return FaceEnrollmentService(session)
+
+
+def get_vault_authentication_service(
+    session: Session = Depends(get_db),
+) -> VaultAuthenticationService:
+    return VaultAuthenticationService(
+        EmployeeRepository(session),
+        AuthorizedEmployeeRepository(session),
+        liveness=get_liveness_service(),
+    )
 
 
 def get_recognition_service(session: Session = Depends(get_db)) -> FaceRecognitionService:

@@ -6,6 +6,8 @@ deepface[tensorflow]
 tf-keras
 opencv-python
 numpy
+opencv-python
+opencv-contrib-python
 supervision
 
 # Database
@@ -19,6 +21,7 @@ qdrant-client
 pydantic
 pydantic-settings
 python-dotenv
+PyYAML
 python-multipart
 
 # Testing

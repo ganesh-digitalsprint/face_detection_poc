@@ -26,8 +26,9 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from app.core.config import settings
+from app.core.ml_config import get_ml_config
 from app.core.logging import get_logger
+from app.core.compute import prepare_deepface_runtime
 from app.ml.model_config import FaceModelConfig, get_face_model_config
 from app.utils.image import BoundingBox, Image, InvalidImageError, validate_image
 from app.utils.similarity import compute_distance, is_match
@@ -77,6 +78,7 @@ class DetectedFaceInfo:
 
     bbox: BoundingBox
     detection_confidence: float | None
+    landmarks: dict[str, tuple[int, int]] | None = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -136,6 +138,7 @@ class DeepFaceService:
         """Import DeepFace lazily so app import stays fast and failure-safe."""
         if self._deepface is None:
             try:
+                prepare_deepface_runtime()
                 from deepface import DeepFace  # noqa: PLC0415
             except Exception as exc:  # ImportError or TensorFlow/Keras failures
                 logger.exception("DeepFace could not be imported")
@@ -164,7 +167,11 @@ class DeepFaceService:
 
     # -- detection -------------------------------------------------------
     def detect_faces(
-        self, image: Image, *, max_faces: int | None = None
+        self,
+        image: Image,
+        *,
+        max_faces: int | None = None,
+        require_landmarks: bool = False,
     ) -> list[DetectedFaceInfo]:
         """Detect faces; returns them largest first, or ``[]`` if none found.
 
@@ -175,22 +182,61 @@ class DeepFaceService:
         """
         validate_image(image)
         deepface = self._get_deepface()
-        try:
-            with self._lock:
-                raw_faces = deepface.extract_faces(
-                    img_path=image,
-                    detector_backend=self._config.detector_backend,
-                    enforce_detection=True,
-                    align=False,
+        raw_faces = None
+        last_error: Exception | None = None
+        no_face_error: ValueError | None = None
+        landmark_backend_rejected = False
+        detector_backends = self._detector_backends
+        if require_landmarks:
+            detector_backends = tuple(dict.fromkeys((*detector_backends, "retinaface")))
+        for detector in detector_backends:
+            try:
+                with self._lock:
+                    raw_faces = deepface.extract_faces(
+                        img_path=image,
+                        detector_backend=detector,
+                        enforce_detection=True,
+                        align=False,
+                    )
+                if require_landmarks and raw_faces and not all(
+                    _has_pose_landmarks(item.get("facial_area")) for item in raw_faces
+                ):
+                    landmark_backend_rejected = True
+                    raw_faces = None
+                    logger.debug(
+                        "Detector backend '%s' did not return facial pose landmarks",
+                        detector,
+                    )
+                    continue
+                break
+            except ValueError as exc:
+                if _is_no_face_error(exc):
+                    no_face_error = exc
+                    continue
+                last_error = exc
+                logger.debug(
+                    "Detector backend '%s' failed (%s); trying next backend",
+                    detector,
+                    exc,
                 )
-        except ValueError as exc:
-            if _is_no_face_error(exc):
+            except Exception as exc:
+                last_error = exc
+                logger.debug(
+                    "Detector backend '%s' failed (%s); trying next backend",
+                    detector,
+                    exc,
+                )
+        if raw_faces is None:
+            if require_landmarks and landmark_backend_rejected:
+                raise FaceDetectionError(
+                    "Configured detector backends did not return facial pose landmarks"
+                ) from last_error
+            if last_error is None and no_face_error is not None:
                 return []
-            logger.exception("Face detection failed")
-            raise FaceDetectionError("Face detection failed") from exc
-        except Exception as exc:
-            logger.exception("Face detection failed")
-            raise FaceDetectionError("Face detection failed") from exc
+            logger.error(
+                "Face detection failed after trying configured backends: %s", last_error
+            )
+            raise FaceDetectionError("Face detection failed") from last_error
 
         height, width = image.shape[:2]
         faces: list[DetectedFaceInfo] = []
@@ -198,10 +244,14 @@ class DeepFaceService:
             bbox = _bbox_from_area(item.get("facial_area"), width, height)
             if bbox is not None:
                 faces.append(
-                    DetectedFaceInfo(bbox, _optional_float(item.get("confidence")))
+                    DetectedFaceInfo(
+                        bbox,
+                        _optional_float(item.get("confidence")),
+                        _landmarks_from_area(item.get("facial_area")),
+                    )
                 )
         faces.sort(key=lambda f: f.bbox.area, reverse=True)
-        return faces[: max_faces or settings.MAX_FACES]
+        return faces[: max_faces or get_ml_config().max_faces]
 
     # -- embeddings ------------------------------------------------------
     def represent_face(
@@ -219,24 +269,43 @@ class DeepFaceService:
         """
         validate_image(image)
         deepface = self._get_deepface()
-        detector = self._config.detector_backend if detect else SKIP_DETECTOR
-        try:
-            with self._lock:
-                raw = deepface.represent(
-                    img_path=image,
-                    model_name=self._config.model_name,
-                    enforce_detection=detect,
-                    detector_backend=detector,
-                    align=detect,
+        detectors = self._detector_backends if detect else (SKIP_DETECTOR,)
+        raw = None
+        detector = detectors[0]
+        last_error: Exception | None = None
+        no_face_error: ValueError | None = None
+        for detector in detectors:
+            try:
+                with self._lock:
+                    raw = deepface.represent(
+                        img_path=image,
+                        model_name=self._config.model_name,
+                        enforce_detection=detect,
+                        detector_backend=detector,
+                        align=detect,
+                    )
+                break
+            except ValueError as exc:
+                if _is_no_face_error(exc):
+                    no_face_error = exc
+                    continue
+                last_error = exc
+                logger.debug(
+                    "Detector backend '%s' failed; trying next backend", detector
                 )
-        except ValueError as exc:
-            if _is_no_face_error(exc):
+            except Exception as exc:
+                last_error = exc
+                logger.debug(
+                    "Detector backend '%s' failed; trying next backend", detector
+                )
+        if raw is None:
+            if last_error is None and no_face_error is not None:
                 return []
-            logger.exception("Embedding generation failed")
-            raise EmbeddingError("Embedding generation failed") from exc
-        except Exception as exc:
-            logger.exception("Embedding generation failed")
-            raise EmbeddingError("Embedding generation failed") from exc
+            logger.error(
+                "Embedding generation failed after trying configured backends: %s",
+                last_error,
+            )
+            raise EmbeddingError("Embedding generation failed") from last_error
 
         height, width = image.shape[:2]
         results: list[FaceEmbeddingResult] = []
@@ -258,7 +327,7 @@ class DeepFaceService:
                 )
             )
         results.sort(key=lambda r: r.bbox.area if r.bbox else 0, reverse=True)
-        return results[: max_faces or settings.MAX_FACES]
+        return results[: max_faces or get_ml_config().max_faces]
 
     def generate_embedding(
         self, image: Image, *, detect: bool = True, allow_multiple: bool = False
@@ -315,6 +384,14 @@ class DeepFaceService:
             raise EmbeddingError("Embedding contains NaN or infinite values")
         return vector
 
+    @property
+    def _detector_backends(self) -> tuple[str, ...]:
+        """Preferred detector followed by configured fallbacks, without repeats."""
+        return tuple(dict.fromkeys((
+            self._config.detector_backend,
+            *self._config.detector_fallback_backends,
+        )))
+
 
 def _is_no_face_error(exc: ValueError) -> bool:
     """DeepFace signals 'no face' with a ValueError carrying this message."""
@@ -336,6 +413,32 @@ def _bbox_from_area(area: Any, width: int, height: int) -> BoundingBox | None:
     except (KeyError, TypeError, ValueError):
         return None
     return box.clamp(width, height)
+
+
+def _has_pose_landmarks(area: Any) -> bool:
+    return isinstance(area, dict) and all(
+        _valid_landmark(area.get(name))
+        for name in ("left_eye", "right_eye", "nose", "mouth_left", "mouth_right")
+    )
+
+
+def _landmarks_from_area(area: Any) -> dict[str, tuple[int, int]] | None:
+    if not isinstance(area, dict):
+        return None
+    points: dict[str, tuple[int, int]] = {}
+    for name in ("left_eye", "right_eye", "nose", "mouth_left", "mouth_right"):
+        value = area.get(name)
+        if _valid_landmark(value):
+            points[name] = (int(value[0]), int(value[1]))
+    return points or None
+
+
+def _valid_landmark(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and all(isinstance(coordinate, (int, float)) for coordinate in value)
+    )
 
 
 @lru_cache(maxsize=1)

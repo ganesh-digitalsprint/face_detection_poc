@@ -1,0 +1,72 @@
+# Recognition model settings and independent runtime/performance tuning.
+# Thresholds must be calibrated on this project's data.
+active_recognition_model: ArcFace
+
+compute:
+  device: auto
+
+liveness:
+  enabled: true
+  method: active
+  challenge_count: 1
+  available_challenges:
+    - BLINK
+    - TURN_LEFT
+    - TURN_RIGHT
+    - LOOK_UP
+    - LOOK_DOWN
+    - SMILE
+  challenge_timeout_seconds: 8
+  max_attempts: 2
+  session_timeout_seconds: 30
+  prevent_immediate_repeat: true
+
+recognition_models:
+  ArcFace:
+    embedding_dimension: 512
+    distance_metric: cosine
+    threshold: 0.68
+  Facenet:
+    embedding_dimension: 128
+    distance_metric: cosine
+    threshold: 0.40
+  VGG-Face:
+    embedding_dimension: 4096
+    distance_metric: cosine
+    threshold: 0.68
+
+active_performance_profile: balanced
+
+performance_profiles:
+  accurate:
+    detector_backend: retinaface
+    detector_fallback_backends: [opencv]
+    recognition_interval_frames: 15
+    process_interval_frames: 3
+    max_frame_size: 1280
+    max_faces: 20
+    iou_threshold: 0.3
+    max_missed_frames: 15
+    identity_change_confirmations: 2
+
+  balanced:
+    detector_backend: opencv
+    detector_fallback_backends: [retinaface]
+    recognition_interval_frames: 30
+    process_interval_frames: 5
+    max_frame_size: 960
+    max_faces: 20
+    iou_threshold: 0.3
+    max_missed_frames: 15
+    identity_change_confirmations: 2
+
+  fast:
+    detector_backend: opencv
+    detector_fallback_backends: [retinaface]
+    recognition_interval_frames: 45
+    process_interval_frames: 8
+    max_frame_size: 720
+    max_faces: 20
+    iou_threshold: 0.3
+    max_missed_frames: 15
+    identity_change_confirmations: 2

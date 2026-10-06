@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from app.core.config import settings
+from app.core.ml_config import get_ml_config
 from app.core.logging import get_logger
 from app.services.face_recognition import FaceRecognitionService, FrameResult
 
@@ -74,7 +75,7 @@ def process_video_file(
             ok, frame = capture.read()
             if not ok:
                 break
-            if frame_number % settings.VIDEO_PROCESS_INTERVAL_FRAMES == 0:
+            if frame_number % get_ml_config().process_interval_frames == 0:
                 latest_result = recognition.process_frame(frame, frame_number)
             elif latest_result is None:
                 # Defensive fallback if processing ever begins at a nonzero frame.

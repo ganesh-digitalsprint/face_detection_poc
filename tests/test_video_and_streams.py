@@ -79,7 +79,11 @@ def test_video_processing_releases_capture_and_writer(tmp_path, monkeypatch):
 
     import app.services.video_processing as video_module
     monkeypatch.setattr(video_module.settings, "VIDEO_OUTPUT_DIR", tmp_path)
-    monkeypatch.setattr(video_module.settings, "VIDEO_PROCESS_INTERVAL_FRAMES", 3)
+    monkeypatch.setattr(
+        video_module,
+        "get_ml_config",
+        lambda: SimpleNamespace(process_interval_frames=3),
+    )
     capture, writer = FakeCapture("unused"), FakeWriter()
     recognition = Mock()
     recognition.process_frame.side_effect = lambda _frame, index: FrameResult(index, [], 1.0)

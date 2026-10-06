@@ -19,7 +19,7 @@ from collections.abc import Sequence
 import numpy as np
 import numpy.typing as npt
 
-from app.core.config import settings
+from app.ml.model_config import get_face_model_config
 
 EmbeddingLike = Sequence[float] | npt.NDArray[np.floating]
 
@@ -121,5 +121,5 @@ def is_match(distance: float, threshold: float) -> bool:
 
 
 def matches_configured_threshold(distance: float) -> bool:
-    """:func:`is_match` using ``FACE_RECOGNITION_THRESHOLD`` from settings."""
-    return is_match(distance, settings.FACE_RECOGNITION_THRESHOLD)
+    """:func:`is_match` using the active YAML profile's threshold."""
+    return is_match(distance, get_face_model_config().threshold)

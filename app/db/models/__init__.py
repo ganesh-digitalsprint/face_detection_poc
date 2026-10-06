@@ -1,8 +1,4 @@
-"""SQLAlchemy ORM models for the face recognition POC.
-
-These models only describe storage. Recognition logic and similarity search
-live in the services and repositories.
-"""
+"""SQLAlchemy ORM models and compatibility exports."""
 
 from __future__ import annotations
 
@@ -14,15 +10,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
 
+
 class PersonStatus(str, enum.Enum):
-    """Lifecycle status of a registered person."""
+    """Lifecycle status of a legacy face-recognition person record."""
 
     ACTIVE = "active"
     INACTIVE = "inactive"
 
 
 class Person(Base):
-    """A registered person."""
+    """Legacy person table retained for existing recognition repositories."""
 
     __tablename__ = "persons"
     __table_args__ = (
@@ -49,3 +46,18 @@ class Person(Base):
 
     def __repr__(self) -> str:
         return f"Person(id={self.id!r}, person_code={self.person_code!r})"
+
+
+# Import explicitly so these tables are registered before init_db calls
+# Base.metadata.create_all(). Person remains exported for current repositories.
+from app.db.models.employee import Employee  # noqa: E402
+from app.db.models.authorized_employee import (  # noqa: E402
+    AuthorizedEmployee,
+)
+
+__all__ = [
+    "AuthorizedEmployee",
+    "Employee",
+    "Person",
+    "PersonStatus",
+]

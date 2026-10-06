@@ -7,11 +7,24 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.db.repositories import DuplicatePersonError, RepositoryError
+from app.db.authorization_repository import (
+    AuthorizationRepositoryError,
+    DuplicateAuthorizationError,
+)
+from app.db.employee_repositories import DuplicateEmployeeError, EmployeeRepositoryError
+from app.services.qdrant_service import QdrantConnectionError
 from app.ml.deepface_service import (
     FaceDetectionError, FaceProcessingError, MultipleFacesError, NoFaceDetectedError,
 )
 from app.services.face_recognition import NoEnrolledEmbeddingError, PersonNotFoundError
 from app.services.face_registration import InvalidRegistrationInputError
+from app.services.employee_registration import EmployeeInputError
+from app.services.authorization_registration import EmployeeNotFoundError
+from app.services.face_enrollment import (
+    EmployeeAuthorizationNotFoundError,
+    FaceEnrollmentInputError,
+)
+from app.services.liveness_service import LivenessSessionNotFoundError
 from app.utils.image import InvalidImageError
 
 
@@ -24,8 +37,17 @@ def install_error_handlers(app: FastAPI) -> None:
     mappings = (
         (InvalidImageError, 400), (NoFaceDetectedError, 400), (MultipleFacesError, 400),
         (FaceDetectionError, 400), (InvalidRegistrationInputError, 400),
+        (EmployeeInputError, 400),
+        (FaceEnrollmentInputError, 400),
+        (EmployeeNotFoundError, 404),
+        (EmployeeAuthorizationNotFoundError, 404),
+        (LivenessSessionNotFoundError, 404),
         (PersonNotFoundError, 404), (NoEnrolledEmbeddingError, 409),
         (DuplicatePersonError, 409), (RepositoryError, 500), (FaceProcessingError, 500),
+        (DuplicateAuthorizationError, 409),
+        (AuthorizationRepositoryError, 500),
+        (QdrantConnectionError, 500),
+        (DuplicateEmployeeError, 409), (EmployeeRepositoryError, 500),
     )
     for exception_type, code in mappings:
         async def handler(request: Request, exc: Exception, status_code: int = code) -> JSONResponse:
