@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
-  Cctv, Film, LayoutDashboard, Menu, Radio, ScanFace, ScanSearch, ScanEye, ShieldCheck, UserPlus, Webcam, X,
+  Cctv, Film, LayoutDashboard, LockKeyhole, Menu, Radio, ScanFace, ScanSearch, ScanEye, ShieldCheck, UserPlus, Users, Webcam, X,
 } from 'lucide-react';
 import StatusBadge from '../components/common/StatusBadge.jsx';
 import useHealth from '../hooks/useHealth.js';
 
 const TITLES = [
+  ['/registration/authorized', 'Authorized Employee Registration'],
+  ['/registration/employees', 'Employee Registration'],
+  ['/vault-access', 'Vault Access'],
   ['/detection', 'Face Detection'],
   ['/registration', 'Person Registration'],
   ['/identification', 'Face Identification'],
@@ -31,9 +34,13 @@ function Sidebar({ onNavigate }) {
         <span className="text-lg font-semibold">Face AI POC</span>
       </div>
       <NavLink to="/" end className={link}><LayoutDashboard className="h-4 w-4" aria-hidden />Dashboard</NavLink>
+      <p className="mt-3 px-3 text-xs uppercase tracking-wide text-slate-400">Registration</p>
+      <NavLink to="/registration/employees" className={link}><Users className="h-4 w-4" aria-hidden />Employee Registration</NavLink>
+      <p className="mt-3 px-3 text-xs uppercase tracking-wide text-slate-400">Vault Access</p>
+      <NavLink to="/vault-access" className={link}><LockKeyhole className="h-4 w-4" aria-hidden />Vault Access</NavLink>
       <p className="mt-3 px-3 text-xs uppercase tracking-wide text-slate-400">Images</p>
       <NavLink to="/detection" className={link}><ScanFace className="h-4 w-4" aria-hidden />Face Detection</NavLink>
-      <NavLink to="/registration" className={link}><UserPlus className="h-4 w-4" aria-hidden />Person Registration</NavLink>
+      <NavLink to="/registration" end className={link}><UserPlus className="h-4 w-4" aria-hidden />Person Registration</NavLink>
       <NavLink to="/identification" className={link}><ScanSearch className="h-4 w-4" aria-hidden />Face Identification</NavLink>
       <NavLink to="/verification" className={link}><ShieldCheck className="h-4 w-4" aria-hidden />Face Verification</NavLink>
       <p className="mt-3 px-3 text-xs uppercase tracking-wide text-slate-400">Live &amp; Video</p>

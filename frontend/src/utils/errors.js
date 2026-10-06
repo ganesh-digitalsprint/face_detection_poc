@@ -1,8 +1,8 @@
 const DEFAULT_MESSAGES = {
   400: 'Invalid image or request.',
-  404: 'Requested person or stream was not found.',
+  404: 'Requested employee, person, session or stream was not found.',
   405: 'This feature is not available on the connected backend.',
-  409: 'Conflict with existing data (duplicate person or no enrolled face).',
+  409: 'Conflict with existing data (duplicate record or no enrolled face).',
   413: 'Uploaded file exceeds the allowed size.',
   422: 'The request could not be processed.',
   500: 'Server encountered an unexpected error.',
