@@ -29,15 +29,15 @@ export default function VaultAccess() {
             <CameraPreview camera={camera} />
             <CameraSourceSelector camera={stopCamera} disabled={verifying} />
             {camera.status === 'ready' && idle && (
-              <Button icon={ScanFace} onClick={vault.start}>Start Verification</Button>
+              <Button icon={ScanFace} onClick={vault.start}>Start Vault Access</Button>
             )}
           </div>
         </Card>
         <Card title="Security Verification">
           {idle ? (
             <p className="text-sm text-slate-500">
-              Start a camera, then begin verification. The system checks face, liveness, identity and
-              authorization before any access decision.
+              Start a camera, then begin vault access. Two authorized custodians must each pass face,
+              liveness, identity and authorization checks within 3 minutes before access is granted.
             </p>
           ) : (
             <SecurityVerificationPanel vault={vault} onRetry={vault.start} />
