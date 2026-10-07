@@ -238,7 +238,7 @@ class QdrantService:
         collection = self.collection_name
         client = self.client
         old_points = self._get_employee_enrollment_points(
-            client, collection, authorized_employee_id
+            client, collection, authorized_employee_id, employee_id
         )
         generation = str(uuid4())
         points: list[models.PointStruct] = []
@@ -307,7 +307,7 @@ class QdrantService:
 
     @staticmethod
     def _get_employee_enrollment_points(
-        client: QdrantClient, collection: str, authorized_employee_id: int
+        client: QdrantClient, collection: str, authorized_employee_id: int, employee_id: str
     ) -> list[models.PointStruct]:
         points: list[models.PointStruct] = []
         offset = None
@@ -315,11 +315,15 @@ class QdrantService:
             records, offset = client.scroll(
                 collection_name=collection,
                 scroll_filter=models.Filter(
-                    must=[
+                    should=[
                         models.FieldCondition(
                             key="authorized_employee_id",
                             match=models.MatchValue(value=authorized_employee_id),
-                        )
+                        ),
+                        models.FieldCondition(
+                            key="employee_id",
+                            match=models.MatchValue(value=employee_id),
+                        ),
                     ]
                 ),
                 limit=256,
@@ -390,6 +394,22 @@ class QdrantService:
             )
         except Exception as exc:
             raise QdrantConnectionError("Failed to delete person's face embeddings from Qdrant.") from exc
+
+    def delete_employee_enrollments(self, employee_id: str) -> None:
+        """Remove every face point associated with an employee business ID."""
+        try:
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(must=[models.FieldCondition(
+                        key="employee_id", match=models.MatchValue(value=employee_id)
+                    )])
+                ), wait=True,
+            )
+        except Exception as exc:
+            raise QdrantConnectionError(
+                "Failed to delete employee face enrollments from Qdrant."
+            ) from exc
 
     def health_check(self) -> bool:
         try:

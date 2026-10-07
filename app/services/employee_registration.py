@@ -12,6 +12,7 @@ from app.db.employee_repositories import (
     EmployeeRepositoryError,
 )
 from app.schemas.employee import EmployeeCreate, EmployeeResponse
+from app.services.qdrant_service import QdrantService, get_qdrant_service
 
 logger = get_logger(__name__)
 
@@ -21,8 +22,12 @@ class EmployeeInputError(ValueError):
 
 
 class EmployeeRegistrationService:
-    def __init__(self, session: Session, repository: EmployeeRepository | None = None) -> None:
+    def __init__(
+        self, session: Session, repository: EmployeeRepository | None = None,
+        qdrant: QdrantService | None = None,
+    ) -> None:
         self._employees = repository or EmployeeRepository(session)
+        self._qdrant = qdrant or get_qdrant_service()
 
     def register(self, payload: EmployeeCreate | dict) -> EmployeeResponse:
         try:
@@ -34,6 +39,8 @@ class EmployeeRegistrationService:
             raise DuplicateEmployeeError(
                 f"employee_id '{data.employee_id}' is already registered"
             )
+        # A reused business ID must not inherit face points from a deleted row.
+        self._qdrant.delete_employee_enrollments(data.employee_id)
         employee = self._employees.create(
             employee_id=data.employee_id,
             name=data.name,

@@ -11,6 +11,7 @@ from app.db.authorization_repository import (
 )
 from app.db.employee_repositories import EmployeeRepository
 from app.schemas.authorization import AuthorizationCreate, AuthorizationResponse
+from app.services.qdrant_service import QdrantService, get_qdrant_service
 
 logger = get_logger(__name__)
 
@@ -24,9 +25,11 @@ class AuthorizationRegistrationService:
         self,
         employee_repository: EmployeeRepository,
         authorization_repository: AuthorizedEmployeeRepository,
+        qdrant: QdrantService | None = None,
     ) -> None:
         self._employees = employee_repository
         self._authorizations = authorization_repository
+        self._qdrant = qdrant or get_qdrant_service()
 
     def register(
         self, employee_id: str, request: AuthorizationCreate
@@ -39,6 +42,10 @@ class AuthorizationRegistrationService:
             raise DuplicateAuthorizationError(
                 "An authorization record already exists for this employee"
             )
+
+        # Clear points left behind if this employee's authorization was removed
+        # outside the application before assigning a new authorization ID.
+        self._qdrant.delete_employee_enrollments(employee.employee_id)
 
         is_active = request.is_active
         authorized_at = datetime.now(timezone.utc) if is_active else None

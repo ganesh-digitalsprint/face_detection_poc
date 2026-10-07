@@ -22,10 +22,20 @@ export default function SecurityVerificationPanel({ vault, onRetry }) {
   const { phase, challenge, liveness, result, error } = vault;
   const face = faceStage(vault);
   const decided = phase === 'done';
+  const identityPrompt = result?.reason === 'LOOK_AT_CAMERA'
+    ? 'Liveness verified. Look straight at the camera and hold still.'
+    : phase === 'liveness' && result?.reason === 'UNKNOWN_EMPLOYEE'
+      ? 'Face not recognized yet. Look straight at the camera and hold still while we retry.'
+      : null;
 
   return (
     <div className="space-y-4">
       {phase === 'liveness' && !liveness?.passed && <ChallengePrompt challenge={challenge} liveness={liveness} />}
+      {phase === 'liveness' && identityPrompt && (
+        <div role="status" aria-live="polite" className="rounded-md border border-brand/30 bg-blue-50 p-4 text-center text-sm font-medium text-navy">
+          {identityPrompt}
+        </div>
+      )}
 
       <ul className="space-y-3" aria-label="Verification stages">
         <StageRow

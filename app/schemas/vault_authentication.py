@@ -29,10 +29,20 @@ class VaultAuthenticationResponse(BaseModel):
     authorization: AuthorizationDecision | None = None
     access_granted: bool = False
     reason: str | None = None
+    status: str = "DENIED"
+    authenticated_count: int = 0
+    required_count: int = 2
+    remaining_seconds: int = 0
+    next_challenge: str | None = None
 
 
 class LivenessSessionResponse(BaseModel):
     session_id: str
     challenge: str
-    status: str
     expires_in_seconds: int
+    status: str = "WAITING_FOR_FIRST_PERSON"
+    required_persons: int = 2
+    authenticated_count: int = 0
+    started_at: str | None = None
+    expires_at: str | None = None
+    remaining_seconds: int = 180

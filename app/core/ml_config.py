@@ -53,6 +53,19 @@ class ComputeSettings(BaseModel):
     device: ComputeDevice = "auto"
 
 
+class DualControlSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    required_persons: int = Field(default=2, ge=2, le=2)
+    authorization_window_seconds: int = Field(default=180, ge=1)
+
+
+class VaultAccessSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dual_control: DualControlSettings = Field(default_factory=DualControlSettings)
+
+
 class MLConfigFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -62,6 +75,7 @@ class MLConfigFile(BaseModel):
     performance_profiles: dict[str, PerformanceProfile]
     compute: ComputeSettings = Field(default_factory=ComputeSettings)
     liveness: dict
+    vault_access: VaultAccessSettings = Field(default_factory=VaultAccessSettings)
 
 
 class MLRuntimeConfig(BaseModel):

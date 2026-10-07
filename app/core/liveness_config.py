@@ -26,7 +26,8 @@ class LivenessSettings(BaseModel):
     method: str = "active"
     challenge_count: int = Field(default=1, ge=1)
     available_challenges: list[LivenessChallenge] = Field(min_length=1)
-    challenge_timeout_seconds: int = Field(default=8, ge=1)
+    detection_max_side: int = Field(default=480, ge=64)
+    challenge_timeout_seconds: int = Field(default=25, ge=1)
     max_attempts: int = Field(default=2, ge=1)
     session_timeout_seconds: int = Field(default=30, ge=5)
     prevent_immediate_repeat: bool = True

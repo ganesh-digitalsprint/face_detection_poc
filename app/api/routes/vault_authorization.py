@@ -25,14 +25,26 @@ Service = Annotated[VaultAuthenticationService, Depends(get_vault_authentication
     responses={500: {"model": ErrorResponse, "description": "Liveness configuration error"}},
 )
 def start_session(service: Service) -> LivenessSessionResponse:
-    """Create a server-side random liveness challenge sequence."""
-    session = service.start()
+    """Create a dual-control window and its first independent liveness challenge."""
+    liveness, session = service.start()
     return LivenessSessionResponse(
         session_id=session.session_id,
-        challenge=session.challenge.value,
-        status=session.status.value,
-        expires_in_seconds=session.expires_in_seconds,
+        challenge=liveness.challenge.value,
+        status=session.status,
+        expires_in_seconds=liveness.expires_in_seconds,
+        required_persons=session.required_persons,
+        authenticated_count=0,
+        started_at=session.started_at.isoformat(),
+        expires_at=session.expires_at.isoformat(),
+        remaining_seconds=session.remaining_seconds,
     )
+
+
+router.add_api_route(
+    "/start", start_session, methods=["POST"],
+    response_model=LivenessSessionResponse, status_code=status.HTTP_201_CREATED,
+    responses={500: {"model": ErrorResponse, "description": "Authentication configuration error"}},
+)
 
 
 @router.post(

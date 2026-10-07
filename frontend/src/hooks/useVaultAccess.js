@@ -2,8 +2,11 @@ import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { startLivenessSession, submitLivenessFrame } from '../api/vault.js';
 import { describeError } from '../utils/errors.js';
 
-const FRAME_INTERVAL_MS = 400;
+// Keep requests sequential, but resume capture promptly after each response.
+// This avoids overlapping uploads while providing more challenge samples.
+const FRAME_INTERVAL_MS = 50;
 const MAX_CONSECUTIVE_FAILURES = 3;
+const MAX_UNKNOWN_IDENTITY_RETRIES = 3;
 const PENDING = 'LIVENESS_PENDING';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -44,7 +47,8 @@ function reducer(state, action) {
 
 // Verification ends once liveness fails/expires, or the backend returns a final decision.
 const isTerminal = (response) =>
-  ['FAILED', 'EXPIRED'].includes(response.liveness.status) || response.reason !== PENDING;
+  ['FAILED', 'EXPIRED'].includes(response.liveness.status) ||
+  ![PENDING, 'LOOK_AT_CAMERA', 'UNKNOWN_EMPLOYEE'].includes(response.reason);
 
 /**
  * Drives one vault verification attempt: start a backend liveness session, then feed it
@@ -60,6 +64,7 @@ export default function useVaultAccess(camera) {
 
   const loop = useCallback(async (id, sessionId) => {
     let failures = 0;
+    let unknownIdentityRetries = 0;
     while (runId.current === id) {
       let blob;
       try {
@@ -72,7 +77,11 @@ export default function useVaultAccess(camera) {
         const response = await submitLivenessFrame(sessionId, blob);
         if (runId.current !== id) return;
         failures = 0;
-        const terminal = isTerminal(response);
+        const retryUnknownIdentity =
+          response.reason === 'UNKNOWN_EMPLOYEE' &&
+          unknownIdentityRetries < MAX_UNKNOWN_IDENTITY_RETRIES;
+        if (retryUnknownIdentity) unknownIdentityRetries += 1;
+        const terminal = retryUnknownIdentity ? false : isTerminal(response);
         dispatch({ type: 'frame', response, terminal });
         if (terminal) return;
       } catch (err) {

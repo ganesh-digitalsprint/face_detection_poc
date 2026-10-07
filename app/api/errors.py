@@ -25,6 +25,7 @@ from app.services.face_enrollment import (
     FaceEnrollmentInputError,
 )
 from app.services.liveness_service import LivenessSessionNotFoundError
+from app.services.dual_control import DualControlSessionNotFoundError
 from app.utils.image import InvalidImageError
 
 
@@ -42,6 +43,7 @@ def install_error_handlers(app: FastAPI) -> None:
         (EmployeeNotFoundError, 404),
         (EmployeeAuthorizationNotFoundError, 404),
         (LivenessSessionNotFoundError, 404),
+        (DualControlSessionNotFoundError, 404),
         (PersonNotFoundError, 404), (NoEnrolledEmbeddingError, 409),
         (DuplicatePersonError, 409), (RepositoryError, 500), (FaceProcessingError, 500),
         (DuplicateAuthorizationError, 409),

@@ -24,6 +24,9 @@ from app.utils.image import Image
 
 logger = get_logger(__name__)
 
+FRONTAL_YAW_MAX = 0.07
+FRONTAL_PITCH_MAX = 0.06
+
 
 class LivenessStatus(StrEnum):
     CHALLENGE_SELECTED = "CHALLENGE_SELECTED"
@@ -55,8 +58,8 @@ class LivenessSessionStarted:
 
 @dataclass(frozen=True, slots=True)
 class _FaceFeatures:
-    center_x: float
-    center_y: float
+    center_x_normalized: float
+    center_y_normalized: float
     yaw: float
     pitch: float
     smile: float
@@ -78,6 +81,9 @@ class _Session:
     blink_closed_seen: bool = False
     scores: list[float] = field(default_factory=list)
     last_result: LivenessResult | None = None
+    passed_at: float | None = None
+    identity_attempts: int = 0
+    identity_completed: bool = False
 
 
 class LivenessSessionNotFoundError(LookupError):
@@ -172,15 +178,23 @@ class LivenessService:
             challenge = session.challenges[session.challenge_index]
             challenge_index = session.challenge_index
 
+        detection_started = time.perf_counter()
         try:
-            face = self._detection.detect_single_face(image, require_landmarks=True)
+            face = self._detection.detect_single_face(
+                image,
+                max_side=self._config.detection_max_side,
+                require_landmarks=True,
+            )
         except NoFaceDetectedError:
+            self._log_detection_duration(session_id, detection_started)
             return self._pending(session_id, "No face detected")
         except MultipleFacesError:
+            self._log_detection_duration(session_id, detection_started)
             return self._finish_by_id(
                 session_id, LivenessStatus.FAILED, 0.0, "More than one face detected"
             )
         except FaceDetectionError:
+            self._log_detection_duration(session_id, detection_started)
             logger.exception("Landmark face detection failed for liveness session %s", session_id)
             return self._finish_by_id(
                 session_id,
@@ -190,6 +204,7 @@ class LivenessService:
             )
 
         features = _extract_features(image, face)
+        self._log_detection_duration(session_id, detection_started)
         if features is None:
             return self._finish_by_id(
                 session_id,
@@ -213,8 +228,9 @@ class LivenessService:
             if session.baseline is None:
                 session.baseline_samples.append(features)
                 session.status = LivenessStatus.WAITING_FOR_ACTION
-                if len(session.baseline_samples) >= 3:
+                if len(session.baseline_samples) >= 2:
                     session.baseline = _average_features(session.baseline_samples)
+                    session.challenge_started_at = time.monotonic()
                 return self._result(
                     session,
                     passed=False,
@@ -265,7 +281,53 @@ class LivenessService:
                 reason=f"Next challenge: {session.challenges[session.challenge_index].value}",
             )
 
+    def identity_window_expired(self, session_id: str, window_seconds: int) -> bool:
+        """Check the bounded identity phase attached to a passed liveness session."""
+        with self._lock:
+            session = self._get_session(session_id)
+            return (
+                session.passed_at is None
+                or time.monotonic() - session.passed_at > window_seconds
+            )
+
+    def record_identity_attempt(self, session_id: str, max_attempts: int) -> bool:
+        """Atomically reserve an identity attempt, returning false at the cap."""
+        with self._lock:
+            session = self._get_session(session_id)
+            if (
+                session.passed_at is None
+                or session.identity_completed
+                or session.identity_attempts >= max_attempts
+            ):
+                return False
+            session.identity_attempts += 1
+            return True
+
+    def clear_identity_attempts(self, session_id: str) -> None:
+        """Release per-session identity retry state after a final successful decision."""
+        with self._lock:
+            session = self._get_session(session_id)
+            session.identity_attempts = 0
+            session.identity_completed = True
+
+    def is_frontal(self, session_id: str, image: Image, face: DetectedFaceInfo) -> bool:
+        """Compare the current face pose with the frontal liveness baseline."""
+        with self._lock:
+            baseline = self._get_session(session_id).baseline
+        features = _extract_features(image, face)
+        if features is None:
+            return False
+        if baseline is None:
+            return abs(features.yaw) <= FRONTAL_YAW_MAX
+        return (
+            abs(features.yaw - baseline.yaw) <= FRONTAL_YAW_MAX
+            and abs(features.pitch - baseline.pitch) <= FRONTAL_PITCH_MAX
+        )
+
     def _handle_challenge_timeout(self, session: _Session, now: float) -> LivenessResult | None:
+        # Calibration is not part of the user's challenge time budget.
+        if session.baseline is None:
+            return None
         if now - session.challenge_started_at < self._config.challenge_timeout_seconds:
             return None
         if session.attempts >= self._config.max_attempts:
@@ -281,7 +343,7 @@ class LivenessService:
         session.attempts += 1
         session.status = LivenessStatus.CHALLENGE_SELECTED
         session.challenge_started_at = now
-        _reset_calibration(session)
+        session.blink_closed_seen = False
         logger.info(
             "Retrying liveness challenge %s for session %s (attempt %s)",
             session.challenges[session.challenge_index].value,
@@ -295,6 +357,21 @@ class LivenessService:
             status=LivenessStatus.CHALLENGE_SELECTED,
             reason="Challenge timed out; retry the same challenge",
         )
+
+    @staticmethod
+    def _log_detection_duration(session_id: str, started_at: float) -> None:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        logger.debug(
+            "Liveness detection and feature extraction took %.1f ms for session %s",
+            elapsed_ms,
+            session_id,
+        )
+        if elapsed_ms > 300:
+            logger.warning(
+                "Liveness frame exceeded the 300 ms target: %.1f ms (session %s)",
+                elapsed_ms,
+                session_id,
+            )
 
     def _pending(self, session_id: str, reason: str) -> LivenessResult:
         with self._lock:
@@ -319,6 +396,8 @@ class LivenessService:
         self, session: _Session, status: LivenessStatus, score: float, reason: str
     ) -> LivenessResult:
         session.status = status
+        if status is LivenessStatus.PASSED and session.passed_at is None:
+            session.passed_at = time.monotonic()
         result = self._result(
             session,
             passed=status is LivenessStatus.PASSED,
@@ -400,8 +479,8 @@ def _extract_features(image: Image, face: DetectedFaceInfo) -> _FaceFeatures | N
     if eye_openness is None:
         return None
     return _FaceFeatures(
-        center_x=face.bbox.x + face.bbox.width / 2.0,
-        center_y=face.bbox.y + face.bbox.height / 2.0,
+        center_x_normalized=(face.bbox.x + face.bbox.width / 2.0) / image.shape[1],
+        center_y_normalized=(face.bbox.y + face.bbox.height / 2.0) / image.shape[0],
         yaw=float((nose[0] - eye_midpoint[0]) / eye_span),
         pitch=float((nose[1] - eye_midpoint[1]) / eye_mouth_distance),
         smile=float(np.linalg.norm(mouth_right - mouth_left) / eye_span),
@@ -431,8 +510,8 @@ def _eye_openness(
 
 def _average_features(samples: list[_FaceFeatures]) -> _FaceFeatures:
     return _FaceFeatures(
-        center_x=float(np.mean([sample.center_x for sample in samples])),
-        center_y=float(np.mean([sample.center_y for sample in samples])),
+        center_x_normalized=float(np.mean([sample.center_x_normalized for sample in samples])),
+        center_y_normalized=float(np.mean([sample.center_y_normalized for sample in samples])),
         yaw=float(np.mean([sample.yaw for sample in samples])),
         pitch=float(np.mean([sample.pitch for sample in samples])),
         smile=float(np.mean([sample.smile for sample in samples])),
@@ -452,7 +531,7 @@ def _evaluate_action(
         movement = (
             yaw_change
             if abs(yaw_change) >= 0.12
-            else (current.center_x - baseline.center_x) / 640.0
+            else current.center_x_normalized - baseline.center_x_normalized
         )
         score = min(1.0, abs(movement) / 0.22)
         passed = movement <= -0.12
@@ -462,7 +541,7 @@ def _evaluate_action(
         movement = (
             yaw_change
             if abs(yaw_change) >= 0.12
-            else (current.center_x - baseline.center_x) / 640.0
+            else current.center_x_normalized - baseline.center_x_normalized
         )
         score = min(1.0, abs(movement) / 0.22)
         passed = movement >= 0.12
@@ -472,7 +551,7 @@ def _evaluate_action(
         movement = (
             pitch_change
             if abs(pitch_change) >= 0.09
-            else (current.center_y - baseline.center_y) / 480.0
+            else current.center_y_normalized - baseline.center_y_normalized
         )
         score = min(1.0, abs(movement) / 0.18)
         passed = movement <= -0.09
@@ -482,7 +561,7 @@ def _evaluate_action(
         movement = (
             pitch_change
             if abs(pitch_change) >= 0.09
-            else (current.center_y - baseline.center_y) / 480.0
+            else current.center_y_normalized - baseline.center_y_normalized
         )
         score = min(1.0, abs(movement) / 0.18)
         passed = movement >= 0.09

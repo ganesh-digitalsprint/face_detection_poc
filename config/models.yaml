@@ -10,16 +10,21 @@ liveness:
   method: active
   challenge_count: 1
   available_challenges:
-    - BLINK
     - TURN_LEFT
     - TURN_RIGHT
     - LOOK_UP
     - LOOK_DOWN
     - SMILE
-  challenge_timeout_seconds: 8
+  detection_max_side: 480
+  challenge_timeout_seconds: 25
   max_attempts: 2
   session_timeout_seconds: 30
   prevent_immediate_repeat: true
+
+vault_access:
+  dual_control:
+    required_persons: 2
+    authorization_window_seconds: 180
 
 recognition_models:
   ArcFace:
