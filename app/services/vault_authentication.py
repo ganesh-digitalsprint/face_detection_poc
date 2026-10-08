@@ -177,13 +177,19 @@ class VaultAuthenticationService:
             )
 
         detection_started = time.perf_counter()
+        pose_detector = getattr(self._liveness, "detect_pose", None)
+        uses_fast_pose = callable(pose_detector)
         try:
-            face = self._detection.detect_single_face(
-                image,
-                max_side=self._liveness.config.detection_max_side,
-                require_landmarks=True,
+            pose_face = (
+                pose_detector(image)
+                if uses_fast_pose
+                else self._detection.detect_single_face(
+                    image,
+                    max_side=self._liveness.config.detection_max_side,
+                    require_landmarks=True,
+                )
             )
-            is_frontal = self._liveness.is_frontal(session_id, image, face)
+            is_frontal = self._liveness.is_frontal(session_id, image, pose_face)
         except (NoFaceDetectedError, MultipleFacesError):
             self._log_identity_detection_duration(session_id, detection_started)
             logger.info(
@@ -199,6 +205,17 @@ class VaultAuthenticationService:
             return VaultAuthenticationResponse(
                 liveness=liveness_decision, reason="LOOK_AT_CAMERA"
             )
+
+        if uses_fast_pose:
+            try:
+                # Keep ArcFace identity detection aligned with enrollment's detector.
+                face = self._detection.detect_single_face(image)
+            except (NoFaceDetectedError, MultipleFacesError):
+                return VaultAuthenticationResponse(
+                    liveness=liveness_decision, reason="LOOK_AT_CAMERA"
+                )
+        else:
+            face = pose_face
 
         if not self._liveness.record_identity_attempt(
             session_id, MAX_IDENTITY_ATTEMPTS

@@ -20,12 +20,18 @@ from app.ml.deepface_service import (
     NoFaceDetectedError,
 )
 from app.services.face_detection import FaceDetectionService, get_face_detection_service
+from app.services.fast_landmarks import FastLandmarker
 from app.utils.image import Image
 
 logger = get_logger(__name__)
 
 FRONTAL_YAW_MAX = 0.07
 FRONTAL_PITCH_MAX = 0.06
+YAW_PASS_THRESHOLD = 0.12
+PITCH_PASS_THRESHOLD = 0.09
+CROSS_AXIS_LIMIT = 0.6
+CROSS_AXIS_DOMINANCE = 1.5
+REQUIRED_ACTION_HITS = 2
 
 
 class LivenessStatus(StrEnum):
@@ -84,6 +90,7 @@ class _Session:
     passed_at: float | None = None
     identity_attempts: int = 0
     identity_completed: bool = False
+    action_hits: int = 0
 
 
 class LivenessSessionNotFoundError(LookupError):
@@ -97,8 +104,11 @@ class LivenessService:
         self,
         detection: FaceDetectionService | None = None,
         config: LivenessSettings | None = None,
+        landmarker: FastLandmarker | None = None,
     ) -> None:
         self._detection = detection or get_face_detection_service()
+        # Keep injected detector support for deterministic tests and custom deployments.
+        self._landmarker = landmarker or (FastLandmarker() if detection is None else None)
         self._config = config or get_liveness_config()
         self._random = secrets.SystemRandom()
         self._sessions: dict[str, _Session] = {}
@@ -108,6 +118,16 @@ class LivenessService:
     @property
     def config(self) -> LivenessSettings:
         return self._config
+
+    def detect_pose(self, image: Image) -> DetectedFaceInfo:
+        """Return fast MediaPipe pose landmarks, with injected detector fallback."""
+        if self._landmarker is not None:
+            return self._landmarker.detect(image, max_side=self._config.detection_max_side)
+        return self._detection.detect_single_face(
+            image,
+            max_side=self._config.detection_max_side,
+            require_landmarks=True,
+        )
 
     def start_session(self) -> LivenessSessionStarted:
         if not self._config.enabled:
@@ -180,11 +200,7 @@ class LivenessService:
 
         detection_started = time.perf_counter()
         try:
-            face = self._detection.detect_single_face(
-                image,
-                max_side=self._config.detection_max_side,
-                require_landmarks=True,
-            )
+            face = self.detect_pose(image)
         except NoFaceDetectedError:
             self._log_detection_duration(session_id, detection_started)
             return self._pending(session_id, "No face detected")
@@ -242,6 +258,13 @@ class LivenessService:
             passed, score, reason = _evaluate_action(
                 session, challenge, features
             )
+            if passed:
+                session.action_hits += 1
+                if session.action_hits < REQUIRED_ACTION_HITS:
+                    passed = False
+                    reason = "Hold that position"
+            else:
+                session.action_hits = 0
             if not passed:
                 session.status = LivenessStatus.WAITING_FOR_ACTION
                 return self._result(
@@ -320,7 +343,8 @@ class LivenessService:
         if baseline is None:
             return abs(features.yaw) <= FRONTAL_YAW_MAX
         return (
-            abs(features.yaw - baseline.yaw) <= FRONTAL_YAW_MAX
+            abs(features.yaw) <= 0.15
+            and abs(features.yaw - baseline.yaw) <= FRONTAL_YAW_MAX
             and abs(features.pitch - baseline.pitch) <= FRONTAL_PITCH_MAX
         )
 
@@ -344,6 +368,7 @@ class LivenessService:
         session.status = LivenessStatus.CHALLENGE_SELECTED
         session.challenge_started_at = now
         session.blink_closed_seen = False
+        session.action_hits = 0
         logger.info(
             "Retrying liveness challenge %s for session %s (attempt %s)",
             session.challenges[session.challenge_index].value,
@@ -478,11 +503,23 @@ def _extract_features(image: Image, face: DetectedFaceInfo) -> _FaceFeatures | N
     eye_openness = _eye_openness(image, points["left_eye"], points["right_eye"], eye_span)
     if eye_openness is None:
         return None
+    yaw = float((nose[0] - eye_midpoint[0]) / eye_span)
+    pitch = float((nose[1] - eye_midpoint[1]) / eye_mouth_distance)
+    if all(name in points for name in ("face_left", "face_right", "forehead", "chin")):
+        outline_left, outline_right = sorted(
+            (points["face_left"][0], points["face_right"][0])
+        )
+        yaw = float(
+            (nose[0] - (outline_left + outline_right) / 2.0)
+            / max(outline_right - outline_left, 1)
+        )
+        forehead_y, chin_y = points["forehead"][1], points["chin"][1]
+        pitch = float((nose[1] - forehead_y) / max(chin_y - forehead_y, 1))
     return _FaceFeatures(
         center_x_normalized=(face.bbox.x + face.bbox.width / 2.0) / image.shape[1],
         center_y_normalized=(face.bbox.y + face.bbox.height / 2.0) / image.shape[0],
-        yaw=float((nose[0] - eye_midpoint[0]) / eye_span),
-        pitch=float((nose[1] - eye_midpoint[1]) / eye_mouth_distance),
+        yaw=yaw,
+        pitch=pitch,
         smile=float(np.linalg.norm(mouth_right - mouth_left) / eye_span),
         eye_openness=eye_openness,
     )
@@ -528,44 +565,39 @@ def _evaluate_action(
     assert baseline is not None
     if challenge is LivenessChallenge.TURN_LEFT:
         yaw_change = current.yaw - baseline.yaw
-        movement = (
-            yaw_change
-            if abs(yaw_change) >= 0.12
-            else current.center_x_normalized - baseline.center_x_normalized
-        )
-        score = min(1.0, abs(movement) / 0.22)
-        passed = movement <= -0.12
-        return passed, score, "Expected leftward head turn not yet detected"
+        pitch_change = current.pitch - baseline.pitch
+        if (abs(pitch_change) > PITCH_PASS_THRESHOLD * CROSS_AXIS_LIMIT
+                or abs(yaw_change) < abs(pitch_change) * CROSS_AXIS_DOMINANCE):
+            return False, 0.0, "Turn sideways only, keep your head level"
+        score = min(1.0, abs(yaw_change) / (YAW_PASS_THRESHOLD * 1.8))
+        # Face landmarks are reported in image coordinates. In the live preview,
+        # a person's anatomical left appears on the viewer's right, so map the
+        # left challenge to the positive image-space yaw observed by this camera.
+        return yaw_change >= YAW_PASS_THRESHOLD, score, "Turn your head toward your left"
     if challenge is LivenessChallenge.TURN_RIGHT:
         yaw_change = current.yaw - baseline.yaw
-        movement = (
-            yaw_change
-            if abs(yaw_change) >= 0.12
-            else current.center_x_normalized - baseline.center_x_normalized
-        )
-        score = min(1.0, abs(movement) / 0.22)
-        passed = movement >= 0.12
-        return passed, score, "Expected rightward head turn not yet detected"
+        pitch_change = current.pitch - baseline.pitch
+        if (abs(pitch_change) > PITCH_PASS_THRESHOLD * CROSS_AXIS_LIMIT
+                or abs(yaw_change) < abs(pitch_change) * CROSS_AXIS_DOMINANCE):
+            return False, 0.0, "Turn sideways only, keep your head level"
+        score = min(1.0, abs(yaw_change) / (YAW_PASS_THRESHOLD * 1.8))
+        return yaw_change <= -YAW_PASS_THRESHOLD, score, "Turn your head toward your right"
     if challenge is LivenessChallenge.LOOK_UP:
         pitch_change = current.pitch - baseline.pitch
-        movement = (
-            pitch_change
-            if abs(pitch_change) >= 0.09
-            else current.center_y_normalized - baseline.center_y_normalized
-        )
-        score = min(1.0, abs(movement) / 0.18)
-        passed = movement <= -0.09
-        return passed, score, "Expected upward head movement not yet detected"
+        yaw_change = current.yaw - baseline.yaw
+        if (abs(yaw_change) > YAW_PASS_THRESHOLD * CROSS_AXIS_LIMIT
+                or abs(pitch_change) < abs(yaw_change) * CROSS_AXIS_DOMINANCE):
+            return False, 0.0, "Look up or down only, keep your head straight"
+        score = min(1.0, abs(pitch_change) / (PITCH_PASS_THRESHOLD * 1.8))
+        return pitch_change <= -PITCH_PASS_THRESHOLD, score, "Expected upward head movement not yet detected"
     if challenge is LivenessChallenge.LOOK_DOWN:
         pitch_change = current.pitch - baseline.pitch
-        movement = (
-            pitch_change
-            if abs(pitch_change) >= 0.09
-            else current.center_y_normalized - baseline.center_y_normalized
-        )
-        score = min(1.0, abs(movement) / 0.18)
-        passed = movement >= 0.09
-        return passed, score, "Expected downward head movement not yet detected"
+        yaw_change = current.yaw - baseline.yaw
+        if (abs(yaw_change) > YAW_PASS_THRESHOLD * CROSS_AXIS_LIMIT
+                or abs(pitch_change) < abs(yaw_change) * CROSS_AXIS_DOMINANCE):
+            return False, 0.0, "Look up or down only, keep your head straight"
+        score = min(1.0, abs(pitch_change) / (PITCH_PASS_THRESHOLD * 1.8))
+        return pitch_change >= PITCH_PASS_THRESHOLD, score, "Expected downward head movement not yet detected"
     if challenge is LivenessChallenge.SMILE:
         change = current.smile - baseline.smile
         score = min(1.0, max(0.0, change) / 0.25)
@@ -587,6 +619,7 @@ def _reset_calibration(session: _Session) -> None:
     session.baseline_samples.clear()
     session.baseline = None
     session.blink_closed_seen = False
+    session.action_hits = 0
 
 
 @lru_cache(maxsize=1)
