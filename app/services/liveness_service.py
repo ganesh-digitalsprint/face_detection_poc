@@ -273,7 +273,9 @@ class LivenessService:
             passed, score, reason, feedback = _evaluate_action(
                 session, challenge, features, self._config
             )
-            if passed:
+            if passed and challenge in _DIRECTIONAL:
+                pass  # the time-based hold in _evaluate_directional already confirmed it
+            elif passed:
                 session.action_hits += 1
                 if session.action_hits < REQUIRED_ACTION_HITS:
                     passed = False
@@ -582,41 +584,8 @@ def _evaluate_action(
 ) -> tuple[bool, float, str, str | None]:
     baseline = session.baseline
     assert baseline is not None
-    if challenge is LivenessChallenge.TURN_LEFT:
-        yaw_change = current.yaw - baseline.yaw
-        pitch_change = current.pitch - baseline.pitch
-        if (abs(pitch_change) > PITCH_PASS_THRESHOLD * CROSS_AXIS_LIMIT
-                or abs(yaw_change) < abs(pitch_change) * CROSS_AXIS_DOMINANCE):
-            return False, 0.0, "Turn sideways only, keep your head level"
-        score = min(1.0, abs(yaw_change) / (YAW_PASS_THRESHOLD * 1.8))
-        # Face landmarks are reported in image coordinates. In the live preview,
-        # a person's anatomical left appears on the viewer's right, so map the
-        # left challenge to the positive image-space yaw observed by this camera.
-        return yaw_change >= YAW_PASS_THRESHOLD, score, "Turn your head toward your left"
-    if challenge is LivenessChallenge.TURN_RIGHT:
-        yaw_change = current.yaw - baseline.yaw
-        pitch_change = current.pitch - baseline.pitch
-        if (abs(pitch_change) > PITCH_PASS_THRESHOLD * CROSS_AXIS_LIMIT
-                or abs(yaw_change) < abs(pitch_change) * CROSS_AXIS_DOMINANCE):
-            return False, 0.0, "Turn sideways only, keep your head level"
-        score = min(1.0, abs(yaw_change) / (YAW_PASS_THRESHOLD * 1.8))
-        return yaw_change <= -YAW_PASS_THRESHOLD, score, "Turn your head toward your right"
-    if challenge is LivenessChallenge.LOOK_UP:
-        pitch_change = current.pitch - baseline.pitch
-        yaw_change = current.yaw - baseline.yaw
-        if (abs(yaw_change) > YAW_PASS_THRESHOLD * CROSS_AXIS_LIMIT
-                or abs(pitch_change) < abs(yaw_change) * CROSS_AXIS_DOMINANCE):
-            return False, 0.0, "Look up or down only, keep your head straight"
-        score = min(1.0, abs(pitch_change) / (PITCH_PASS_THRESHOLD * 1.8))
-        return pitch_change <= -PITCH_PASS_THRESHOLD, score, "Expected upward head movement not yet detected"
-    if challenge is LivenessChallenge.LOOK_DOWN:
-        pitch_change = current.pitch - baseline.pitch
-        yaw_change = current.yaw - baseline.yaw
-        if (abs(yaw_change) > YAW_PASS_THRESHOLD * CROSS_AXIS_LIMIT
-                or abs(pitch_change) < abs(yaw_change) * CROSS_AXIS_DOMINANCE):
-            return False, 0.0, "Look up or down only, keep your head straight"
-        score = min(1.0, abs(pitch_change) / (PITCH_PASS_THRESHOLD * 1.8))
-        return pitch_change >= PITCH_PASS_THRESHOLD, score, "Expected downward head movement not yet detected"
+    if challenge in _DIRECTIONAL:
+        return _evaluate_directional(session, challenge, current, config)
     if challenge is LivenessChallenge.SMILE:
         change = current.smile - baseline.smile
         score = min(1.0, max(0.0, change) / 0.25)
@@ -652,11 +621,17 @@ def _evaluate_directional(
     pitch_delta = current.pitch - baseline.pitch
     if axis == "yaw":
         toward, threshold = sign * yaw_delta, cfg.yaw_threshold
-        off_axis_exceeded = abs(pitch_delta) >= cfg.pitch_threshold * 1.5
+        off_delta, main_delta, off_limit = pitch_delta, yaw_delta, cfg.pitch_threshold
     else:
         toward, threshold = sign * pitch_delta, cfg.pitch_threshold
-        off_axis_exceeded = abs(yaw_delta) >= cfg.yaw_threshold
-    score = max(0.0, min(1.0, toward / (threshold * 1.5)))
+        off_delta, main_delta, off_limit = yaw_delta, pitch_delta, cfg.yaw_threshold
+    # Reject mixed movement: the off-axis drift must stay small and the requested
+    # axis must dominate (e.g. an upward tilt while turning sideways does not count).
+    off_axis_exceeded = (
+        abs(off_delta) > off_limit * CROSS_AXIS_LIMIT
+        or abs(main_delta) < abs(off_delta) * CROSS_AXIS_DOMINANCE
+    )
+    score = max(0.0, min(1.0, toward / (threshold * 1.8)))
     if config.debug:
         logger.debug(
             "Liveness debug %s: yaw_delta=%.3f pitch_delta=%.3f toward=%.3f threshold=%.3f hold_started=%s",

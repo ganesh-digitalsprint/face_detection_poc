@@ -213,7 +213,7 @@ def test_timeout_starts_after_calibration_and_retry_keeps_baseline(monkeypatch):
 
 
 def test_blink_requires_closed_then_reopened_eye_signal():
-    detector = SequenceDetection([_face(), _face(), _face(), _face()])
+    detector = SequenceDetection([_face(), _face(), _face(), _face(), _face()])
     liveness = _liveness_service([LivenessChallenge.BLINK], detector)
     started = liveness.start_session()
     closed = np.full((200, 200, 3), 120, dtype=np.uint8)
@@ -221,7 +221,8 @@ def test_blink_requires_closed_then_reopened_eye_signal():
     liveness.process_frame(started.session_id, _frame())
     liveness.process_frame(started.session_id, _frame())
     waiting = liveness.process_frame(started.session_id, closed)
-    passed = liveness.process_frame(started.session_id, _frame())
+    liveness.process_frame(started.session_id, _frame())  # first reopened-eye hit
+    passed = liveness.process_frame(started.session_id, _frame())  # confirmed (2 hits)
 
     assert waiting.passed is False
     assert passed.passed is True
