@@ -30,6 +30,7 @@ class LivenessSettings(BaseModel):
     challenge_timeout_seconds: int = Field(default=25, ge=1)
     max_attempts: int = Field(default=2, ge=1)
     session_timeout_seconds: int = Field(default=30, ge=5)
+    identity_window_seconds: int = Field(default=60, ge=1)
     prevent_immediate_repeat: bool = True
 
     @model_validator(mode="after")

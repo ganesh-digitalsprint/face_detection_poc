@@ -34,7 +34,7 @@ def _is_unique_violation(exc: IntegrityError, table: str, column: str) -> bool:
     )
 
 
-class EmployeeRepository:
+class   EmployeeRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import math
 
 from app.core.logging import get_logger
 from app.services.dual_control import (
@@ -32,8 +33,9 @@ from app.utils.image import Image
 
 logger = get_logger(__name__)
 
-IDENTITY_WINDOW_SECONDS = 20
+IDENTITY_WINDOW_SECONDS = 60
 MAX_IDENTITY_ATTEMPTS = 5
+HANDOFF_SECONDS = 8
 
 
 class VaultAuthenticationService:
@@ -73,6 +75,17 @@ class VaultAuthenticationService:
                 logger.info("SESSION_EXPIRED dual_control_session=%s", session_id)
                 return self._dual_response(None, session, status="DUAL_AUTHENTICATION_TIMEOUT")
 
+            if session.handoff_until is not None:
+                handoff_remaining = session.handoff_until - time.monotonic()
+                if handoff_remaining > 0:
+                    return self._handoff_response(session, handoff_remaining)
+                session.handoff_until = None
+                self._start_person_liveness(session)
+                logger.info("SECOND_PERSON_LIVENESS_STARTED session=%s", session_id)
+                return self._handoff_response(
+                    session, 0, reason="NEXT_PERSON_READY"
+                )
+
             response = self._process_person_frame(session.liveness_session_id, image)
             if self._dual_control.expire_if_needed(session):
                 logger.info("SESSION_EXPIRED dual_control_session=%s", session_id)
@@ -84,6 +97,11 @@ class VaultAuthenticationService:
                     logger.warning("DUPLICATE_EMPLOYEE_REJECTED employee=%s", employee_id)
                     response.access_granted = False
                     response.reason = "DUPLICATE_EMPLOYEE_REJECTED"
+                    session.handoff_until = time.monotonic() + HANDOFF_SECONDS
+                    return self._handoff_response(
+                        session, HANDOFF_SECONDS, response=response,
+                        reason="DUPLICATE_EMPLOYEE_REJECTED",
+                    )
                 else:
                     session.authenticated_employee_ids.add(employee_id)
                     logger.info("PERSON_AUTHENTICATED employee=%s", employee_id)
@@ -95,7 +113,13 @@ class VaultAuthenticationService:
                             response, session, status="ACCESS_GRANTED", access_granted=True
                         )
                     session.status = "WAITING_FOR_SECOND_PERSON"
+                    logger.info("FIRST_PERSON_AUTHENTICATED employee=%s", employee_id)
                     logger.info("SECOND_PERSON_WAITING session=%s", session_id)
+                    session.handoff_until = time.monotonic() + HANDOFF_SECONDS
+                    return self._handoff_response(
+                        session, HANDOFF_SECONDS, response=response,
+                        reason="FIRST_PERSON_VERIFIED",
+                    )
 
             # Person liveness is a separate attempt; completing one attempt does
             # not alter the dual-control session's fixed expiration time.
@@ -108,10 +132,14 @@ class VaultAuthenticationService:
                         "AUTHORIZATION_INACTIVE", "IDENTITY_WINDOW_EXPIRED",
                         "IDENTITY_ATTEMPTS_EXCEEDED", "DUPLICATE_EMPLOYEE_REJECTED",
                     }
-                    or response.access_granted
                 )
             )
             if restart_attempt:
+                logger.info(
+                    "FIRST_PERSON_ATTEMPT_RESTARTED session=%s reason=%s",
+                    session_id,
+                    response.reason,
+                )
                 self._start_person_liveness(session)
 
             if session.authenticated_employee_ids:
@@ -140,7 +168,10 @@ class VaultAuthenticationService:
             logger.info("Vault authentication denied/pending at liveness: %s", reason)
             return VaultAuthenticationResponse(liveness=liveness_decision, reason=reason)
 
-        if self._liveness.identity_window_expired(session_id, IDENTITY_WINDOW_SECONDS):
+        identity_window = getattr(
+            self._liveness.config, "identity_window_seconds", IDENTITY_WINDOW_SECONDS
+        )
+        if self._liveness.identity_window_expired(session_id, identity_window):
             return self._deny_liveness_only(
                 liveness_decision, "IDENTITY_WINDOW_EXPIRED"
             )
@@ -232,7 +263,7 @@ class VaultAuthenticationService:
         )
         if not authorization_decision.active:
             logger.warning("UNAUTHORIZED_EMPLOYEE_REJECTED employee='%s'", employee.employee_id)
-        logger.info("Final vault access decision: %s", reason)
+        logger.info("Current employee authentication result: %s", reason)
         if access_granted:
             self._liveness.clear_identity_attempts(session_id)
         return VaultAuthenticationResponse(
@@ -248,6 +279,38 @@ class VaultAuthenticationService:
         started = self._liveness.start_session()
         session.liveness_session_id = started.session_id
         session.liveness_challenge = started.challenge.value
+
+    @staticmethod
+    def _handoff_response(
+        session: DualControlSession,
+        remaining: float,
+        *,
+        response: VaultAuthenticationResponse | None = None,
+        reason: str | None = None,
+    ) -> VaultAuthenticationResponse:
+        active_handoff = remaining > 0
+        liveness = response.liveness if response else LivenessDecision(
+            passed=False,
+            challenge=session.liveness_challenge,
+            score=0.0,
+            status="CHALLENGE_SELECTED",
+            reason="Next custodian may step in",
+            completed_challenges=0,
+            required_challenges=1,
+        )
+        return VaultAuthenticationResponse(
+            liveness=liveness,
+            recognition=response.recognition if response else None,
+            authorization=response.authorization if response else None,
+            access_granted=False,
+            reason=reason or ("WAITING_FOR_NEXT_PERSON" if active_handoff else "NEXT_PERSON_READY"),
+            status=session.status,
+            authenticated_count=len(session.authenticated_employee_ids),
+            required_count=session.required_persons,
+            remaining_seconds=session.remaining_seconds,
+            next_challenge=None if active_handoff else session.liveness_challenge,
+            handoff_remaining_seconds=math.ceil(max(0, remaining)),
+        )
 
     @staticmethod
     def _dual_response(

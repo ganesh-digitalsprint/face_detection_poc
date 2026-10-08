@@ -6,8 +6,6 @@ import { describeError } from '../utils/errors.js';
 // This avoids overlapping uploads while providing more challenge samples.
 const FRAME_INTERVAL_MS = 50;
 const MAX_CONSECUTIVE_FAILURES = 3;
-const MAX_UNKNOWN_IDENTITY_RETRIES = 3;
-const PENDING = 'LIVENESS_PENDING';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const INITIAL = {
@@ -15,6 +13,13 @@ const INITIAL = {
   challenge: null,
   liveness: null, // last LivenessDecision from the backend
   result: null, // last full VaultAuthenticationResponse
+  status: null,
+  authenticatedCount: 0,
+  requiredCount: 2,
+  expiresAt: null,
+  handoffUntil: null,
+  handoffPending: false,
+  now: Date.now(),
   error: null,
 };
 
@@ -23,15 +28,31 @@ function reducer(state, action) {
     case 'starting':
       return { ...INITIAL, phase: 'starting' };
     case 'session':
-      return { ...state, phase: 'liveness', challenge: action.challenge };
+      return {
+        ...state, phase: 'liveness', challenge: action.challenge,
+        status: action.session.status, authenticatedCount: 0,
+        requiredCount: action.session.required_persons ?? 2,
+        expiresAt: action.session.expires_at,
+        handoffUntil: null,
+        handoffPending: false,
+        now: Date.now(),
+      };
     case 'frame': {
       const { response } = action;
       return {
         ...state,
         phase: action.terminal ? 'done' : 'liveness',
-        challenge: response.liveness.challenge,
+        challenge: response.next_challenge ?? response.liveness.challenge,
         liveness: response.liveness,
         result: response,
+        status: response.status,
+        authenticatedCount: response.authenticated_count ?? 0,
+        requiredCount: response.required_count ?? state.requiredCount,
+        handoffUntil: response.handoff_remaining_seconds > 0
+          ? Date.now() + response.handoff_remaining_seconds * 1000
+          : null,
+        handoffPending: response.handoff_remaining_seconds > 0
+          || (state.handoffPending && response.reason !== 'NEXT_PERSON_READY'),
       };
     }
     case 'expired':
@@ -40,19 +61,19 @@ function reducer(state, action) {
       return { ...state, phase: 'error', error: action.error };
     case 'reset':
       return INITIAL;
+    case 'tick':
+      return { ...state, now: action.now };
     default:
       return state;
   }
 }
 
-// Verification ends once liveness fails/expires, or the backend returns a final decision.
+// The dual-control session continues across person-level liveness attempts.
 const isTerminal = (response) =>
-  ['FAILED', 'EXPIRED'].includes(response.liveness.status) ||
-  ![PENDING, 'LOOK_AT_CAMERA', 'UNKNOWN_EMPLOYEE'].includes(response.reason);
+  ['ACCESS_GRANTED', 'DUAL_AUTHENTICATION_TIMEOUT'].includes(response.status);
 
 /**
- * Drives one vault verification attempt: start a backend liveness session, then feed it
- * camera frames until the backend reports a final decision. All decisions come from the backend.
+ * Starts one dual-control session and feeds frames until the backend grants access or expires it.
  */
 export default function useVaultAccess(camera) {
   const [state, dispatch] = useReducer(reducer, INITIAL);
@@ -64,7 +85,6 @@ export default function useVaultAccess(camera) {
 
   const loop = useCallback(async (id, sessionId) => {
     let failures = 0;
-    let unknownIdentityRetries = 0;
     while (runId.current === id) {
       let blob;
       try {
@@ -77,13 +97,13 @@ export default function useVaultAccess(camera) {
         const response = await submitLivenessFrame(sessionId, blob);
         if (runId.current !== id) return;
         failures = 0;
-        const retryUnknownIdentity =
-          response.reason === 'UNKNOWN_EMPLOYEE' &&
-          unknownIdentityRetries < MAX_UNKNOWN_IDENTITY_RETRIES;
-        if (retryUnknownIdentity) unknownIdentityRetries += 1;
-        const terminal = retryUnknownIdentity ? false : isTerminal(response);
+        const terminal = isTerminal(response);
         dispatch({ type: 'frame', response, terminal });
         if (terminal) return;
+        if (response.handoff_remaining_seconds > 0) {
+          await sleep(response.handoff_remaining_seconds * 1000);
+          if (runId.current !== id) return;
+        }
       } catch (err) {
         if (runId.current !== id) return;
         const described = describeError(err, { 404: 'Liveness session not found.' });
@@ -105,7 +125,7 @@ export default function useVaultAccess(camera) {
     try {
       const session = await startLivenessSession();
       if (runId.current !== id) return;
-      dispatch({ type: 'session', challenge: session.challenge });
+      dispatch({ type: 'session', session, challenge: session.challenge });
       loop(id, session.session_id);
     } catch (err) {
       if (runId.current === id) dispatch({ type: 'error', error: describeError(err) });
@@ -116,5 +136,17 @@ export default function useVaultAccess(camera) {
 
   useEffect(() => cancel, [cancel]);
 
-  return { ...state, start, reset };
+  useEffect(() => {
+    if (!state.expiresAt || state.phase === 'done' || state.phase === 'idle') return undefined;
+    const timer = window.setInterval(() => dispatch({ type: 'tick', now: Date.now() }), 250);
+    return () => window.clearInterval(timer);
+  }, [state.expiresAt, state.phase]);
+
+  const remainingSeconds = state.expiresAt
+    ? Math.max(0, Math.ceil((Date.parse(state.expiresAt) - state.now) / 1000))
+    : null;
+  const handoffRemaining = state.handoffUntil
+    ? Math.max(0, Math.ceil((state.handoffUntil - state.now) / 1000))
+    : 0;
+  return { ...state, remainingSeconds, handoffRemaining, start, reset };
 }
