@@ -11,6 +11,22 @@ body {
   @apply bg-slate-50 text-slate-800 antialiased;
 }
 
+/* Subtle nudge toward the requested direction; the arrow glyph is the user's own direction. */
+@keyframes nudge-left { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-14px); } }
+@keyframes nudge-right { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(14px); } }
+@keyframes nudge-up { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
+@keyframes nudge-down { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(14px); } }
+
+.direction-arrow { display: inline-block; animation: 1.4s ease-in-out infinite; }
+.direction-arrow[data-direction="left"] { animation-name: nudge-left; }
+.direction-arrow[data-direction="right"] { animation-name: nudge-right; }
+.direction-arrow[data-direction="up"] { animation-name: nudge-up; }
+.direction-arrow[data-direction="down"] { animation-name: nudge-down; }
+
+@media (prefers-reduced-motion: reduce) {
+  .direction-arrow { animation: none; }
+}
+
 :focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;

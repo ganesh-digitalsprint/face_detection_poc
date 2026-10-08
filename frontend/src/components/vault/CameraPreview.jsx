@@ -12,7 +12,11 @@ export default function CameraPreview({ camera }) {
   return (
     <div className="space-y-3">
       <div className="flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-slate-900">
-        {showWebcam && <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-contain" />}
+        {/* Mirror is presentation-only: frames sent to the backend are captured from the raw
+            video via canvas, so CSS transforms never reach liveness head-pose analysis. */}
+        {showWebcam && (
+          <video ref={videoRef} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-contain" />
+        )}
         {showCctv && (
           <img
             ref={imgRef}

@@ -49,11 +49,12 @@ def _frame(*, eyes_open=True):
 
 
 def _liveness_service(
-    challenge, detection, *, challenge_count=1, session_timeout_seconds=30
+    challenge, detection, *, challenge_count=1, session_timeout_seconds=30, hold_ms=0
 ):
     return LivenessService(
         detection=detection,
         config=LivenessSettings(
+            directional_challenges={"hold_duration_ms": hold_ms},
             enabled=True,
             method="active",
             challenge_count=challenge_count,
@@ -78,7 +79,7 @@ def test_random_challenge_avoids_immediate_repeat():
 
 
 def test_turn_challenge_advances_state_to_passed():
-    detector = SequenceDetection([_face(), _face(), _face(nose_x=108)])
+    detector = SequenceDetection([_face(), _face(), _face(nose_x=92)])
     liveness = _liveness_service([LivenessChallenge.TURN_RIGHT], detector)
     started = liveness.start_session()
     frame = np.zeros((200, 200, 3), dtype=np.uint8)
@@ -96,7 +97,7 @@ def test_turn_challenge_advances_state_to_passed():
 
 
 def test_passed_turn_requires_return_to_the_frontal_baseline():
-    detector = SequenceDetection([_face(), _face(), _face(nose_x=108)])
+    detector = SequenceDetection([_face(), _face(), _face(nose_x=92)])
     liveness = _liveness_service([LivenessChallenge.TURN_RIGHT], detector)
     started = liveness.start_session()
     frame = np.zeros((200, 200, 3), dtype=np.uint8)
@@ -108,14 +109,12 @@ def test_passed_turn_requires_return_to_the_frontal_baseline():
     assert passed.passed is True
     assert liveness.is_frontal(started.session_id, frame, _face()) is True
     assert liveness.is_frontal(
-        started.session_id, frame, _face(nose_x=108)
+        started.session_id, frame, _face(nose_x=92)
     ) is False
 
 
-def test_head_movement_fallback_uses_actual_frame_dimensions():
-    detector = SequenceDetection(
-        [_face(), _face(), _face(center_x=200)]
-    )
+def test_face_position_shift_alone_never_passes_a_turn():
+    detector = SequenceDetection([_face(), _face(), _face(center_x=200)])
     liveness = _liveness_service([LivenessChallenge.TURN_RIGHT], detector)
     started = liveness.start_session()
     wide_frame = np.zeros((200, 1280, 3), dtype=np.uint8)
@@ -124,8 +123,63 @@ def test_head_movement_fallback_uses_actual_frame_dimensions():
     liveness.process_frame(started.session_id, wide_frame)
     result = liveness.process_frame(started.session_id, wide_frame)
 
-    # 100 pixels is less than the normalized 12% movement threshold in a 1280px frame.
+    assert result.passed is False
+
+
+def _run_pose(challenge, pose_face, *, hold_ms=0):
+    detector = SequenceDetection([_face(), _face(), pose_face])
+    liveness = _liveness_service([challenge], detector, hold_ms=hold_ms)
+    started = liveness.start_session()
+    frame = np.zeros((200, 200, 3), dtype=np.uint8)
+    liveness.process_frame(started.session_id, frame)
+    liveness.process_frame(started.session_id, frame)
+    return liveness.process_frame(started.session_id, frame)
+
+
+# Un-mirrored camera frame: subject's physical LEFT => nose moves toward image RIGHT (+x).
+@pytest.mark.parametrize(
+    ("challenge", "right_pose", "wrong_pose"),
+    [
+        (LivenessChallenge.TURN_LEFT, {"nose_x": 108}, {"nose_x": 92}),
+        (LivenessChallenge.TURN_RIGHT, {"nose_x": 92}, {"nose_x": 108}),
+        (LivenessChallenge.LOOK_UP, {"nose_y": 104}, {"nose_x": 108}),
+        (LivenessChallenge.LOOK_DOWN, {"nose_y": 116}, {"nose_x": 92}),
+    ],
+)
+def test_directional_challenge_accepts_only_requested_direction(
+    challenge, right_pose, wrong_pose
+):
+    assert _run_pose(challenge, _face(**right_pose)).passed is True
+    wrong = _run_pose(challenge, _face(**wrong_pose))
+    assert wrong.passed is False
+
+
+def test_opposite_direction_reports_wrong_direction_without_failing_session():
+    result = _run_pose(LivenessChallenge.TURN_LEFT, _face(nose_x=90))
+    assert result.feedback == "WRONG_DIRECTION"
     assert result.status is LivenessStatus.WAITING_FOR_ACTION
+
+
+def test_direction_must_be_held_for_configured_duration(monkeypatch):
+    current_time = [100.0]
+    monkeypatch.setattr(
+        "app.services.liveness_service.time.monotonic", lambda: current_time[0]
+    )
+    detector = SequenceDetection(
+        [_face(), _face(), _face(nose_x=108), _face(nose_x=108), _face(nose_x=108)]
+    )
+    liveness = _liveness_service([LivenessChallenge.TURN_LEFT], detector, hold_ms=500)
+    started = liveness.start_session()
+    frame = np.zeros((200, 200, 3), dtype=np.uint8)
+    liveness.process_frame(started.session_id, frame)
+    liveness.process_frame(started.session_id, frame)
+
+    first = liveness.process_frame(started.session_id, frame)
+    assert (first.passed, first.feedback) == (False, "HOLDING")
+    current_time[0] += 0.3
+    assert liveness.process_frame(started.session_id, frame).passed is False
+    current_time[0] += 0.3
+    assert liveness.process_frame(started.session_id, frame).passed is True
 
 
 def test_timeout_starts_after_calibration_and_retry_keeps_baseline(monkeypatch):
@@ -134,7 +188,7 @@ def test_timeout_starts_after_calibration_and_retry_keeps_baseline(monkeypatch):
         "app.services.liveness_service.time.monotonic", lambda: current_time[0]
     )
     detector = SequenceDetection(
-        [_face(), _face(), _face(nose_x=108)]
+        [_face(), _face(), _face(nose_x=92)]
     )
     liveness = _liveness_service(
         [LivenessChallenge.TURN_RIGHT], detector, session_timeout_seconds=60

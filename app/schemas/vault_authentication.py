@@ -11,6 +11,8 @@ class LivenessDecision(BaseModel):
     reason: str
     completed_challenges: int
     required_challenges: int
+    # Coarse UI feedback (DETECTING | HOLDING | WRONG_DIRECTION); never raw pose values.
+    feedback: str | None = None
 
 
 class RecognitionDecision(BaseModel):

@@ -27,6 +27,19 @@ logger = get_logger(__name__)
 FRONTAL_YAW_MAX = 0.07
 FRONTAL_PITCH_MAX = 0.06
 
+# Coordinate convention (raw, un-mirrored camera frame; the UI preview mirror is
+# presentation-only and never reaches this code):
+#   yaw   = nose.x offset from eye midpoint. The subject's physical LEFT appears on
+#           the image's RIGHT in an un-mirrored frame, so physical left => yaw INCREASES.
+#   pitch = nose.y offset from eye midpoint. Looking UP => pitch DECREASES.
+# Maps challenge -> (axis, sign) where sign * delta > 0 means "toward the requested direction".
+_DIRECTIONAL: dict[LivenessChallenge, tuple[str, int]] = {
+    LivenessChallenge.TURN_LEFT: ("yaw", 1),
+    LivenessChallenge.TURN_RIGHT: ("yaw", -1),
+    LivenessChallenge.LOOK_UP: ("pitch", -1),
+    LivenessChallenge.LOOK_DOWN: ("pitch", 1),
+}
+
 
 class LivenessStatus(StrEnum):
     CHALLENGE_SELECTED = "CHALLENGE_SELECTED"
@@ -46,6 +59,7 @@ class LivenessResult:
     reason: str
     completed_challenges: int
     required_challenges: int
+    feedback: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +93,7 @@ class _Session:
     baseline_samples: list[_FaceFeatures] = field(default_factory=list)
     baseline: _FaceFeatures | None = None
     blink_closed_seen: bool = False
+    hold_started_at: float | None = None
     scores: list[float] = field(default_factory=list)
     last_result: LivenessResult | None = None
     passed_at: float | None = None
@@ -239,8 +254,8 @@ class LivenessService:
                     reason="Keep facing the camera, then perform the requested challenge",
                 )
 
-            passed, score, reason = _evaluate_action(
-                session, challenge, features
+            passed, score, reason, feedback = _evaluate_action(
+                session, challenge, features, self._config
             )
             if not passed:
                 session.status = LivenessStatus.WAITING_FOR_ACTION
@@ -250,6 +265,7 @@ class LivenessService:
                     score=score,
                     status=session.status,
                     reason=reason,
+                    feedback=feedback,
                 )
 
             session.scores.append(score)
@@ -344,6 +360,7 @@ class LivenessService:
         session.status = LivenessStatus.CHALLENGE_SELECTED
         session.challenge_started_at = now
         session.blink_closed_seen = False
+        session.hold_started_at = None
         logger.info(
             "Retrying liveness challenge %s for session %s (attempt %s)",
             session.challenges[session.challenge_index].value,
@@ -424,6 +441,7 @@ class LivenessService:
         status: LivenessStatus,
         reason: str,
         challenge: LivenessChallenge | None = None,
+        feedback: str | None = None,
     ) -> LivenessResult:
         current = challenge or session.challenges[
             min(session.challenge_index, len(session.challenges) - 1)
@@ -436,6 +454,7 @@ class LivenessService:
             reason=reason,
             completed_challenges=len(session.scores),
             required_challenges=len(session.challenges),
+            feedback=feedback,
         )
 
     def _get_session(self, session_id: str) -> _Session:
@@ -523,53 +542,16 @@ def _evaluate_action(
     session: _Session,
     challenge: LivenessChallenge,
     current: _FaceFeatures,
-) -> tuple[bool, float, str]:
+    config: LivenessSettings,
+) -> tuple[bool, float, str, str | None]:
     baseline = session.baseline
     assert baseline is not None
-    if challenge is LivenessChallenge.TURN_LEFT:
-        yaw_change = current.yaw - baseline.yaw
-        movement = (
-            yaw_change
-            if abs(yaw_change) >= 0.12
-            else current.center_x_normalized - baseline.center_x_normalized
-        )
-        score = min(1.0, abs(movement) / 0.22)
-        passed = movement <= -0.12
-        return passed, score, "Expected leftward head turn not yet detected"
-    if challenge is LivenessChallenge.TURN_RIGHT:
-        yaw_change = current.yaw - baseline.yaw
-        movement = (
-            yaw_change
-            if abs(yaw_change) >= 0.12
-            else current.center_x_normalized - baseline.center_x_normalized
-        )
-        score = min(1.0, abs(movement) / 0.22)
-        passed = movement >= 0.12
-        return passed, score, "Expected rightward head turn not yet detected"
-    if challenge is LivenessChallenge.LOOK_UP:
-        pitch_change = current.pitch - baseline.pitch
-        movement = (
-            pitch_change
-            if abs(pitch_change) >= 0.09
-            else current.center_y_normalized - baseline.center_y_normalized
-        )
-        score = min(1.0, abs(movement) / 0.18)
-        passed = movement <= -0.09
-        return passed, score, "Expected upward head movement not yet detected"
-    if challenge is LivenessChallenge.LOOK_DOWN:
-        pitch_change = current.pitch - baseline.pitch
-        movement = (
-            pitch_change
-            if abs(pitch_change) >= 0.09
-            else current.center_y_normalized - baseline.center_y_normalized
-        )
-        score = min(1.0, abs(movement) / 0.18)
-        passed = movement >= 0.09
-        return passed, score, "Expected downward head movement not yet detected"
+    if challenge in _DIRECTIONAL:
+        return _evaluate_directional(session, challenge, current, config)
     if challenge is LivenessChallenge.SMILE:
         change = current.smile - baseline.smile
         score = min(1.0, max(0.0, change) / 0.25)
-        return change >= 0.10, score, "Expected smile-related mouth movement not yet detected"
+        return change >= 0.10, score, "Expected smile-related mouth movement not yet detected", None
 
     if current.eye_openness <= baseline.eye_openness * 0.62:
         session.blink_closed_seen = True
@@ -579,14 +561,58 @@ def _evaluate_action(
         min(0.6, (baseline.eye_openness - current.eye_openness) / max(baseline.eye_openness, 1e-6)),
     )
     if session.blink_closed_seen and reopened:
-        return True, max(score, 0.85), "Expected blink and eye reopening detected"
-    return False, score, "Expected blink was not detected"
+        return True, max(score, 0.85), "Expected blink and eye reopening detected", None
+    return False, score, "Expected blink was not detected", None
+
+
+def _evaluate_directional(
+    session: _Session,
+    challenge: LivenessChallenge,
+    current: _FaceFeatures,
+    config: LivenessSettings,
+) -> tuple[bool, float, str, str | None]:
+    """Verify a head-pose direction against the neutral baseline, with a hold time.
+
+    Only head pose (yaw/pitch deltas) is used; face-position movement never counts.
+    """
+    baseline = session.baseline
+    assert baseline is not None
+    cfg = config.directional_challenges
+    axis, sign = _DIRECTIONAL[challenge]
+    yaw_delta = current.yaw - baseline.yaw
+    pitch_delta = current.pitch - baseline.pitch
+    if axis == "yaw":
+        toward, threshold = sign * yaw_delta, cfg.yaw_threshold
+        off_axis_exceeded = abs(pitch_delta) >= cfg.pitch_threshold * 1.5
+    else:
+        toward, threshold = sign * pitch_delta, cfg.pitch_threshold
+        off_axis_exceeded = abs(yaw_delta) >= cfg.yaw_threshold
+    score = max(0.0, min(1.0, toward / (threshold * 1.5)))
+    if config.debug:
+        logger.debug(
+            "Liveness debug %s: yaw_delta=%.3f pitch_delta=%.3f toward=%.3f threshold=%.3f hold_started=%s",
+            challenge.value, yaw_delta, pitch_delta, toward, threshold, session.hold_started_at,
+        )
+
+    if toward >= threshold and not off_axis_exceeded:
+        now = time.monotonic()
+        if session.hold_started_at is None:
+            session.hold_started_at = now
+        if (now - session.hold_started_at) * 1000 >= cfg.hold_duration_ms:
+            return True, max(score, 0.7), f"{challenge.value} detected", None
+        return False, score, "Good, hold the position", "HOLDING"
+
+    session.hold_started_at = None
+    if toward <= -threshold * cfg.wrong_direction_ratio or off_axis_exceeded:
+        return False, 0.0, "Wrong direction - follow the arrow", "WRONG_DIRECTION"
+    return False, score, "Expected head movement not yet detected", "DETECTING"
 
 
 def _reset_calibration(session: _Session) -> None:
     session.baseline_samples.clear()
     session.baseline = None
     session.blink_closed_seen = False
+    session.hold_started_at = None
 
 
 @lru_cache(maxsize=1)
