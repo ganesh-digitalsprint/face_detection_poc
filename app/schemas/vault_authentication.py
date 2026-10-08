@@ -36,6 +36,7 @@ class VaultAuthenticationResponse(BaseModel):
     required_count: int = 2
     remaining_seconds: int = 0
     next_challenge: str | None = None
+    handoff_remaining_seconds: int = 0
 
 
 class LivenessSessionResponse(BaseModel):

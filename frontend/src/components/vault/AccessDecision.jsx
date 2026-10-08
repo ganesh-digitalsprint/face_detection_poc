@@ -5,10 +5,14 @@ const REASONS = {
   UNKNOWN_EMPLOYEE: 'Unknown employee',
   AUTHORIZATION_INACTIVE: 'Authorization is not active',
   IDENTITY_AUTHORIZATION_MISMATCH: 'Identity and authorization records do not match',
-  DUPLICATE_EMPLOYEE_REJECTED: 'A different authorized custodian is required',
+  DUAL_AUTHENTICATION_TIMEOUT: 'The two-person authorization window expired. Start a new verification.',
+  DUPLICATE_EMPLOYEE_REJECTED: 'A different employee must complete the second verification.',
+  FIRST_PERSON_VERIFIED: 'First custodian verified. A different employee must verify next.',
+  NEXT_PERSON_READY: 'Second custodian verification started.',
 };
 
 export function denialReason(result, liveness) {
+  if (result?.reason === 'DUAL_AUTHENTICATION_TIMEOUT') return REASONS.DUAL_AUTHENTICATION_TIMEOUT;
   if (result?.reason === 'LIVENESS_FAILED' || liveness?.status === 'FAILED') {
     return liveness?.reason || 'Liveness verification failed';
   }

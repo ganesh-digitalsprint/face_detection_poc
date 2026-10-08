@@ -20,6 +20,7 @@ class DualControlSession:
     liveness_challenge: str
     authenticated_employee_ids: set[str] = field(default_factory=set)
     status: str = "WAITING_FOR_FIRST_PERSON"
+    handoff_until: float | None = None
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     @property

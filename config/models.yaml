@@ -18,7 +18,8 @@ liveness:
   detection_max_side: 480
   challenge_timeout_seconds: 25
   max_attempts: 2
-  session_timeout_seconds: 30
+  session_timeout_seconds: 75
+  identity_window_seconds: 60
   prevent_immediate_repeat: true
 
 vault_access:

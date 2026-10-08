@@ -4,11 +4,10 @@ uvicorn[standard]
 # Face Recognition / Computer Vision
 deepface[tensorflow]
 tf-keras
-opencv-python
-numpy
-opencv-python
 opencv-contrib-python
+numpy
 supervision
+mediapipe
 
 # Database
 sqlalchemy

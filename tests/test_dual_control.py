@@ -82,7 +82,27 @@ def test_start_and_first_person_keep_fixed_three_minute_window():
     assert result.status == "WAITING_FOR_SECOND_PERSON"
     assert result.authenticated_count == 1
     assert result.access_granted is False
+    assert result.reason == "FIRST_PERSON_VERIFIED"
+    assert result.handoff_remaining_seconds == 8
     assert session.expires_at == session.started_at + timedelta(seconds=180)
+
+
+def test_server_waits_eight_seconds_before_starting_second_liveness():
+    service, _, session = _service()
+    image = np.zeros((80, 80, 3), dtype=np.uint8)
+    service.process_frame(session.session_id, image)
+    assert service._liveness.sequence == 1
+
+    waiting = service.process_frame(session.session_id, image)
+    assert waiting.handoff_remaining_seconds > 0
+    assert waiting.reason == "WAITING_FOR_NEXT_PERSON"
+    assert service._liveness.sequence == 1
+
+    session.handoff_until = 0
+    ready = service.process_frame(session.session_id, image)
+    assert ready.reason == "NEXT_PERSON_READY"
+    assert ready.handoff_remaining_seconds == 0
+    assert service._liveness.sequence == 2
 
 
 def test_same_employee_cannot_fill_both_slots_and_different_employee_can():
@@ -92,8 +112,18 @@ def test_same_employee_cannot_fill_both_slots_and_different_employee_can():
     duplicate = service.process_frame(session.session_id, image)
     assert duplicate.authenticated_count == 1
     assert duplicate.access_granted is False
+    assert duplicate.reason == "FIRST_PERSON_VERIFIED"
+
+    # Let the server-side custodian handoff elapse, then submit the next frame.
+    session.handoff_until = 0
+    ready = service.process_frame(session.session_id, image)
+    assert ready.reason == "NEXT_PERSON_READY"
+    duplicate = service.process_frame(session.session_id, image)
+    assert duplicate.authenticated_count == 1
     assert duplicate.reason == "DUPLICATE_EMPLOYEE_REJECTED"
 
+    session.handoff_until = 0
+    service.process_frame(session.session_id, image)
     qdrant.employee_id = "EMP002"
     granted = service.process_frame(session.session_id, image)
     assert granted.status == "ACCESS_GRANTED"

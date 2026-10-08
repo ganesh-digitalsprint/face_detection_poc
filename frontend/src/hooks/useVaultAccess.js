@@ -8,7 +8,7 @@ import useCountdown from './useCountdown.js';
 // This avoids overlapping uploads while providing more challenge samples.
 const FRAME_INTERVAL_MS = 50;
 const MAX_CONSECUTIVE_FAILURES = 3;
-const FACE_MISSING = 'No face detected';
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const INITIAL = {
   phase: 'idle', // idle | starting | liveness | done | error
@@ -23,6 +23,13 @@ const INITIAL = {
   challenge: null,
   liveness: null, // last LivenessDecision from the backend
   result: null, // last full VaultAuthenticationResponse
+  status: null,
+  authenticatedCount: 0,
+  requiredCount: 2,
+  expiresAt: null,
+  handoffUntil: null,
+  handoffPending: false,
+  now: Date.now(),
   error: null,
 };
 
@@ -59,16 +66,32 @@ function reducer(state, action) {
   switch (action.type) {
     case 'starting':
       return { ...INITIAL, phase: 'starting' };
-    case 'session': {
-      const { session } = action;
+    case 'session':
+      return {
+        ...state, phase: 'liveness', challenge: action.challenge,
+        status: action.session.status, authenticatedCount: 0,
+        requiredCount: action.session.required_persons ?? 2,
+        expiresAt: action.session.expires_at,
+        handoffUntil: null,
+        handoffPending: false,
+        now: Date.now(),
+      };
+    case 'frame': {
+      const { response } = action;
       return {
         ...state,
-        phase: 'liveness',
-        sessionId: session.session_id,
-        expiresAt: action.expiresAt,
-        requiredPersons: session.required_persons ?? state.requiredPersons,
-        authenticatedCount: session.authenticated_count ?? 0,
-        challenge: session.challenge,
+        phase: action.terminal ? 'done' : 'liveness',
+        challenge: response.next_challenge ?? response.liveness.challenge,
+        liveness: response.liveness,
+        result: response,
+        status: response.status,
+        authenticatedCount: response.authenticated_count ?? 0,
+        requiredCount: response.required_count ?? state.requiredCount,
+        handoffUntil: response.handoff_remaining_seconds > 0
+          ? Date.now() + response.handoff_remaining_seconds * 1000
+          : null,
+        handoffPending: response.handoff_remaining_seconds > 0
+          || (state.handoffPending && response.reason !== 'NEXT_PERSON_READY'),
       };
     }
     case 'frame': {
@@ -83,15 +106,19 @@ function reducer(state, action) {
       return { ...state, phase: 'error', error: action.error };
     case 'reset':
       return INITIAL;
+    case 'tick':
+      return { ...state, now: action.now };
     default:
       return state;
   }
 }
 
+// The dual-control session continues across person-level liveness attempts.
+const isTerminal = (response) =>
+  ['ACCESS_GRANTED', 'DUAL_AUTHENTICATION_TIMEOUT'].includes(response.status);
+
 /**
- * Drives one dual-custodian vault session: start a backend session (which owns the 3-minute
- * window), then feed it camera frames for each custodian until the backend reports a final
- * decision or expiry. All decisions come from the backend; the countdown is display only.
+ * Starts one dual-control session and feeds frames until the backend grants access or expires it.
  */
 export default function useVaultAccess(camera) {
   const [state, dispatch] = useReducer(reducer, INITIAL);
@@ -115,9 +142,13 @@ export default function useVaultAccess(camera) {
         const response = await submitLivenessFrame(sessionId, blob);
         if (runId.current !== id) return;
         failures = 0;
-        const ended = frameOutcome(response);
-        dispatch({ type: 'frame', response, ended });
-        if (ended) return;
+        const terminal = isTerminal(response);
+        dispatch({ type: 'frame', response, terminal });
+        if (terminal) return;
+        if (response.handoff_remaining_seconds > 0) {
+          await sleep(response.handoff_remaining_seconds * 1000);
+          if (runId.current !== id) return;
+        }
       } catch (err) {
         if (runId.current !== id) return;
         const described = describeError(err, { 404: 'Vault session not found.' });
@@ -141,9 +172,7 @@ export default function useVaultAccess(camera) {
     try {
       const session = await startLivenessSession();
       if (runId.current !== id) return;
-      const expiresAt = session.expires_at
-        ?? new Date(Date.now() + (session.remaining_seconds ?? 0) * 1000).toISOString();
-      dispatch({ type: 'session', session, expiresAt });
+      dispatch({ type: 'session', session, challenge: session.challenge });
       loop(id, session.session_id);
     } catch (err) {
       if (runId.current === id) dispatch({ type: 'error', error: describeError(err) });
@@ -157,20 +186,17 @@ export default function useVaultAccess(camera) {
 
   const reset = useCallback(() => { cancelLoop(); dispatch({ type: 'reset' }); }, [cancelLoop]);
 
-  const active = state.phase === 'liveness' && !state.ended;
-  // Local zero only stops the UI; a backend ACCESS_GRANTED is the sole path to granted.
-  const expireLocally = useCallback(() => {
-    cancelLoop();
-    dispatch({ type: 'ended', ended: 'SESSION_EXPIRED' });
-  }, [cancelLoop]);
-  const liveSeconds = useCountdown(state.expiresAt, active, expireLocally);
-  const remainingSeconds = state.ended === 'SESSION_EXPIRED' ? 0 : liveSeconds;
+  useEffect(() => {
+    if (!state.expiresAt || state.phase === 'done' || state.phase === 'idle') return undefined;
+    const timer = window.setInterval(() => dispatch({ type: 'tick', now: Date.now() }), 250);
+    return () => window.clearInterval(timer);
+  }, [state.expiresAt, state.phase]);
 
-  useEffect(() => cancelLoop, [cancelLoop]);
-
-  const dualState = state.phase === 'idle' || state.phase === 'starting' || state.phase === 'error'
-    ? null
-    : deriveDualState(state);
-
-  return { ...state, dualState, remainingSeconds, start, cancel, reset };
+  const remainingSeconds = state.expiresAt
+    ? Math.max(0, Math.ceil((Date.parse(state.expiresAt) - state.now) / 1000))
+    : null;
+  const handoffRemaining = state.handoffUntil
+    ? Math.max(0, Math.ceil((state.handoffUntil - state.now) / 1000))
+    : 0;
+  return { ...state, remainingSeconds, handoffRemaining, start, reset };
 }
