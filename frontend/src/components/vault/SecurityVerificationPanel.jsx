@@ -1,8 +1,9 @@
-import { RotateCcw, ShieldAlert } from 'lucide-react';
+import { RotateCcw, ShieldAlert, XCircle } from 'lucide-react';
 import Button from '../common/Button.jsx';
 import ErrorMessage from '../common/ErrorMessage.jsx';
 import AccessDecision from './AccessDecision.jsx';
 import AuthorizationStatus from './AuthorizationStatus.jsx';
+import DualControlPanel from './DualControlPanel.jsx';
 import IdentityStatus from './IdentityStatus.jsx';
 import LivenessStatus, { ChallengePrompt } from './LivenessStatus.jsx';
 import StageRow from './StageRow.jsx';
@@ -19,9 +20,10 @@ function faceStage(vault) {
 
 /** Security checklist for one verification attempt, composed from backend-reported state. */
 export default function SecurityVerificationPanel({ vault, onRetry }) {
-  const { phase, challenge, liveness, result, error, status, authenticatedCount, requiredCount, remainingSeconds, handoffRemaining, handoffPending } = vault;
+  const { phase, challenge, liveness, result, error, status, ended, authenticatedCount, requiredCount, remainingSeconds, handoffRemaining, handoffPending } = vault;
   const face = faceStage(vault);
   const decided = phase === 'done';
+  const showStages = phase !== 'error';
   const waitingForSecond = status === 'WAITING_FOR_SECOND_PERSON';
   const handoff = handoffPending;
   const duplicateRejected = result?.reason === 'DUPLICATE_EMPLOYEE_REJECTED';
@@ -76,16 +78,22 @@ export default function SecurityVerificationPanel({ vault, onRetry }) {
         </div>
       )}
 
-      <ul className="space-y-3" aria-label="Verification stages">
-        <StageRow
-          tone={face}
-          label={face === 'pass' ? 'Face detected' : face === 'fail' ? 'Face check failed' : 'Detecting face'}
-          detail={face === 'pending' && liveness?.reason === FACE_MISSING ? 'Position your face in view' : undefined}
-        />
-        <LivenessStatus phase={phase} liveness={liveness} />
-        <IdentityStatus liveness={liveness} recognition={result?.recognition} />
-        <AuthorizationStatus recognition={result?.recognition} authorization={result?.authorization} />
-      </ul>
+      {showStages && (
+        <ul className="space-y-3" aria-label="Verification stages">
+          <StageRow
+            tone={face}
+            label={face === 'pass' ? 'Face detected' : face === 'fail' ? 'Face check failed' : 'Detecting face'}
+            detail={face === 'pending' && liveness?.reason === FACE_MISSING ? 'Position your face in view' : undefined}
+          />
+          <LivenessStatus phase={phase} liveness={liveness} />
+          <IdentityStatus liveness={liveness} recognition={result?.recognition} />
+          <AuthorizationStatus recognition={result?.recognition} authorization={result?.authorization} />
+        </ul>
+      )}
+
+      {phase === 'liveness' && (
+        <Button variant="secondary" icon={XCircle} onClick={vault.cancel}>Cancel Session</Button>
+      )}
 
       {phase === 'error' && (
         <div className="space-y-3">
@@ -100,10 +108,8 @@ export default function SecurityVerificationPanel({ vault, onRetry }) {
 
       {decided && (
         <div className="space-y-3">
-          <AccessDecision result={result} liveness={liveness} />
-          <Button variant="secondary" icon={RotateCcw} onClick={onRetry}>
-            {liveness?.status === 'EXPIRED' ? 'Try Again' : 'Verify Again'}
-          </Button>
+          <AccessDecision result={result} liveness={liveness} ended={ended} />
+          <Button variant="secondary" icon={RotateCcw} onClick={onRetry}>Start New Vault Access</Button>
         </div>
       )}
     </div>

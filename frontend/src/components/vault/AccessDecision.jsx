@@ -21,23 +21,33 @@ export function denialReason(result, liveness) {
 }
 
 /** Final banner. `granted` is exactly the backend's `access_granted`; the UI never infers it. */
-export default function AccessDecision({ result, liveness }) {
+export default function AccessDecision({ result, liveness, ended }) {
   const granted = result?.access_granted === true;
   const Icon = granted ? ShieldCheck : ShieldX;
   const tone = granted
     ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
     : 'border-red-600 bg-red-50 text-red-800';
+
+  let title = granted ? 'ACCESS GRANTED' : 'ACCESS DENIED';
+  let detail;
+  if (granted) {
+    detail = 'DUAL CONTROL VERIFIED';
+  } else if (ended === 'SESSION_EXPIRED') {
+    title = 'SESSION EXPIRED';
+    detail = 'Two authorized custodians were not authenticated within the authorization window.';
+  } else if (ended === 'CANCELLED') {
+    title = 'SESSION CANCELLED';
+    detail = 'The vault access session was cancelled.';
+  } else {
+    detail = `Reason: ${denialReason(result, liveness)}`;
+  }
+
   return (
     <div role="alert" className={`rounded-md border-2 p-4 text-center ${tone}`}>
       <Icon className="mx-auto h-8 w-8" aria-hidden />
-      <p className="mt-1 text-lg font-bold tracking-wide">
-        {granted ? 'VAULT ACCESS GRANTED' : 'VAULT ACCESS NOT GRANTED'}
-      </p>
-      {granted ? (
-        result.recognition?.employee_id && <p className="text-sm">Employee ID: {result.recognition.employee_id}</p>
-      ) : (
-        <p className="text-sm">Reason: {denialReason(result, liveness)}</p>
-      )}
+      <p className="mt-1 text-lg font-bold tracking-wide">{title}</p>
+      <p className="text-sm">{detail}</p>
+      {!granted && ended !== 'DENIED' && <p className="mt-1 text-sm font-bold tracking-wide">ACCESS DENIED</p>}
     </div>
   );
 }

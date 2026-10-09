@@ -8,6 +8,7 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "deepface[tensorflow]",
+    "mediapipe>=1.1.0",
     "opencv-python",
     "numpy",
     "sqlalchemy>=2",
@@ -22,6 +23,4 @@ dependencies = [
     "httpx>=0.28.1",
     "tf-keras>=2.21.0",
     "supervision>=0.30.6",
-    "opencv-contrib-python>=5.0.0.93",
-    "mediapipe>=1.1.0",
 ]

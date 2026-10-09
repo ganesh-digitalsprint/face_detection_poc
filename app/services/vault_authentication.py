@@ -158,6 +158,7 @@ class VaultAuthenticationService:
             reason=liveness.reason,
             completed_challenges=liveness.completed_challenges,
             required_challenges=liveness.required_challenges,
+            feedback=liveness.feedback,
         )
         if not liveness.passed:
             reason = (
