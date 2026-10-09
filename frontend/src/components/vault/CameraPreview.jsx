@@ -4,7 +4,7 @@ import { CAMERA_KINDS } from '../../hooks/useCameraSource.js';
 import ErrorMessage from '../common/ErrorMessage.jsx';
 
 /** Renders the active source. Frames for verification are read from these elements by the hook. */
-export default function CameraPreview({ camera, errorHint = 'Unable to perform vault access verification.' }) {
+export default function CameraPreview({ camera, errorHint = 'Unable to continue until the camera is available.' }) {
   const { kind, status, error, cctvSession, videoRef, imgRef } = camera;
   const showWebcam = kind === CAMERA_KINDS.WEBCAM && status === 'ready';
   const showCctv = kind === CAMERA_KINDS.CCTV && cctvSession;

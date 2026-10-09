@@ -166,9 +166,16 @@ class QdrantService:
                 wait=True,
             )
 
-    def insert_embedding(self, person_id: int, vector: list[float], model_name: str) -> str:
+    def insert_embedding(
+        self,
+        person_id: int,
+        vector: list[float],
+        model_name: str,
+        *,
+        point_id: str | None = None,
+    ) -> str:
         self._validate(vector)
-        point_id = str(uuid4())
+        point_id = point_id or str(uuid4())
         try:
             self.client.upsert(
                 collection_name=self.collection_name,

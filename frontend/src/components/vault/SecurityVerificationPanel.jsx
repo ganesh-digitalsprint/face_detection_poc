@@ -20,9 +20,10 @@ function faceStage(vault) {
 
 /** Security checklist for one verification attempt, composed from backend-reported state. */
 export default function SecurityVerificationPanel({ vault, onRetry }) {
-  const { phase, challenge, liveness, result, error, status, authenticatedCount, requiredCount, remainingSeconds, handoffRemaining, handoffPending } = vault;
+  const { phase, challenge, liveness, result, error, status, ended, authenticatedCount, requiredCount, remainingSeconds, handoffRemaining, handoffPending } = vault;
   const face = faceStage(vault);
   const decided = phase === 'done';
+  const showStages = phase !== 'error';
   const waitingForSecond = status === 'WAITING_FOR_SECOND_PERSON';
   const handoff = handoffPending;
   const duplicateRejected = result?.reason === 'DUPLICATE_EMPLOYEE_REJECTED';
