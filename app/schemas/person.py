@@ -54,3 +54,4 @@ class RegistrationResponse(BaseModel):
     name: str
     face_registered: bool
     model_name: str = Field(description="Recognition model that produced the embedding")
+    images_enrolled: int = Field(default=1, ge=1, description="Number of persisted face images")

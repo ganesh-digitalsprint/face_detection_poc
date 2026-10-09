@@ -40,7 +40,7 @@ export default function CameraPreview({ camera }) {
         <div className="space-y-1">
           <p className="text-sm font-semibold text-red-700">Camera unavailable</p>
           <ErrorMessage error={error} />
-          <p className="text-xs text-slate-500">Unable to perform vault access verification.</p>
+          <p className="text-xs text-slate-500">Unable to continue until the camera is available.</p>
         </div>
       )}
     </div>

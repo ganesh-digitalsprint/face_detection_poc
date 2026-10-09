@@ -12,7 +12,7 @@ const IMAGE_TYPES = ['image/jpeg', 'image/png'];
  * Drag & drop / click uploader for images (default) or video (`kind="video"`).
  * Controlled: parent owns `file`; `onChange(file|null)`.
  */
-export default function ImageUploader({ file, onChange, disabled = false, kind = 'image', label }) {
+export default function ImageUploader({ file, onChange, disabled = false, kind = 'image', label, multiple = false }) {
   const inputId = useId();
   const inputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
@@ -21,19 +21,24 @@ export default function ImageUploader({ file, onChange, disabled = false, kind =
   const isVideo = kind === 'video';
   const noun = isVideo ? 'video' : 'image';
 
-  const accept = (candidate) => {
-    if (!candidate) return;
-    if (isVideo ? !candidate.type.startsWith('video/') : !IMAGE_TYPES.includes(candidate.type)) {
+  const accept = (selection) => {
+    const candidates = multiple ? Array.from(selection ?? []) : [selection];
+    if (!candidates.length || !candidates[0]) return;
+    const invalid = candidates.find((candidate) => (
+      isVideo ? !candidate.type.startsWith('video/') : !IMAGE_TYPES.includes(candidate.type)
+    ));
+    if (invalid) {
       setValidation(isVideo ? 'Please choose a video file (MP4 recommended).' : 'Unsupported file. Use JPG, JPEG or PNG.');
       return;
     }
     const maxBytes = isVideo ? VIDEO_MAX_BYTES : IMAGE_MAX_BYTES;
-    if (candidate.size > maxBytes) {
-      setValidation(`File is ${formatBytes(candidate.size)}; the maximum is ${formatBytes(maxBytes)}.`);
+    const oversized = candidates.find((candidate) => candidate.size > maxBytes);
+    if (oversized) {
+      setValidation(`File is ${formatBytes(oversized.size)}; the maximum is ${formatBytes(maxBytes)}.`);
       return;
     }
     setValidation(null);
-    onChange(candidate);
+    onChange(multiple ? candidates : candidates[0]);
   };
 
   const reset = () => {
@@ -45,7 +50,7 @@ export default function ImageUploader({ file, onChange, disabled = false, kind =
   const onDrop = (event) => {
     event.preventDefault();
     setDragging(false);
-    if (!disabled) accept(event.dataTransfer.files?.[0]);
+    if (!disabled) accept(multiple ? event.dataTransfer.files : event.dataTransfer.files?.[0]);
   };
 
   return (
@@ -105,9 +110,13 @@ export default function ImageUploader({ file, onChange, disabled = false, kind =
         id={inputId}
         type="file"
         accept={isVideo ? 'video/*' : IMAGE_TYPES.join(',')}
+        multiple={multiple}
         className="sr-only"
         disabled={disabled}
-        onChange={(e) => accept(e.target.files?.[0])}
+        onChange={(e) => {
+          accept(multiple ? e.target.files : e.target.files?.[0]);
+          if (multiple) e.target.value = '';
+        }}
       />
       {validation && <p role="alert" className="mt-2 text-sm text-red-600">{validation}</p>}
     </div>
