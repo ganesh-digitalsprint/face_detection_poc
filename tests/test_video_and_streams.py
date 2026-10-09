@@ -139,3 +139,42 @@ def test_face_recognition_image_path_remains_available():
     result = service.identify_image(np.zeros((40, 40, 3), dtype=np.uint8))
     assert result.faces_detected == 2
     assert [face.matched for face in result.recognized_faces] == [False, True]
+
+
+def test_cctv_camera_list_exposes_indexes_without_rtsp_secrets(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from pydantic import SecretStr
+
+    from app.api.routes import streams
+    from app.core.config import settings
+
+    secret = "rtsp://admin:hunter2@10.0.0.5/stream1"
+    monkeypatch.setattr(settings, "RTSP_URLS", [SecretStr(secret), SecretStr(secret)])
+    app = FastAPI()
+    app.include_router(streams.router)
+
+    response = TestClient(app).get("/api/v1/streams/cctv/cameras")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"stream_index": 0, "label": "CCTV Camera 1"},
+        {"stream_index": 1, "label": "CCTV Camera 2"},
+    ]
+    assert "hunter2" not in response.text
+
+
+def test_cctv_camera_list_is_empty_when_none_configured(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import streams
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RTSP_URLS", [])
+    app = FastAPI()
+    app.include_router(streams.router)
+
+    response = TestClient(app).get("/api/v1/streams/cctv/cameras")
+
+    assert response.json() == []
