@@ -6,6 +6,10 @@ const enc = encodeURIComponent;
 export const createEmployee = (payload) =>
   client.post('/api/v1/employees', payload).then((r) => r.data);
 
+// -> { employee_id, authorization_exists, authorization_active, face_registered }
+export const getEmployeeRegistrationStatus = (employeeId) =>
+  client.get(`/api/v1/employees/${enc(employeeId)}/registration-status`).then((r) => r.data);
+
 // -> { employee_id, is_active, face_registered, authorized_by, authorization_reason, remarks, ... }
 export const createAuthorization = (employeeId, payload) =>
   client.post(`/api/v1/employees/${enc(employeeId)}/authorization`, payload).then((r) => r.data);

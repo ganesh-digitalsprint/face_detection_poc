@@ -137,13 +137,15 @@ class FaceEmbeddingRepository:
     def create_embedding(
         self, *, person_id: int, embedding: Sequence[float], model_name: str,
         detector_name: str, distance_metric: str, image_path: str | None = None,
-        commit: bool = True,
+        commit: bool = True, point_id: str | None = None,
     ) -> str:
         # detector_name, metric and image_path remain API-compatible metadata;
         # only the canonical person ID and model name are needed in Qdrant.
         del detector_name, distance_metric, image_path, commit
         try:
-            return self._qdrant.insert_embedding(person_id, list(embedding), model_name)
+            return self._qdrant.insert_embedding(
+                person_id, list(embedding), model_name, point_id=point_id
+            )
         except (QdrantConnectionError, EmbeddingDimensionError) as exc:
             raise RepositoryError(str(exc)) from exc
 

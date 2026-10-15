@@ -14,3 +14,7 @@ export const resolveStreamUrl = (session) => {
   const url = session.stream_url || `/api/v1/streams/${session.session_id}/stream`;
   return /^https?:\/\//.test(url) ? url : apiUrl(url);
 };
+
+// -> [{ stream_index, label }] for configured CCTV sources (no RTSP URL or credentials).
+export const listCCTVCameras = () =>
+  client.get('/api/v1/streams/cctv/cameras').then((r) => r.data);

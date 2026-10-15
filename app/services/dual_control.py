@@ -10,6 +10,18 @@ import threading
 from app.core.ml_config import load_ml_config_file
 
 
+@dataclass(frozen=True)
+class VerifiedCustodian:
+    """Display details captured when a custodian is accepted into a session slot."""
+
+    slot: int
+    employee_id: str
+    name: str
+    department: str | None
+    designation: str | None
+    verified_at: datetime
+
+
 @dataclass
 class DualControlSession:
     session_id: str
@@ -18,7 +30,8 @@ class DualControlSession:
     required_persons: int
     liveness_session_id: str
     liveness_challenge: str
-    authenticated_employee_ids: set[str] = field(default_factory=set)
+    # employee_id -> custodian record, in verification order.
+    verified: dict[str, VerifiedCustodian] = field(default_factory=dict)
     status: str = "WAITING_FOR_FIRST_PERSON"
     handoff_until: float | None = None
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
@@ -26,6 +39,13 @@ class DualControlSession:
     @property
     def remaining_seconds(self) -> int:
         return max(0, int((self.expires_at - datetime.now(timezone.utc)).total_seconds() + 0.999))
+
+    @property
+    def authenticated_employee_ids(self) -> set[str]:
+        return set(self.verified)
+
+    def custodians(self) -> list[VerifiedCustodian]:
+        return sorted(self.verified.values(), key=lambda custodian: custodian.slot)
 
 
 class DualControlSessionNotFoundError(LookupError):
@@ -66,7 +86,7 @@ class DualControlSessionManager:
     def expire_if_needed(self, session: DualControlSession) -> bool:
         if datetime.now(timezone.utc) < session.expires_at:
             return False
-        session.authenticated_employee_ids.clear()
+        session.verified = {}
         session.status = "EXPIRED"
         return True
 

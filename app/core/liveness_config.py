@@ -19,8 +19,28 @@ class LivenessChallenge(StrEnum):
     SMILE = "SMILE"
 
 
+class DirectionalSettings(BaseModel):
+    """Head-pose thresholds for the four directional challenges.
+
+    Values are unitless landmark ratios (nose offset / inter-eye span for yaw,
+    nose offset / eye-mouth distance for pitch) measured against the neutral
+    baseline, not degrees. Calibrate per camera/setup.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    yaw_threshold: float = Field(default=0.12, gt=0)
+    pitch_threshold: float = Field(default=0.09, gt=0)
+    # Opposite-direction delta that triggers the "wrong direction" hint.
+    wrong_direction_ratio: float = Field(default=0.6, gt=0, le=1)
+    hold_duration_ms: int = Field(default=500, ge=0)
+
+
 class LivenessSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    directional_challenges: DirectionalSettings = Field(default_factory=DirectionalSettings)
+    debug: bool = False
 
     enabled: bool = True
     method: str = "active"

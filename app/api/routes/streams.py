@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.core.config import settings
-from app.schemas.streams import CCTVStartRequest, StreamStartedResponse
+from app.schemas.streams import CCTVCamera, CCTVStartRequest, StreamStartedResponse
 from app.services.stream_manager import StreamManager, StreamOpenError
 
 router = APIRouter(prefix="/api/v1/streams", tags=["streams"])
@@ -25,6 +25,15 @@ def start_webcam() -> StreamStartedResponse:
         stream_url=f"/api/v1/streams/{session.session_id}/stream",
         stop_url=f"/api/v1/streams/{session.session_id}/stop",
     )
+
+
+@router.get("/cctv/cameras", response_model=list[CCTVCamera])
+def list_cctv_cameras() -> list[CCTVCamera]:
+    """List configured CCTV sources by index only; RTSP URLs stay server-side."""
+    return [
+        CCTVCamera(stream_index=index, label=f"CCTV Camera {index + 1}")
+        for index, _ in enumerate(settings.RTSP_URLS)
+    ]
 
 
 @router.post("/cctv", response_model=StreamStartedResponse)

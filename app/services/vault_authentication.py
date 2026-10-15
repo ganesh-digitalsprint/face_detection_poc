@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import time
 import math
 
@@ -9,6 +10,7 @@ from app.core.logging import get_logger
 from app.services.dual_control import (
     DualControlSession,
     DualControlSessionManager,
+    VerifiedCustodian,
     get_dual_control_session_manager,
 )
 from app.db.authorization_repository import AuthorizedEmployeeRepository
@@ -17,6 +19,7 @@ from app.ml.model_config import get_face_model_config
 from app.ml.deepface_service import MultipleFacesError, NoFaceDetectedError
 from app.schemas.vault_authentication import (
     AuthorizationDecision,
+    CustodianSummary,
     LivenessDecision,
     RecognitionDecision,
     VaultAuthenticationResponse,
@@ -35,7 +38,7 @@ logger = get_logger(__name__)
 
 IDENTITY_WINDOW_SECONDS = 60
 MAX_IDENTITY_ATTEMPTS = 5
-HANDOFF_SECONDS = 8
+HANDOFF_SECONDS = 5
 
 
 class VaultAuthenticationService:
@@ -103,9 +106,9 @@ class VaultAuthenticationService:
                         reason="DUPLICATE_EMPLOYEE_REJECTED",
                     )
                 else:
-                    session.authenticated_employee_ids.add(employee_id)
+                    self._record_custodian(session, employee_id)
                     logger.info("PERSON_AUTHENTICATED employee=%s", employee_id)
-                    if len(session.authenticated_employee_ids) >= session.required_persons:
+                    if len(session.verified) >= session.required_persons:
                         session.status = "ACCESS_GRANTED"
                         logger.info("DUAL_CONTROL_VERIFIED session=%s", session_id)
                         logger.info("ACCESS_GRANTED session=%s", session_id)
@@ -142,7 +145,7 @@ class VaultAuthenticationService:
                 )
                 self._start_person_liveness(session)
 
-            if session.authenticated_employee_ids:
+            if session.verified:
                 session.status = "WAITING_FOR_SECOND_PERSON"
             else:
                 session.status = "WAITING_FOR_FIRST_PERSON"
@@ -158,6 +161,7 @@ class VaultAuthenticationService:
             reason=liveness.reason,
             completed_challenges=liveness.completed_challenges,
             required_challenges=liveness.required_challenges,
+            feedback=liveness.feedback,
         )
         if not liveness.passed:
             reason = (
@@ -292,6 +296,34 @@ class VaultAuthenticationService:
             status="DUAL_CONTROL_VERIFIED" if access_granted else "DENIED",
         )
 
+    def _record_custodian(self, session: DualControlSession, employee_id: str) -> None:
+        employee = self._employees.get_by_employee_id(employee_id)
+        session.verified = {
+            **session.verified,
+            employee_id: VerifiedCustodian(
+                slot=len(session.verified) + 1,
+                employee_id=employee_id,
+                name=getattr(employee, "name", None) or employee_id,
+                department=getattr(employee, "department", None),
+                designation=getattr(employee, "designation", None),
+                verified_at=datetime.now(timezone.utc),
+            ),
+        }
+
+    @staticmethod
+    def _custodian_summaries(session: DualControlSession) -> list[CustodianSummary]:
+        return [
+            CustodianSummary(
+                slot=custodian.slot,
+                employee_id=custodian.employee_id,
+                name=custodian.name,
+                department=custodian.department,
+                designation=custodian.designation,
+                verified_at=custodian.verified_at.isoformat(),
+            )
+            for custodian in session.custodians()
+        ]
+
     def _start_person_liveness(self, session: DualControlSession) -> None:
         started = self._liveness.start_session()
         session.liveness_session_id = started.session_id
@@ -322,11 +354,12 @@ class VaultAuthenticationService:
             access_granted=False,
             reason=reason or ("WAITING_FOR_NEXT_PERSON" if active_handoff else "NEXT_PERSON_READY"),
             status=session.status,
-            authenticated_count=len(session.authenticated_employee_ids),
+            authenticated_count=len(session.verified),
             required_count=session.required_persons,
             remaining_seconds=session.remaining_seconds,
             next_challenge=None if active_handoff else session.liveness_challenge,
             handoff_remaining_seconds=math.ceil(max(0, remaining)),
+            authenticated_custodians=VaultAuthenticationService._custodian_summaries(session),
         )
 
     @staticmethod
@@ -337,7 +370,7 @@ class VaultAuthenticationService:
         status: str,
         access_granted: bool = False,
     ) -> VaultAuthenticationResponse:
-        count = len(session.authenticated_employee_ids)
+        count = len(session.verified)
         liveness = response.liveness if response else LivenessDecision(
             passed=False,
             challenge=session.liveness_challenge,
@@ -360,6 +393,7 @@ class VaultAuthenticationService:
             required_count=session.required_persons,
             remaining_seconds=0 if status == "DUAL_AUTHENTICATION_TIMEOUT" else session.remaining_seconds,
             next_challenge=session.liveness_challenge,
+            authenticated_custodians=VaultAuthenticationService._custodian_summaries(session),
         )
 
     @staticmethod

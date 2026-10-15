@@ -17,6 +17,7 @@ from app.services.liveness_service import LivenessService, get_liveness_service
 from app.services.face_recognition import FaceRecognitionService
 from app.services.face_registration import FaceRegistrationService
 from app.services.employee_registration import EmployeeRegistrationService
+from app.services.employee_lookup import EmployeeLookupService
 from app.services.authorization_registration import AuthorizationRegistrationService
 from app.services.face_enrollment import FaceEnrollmentService
 from app.services.vault_authentication import VaultAuthenticationService
@@ -53,6 +54,14 @@ def get_employee_registration_service(
     session: Session = Depends(get_db),
 ) -> EmployeeRegistrationService:
     return EmployeeRegistrationService(session)
+
+
+def get_employee_lookup_service(
+    session: Session = Depends(get_db),
+) -> EmployeeLookupService:
+    return EmployeeLookupService(
+        EmployeeRepository(session), AuthorizedEmployeeRepository(session)
+    )
 
 
 def get_authorization_registration_service(

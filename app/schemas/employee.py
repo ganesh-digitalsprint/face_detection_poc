@@ -37,3 +37,10 @@ class EmployeeResponse(BaseModel):
     designation: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class EmployeeRegistrationStatus(BaseModel):
+    employee_id: str
+    authorization_exists: bool
+    authorization_active: bool | None
+    face_registered: bool

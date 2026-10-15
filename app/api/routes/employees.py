@@ -9,18 +9,33 @@ from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile, s
 from app.api.dependencies import (
     get_authorization_registration_service,
     get_employee_registration_service,
+    get_employee_lookup_service,
     get_face_enrollment_service,
     read_upload_bytes,
 )
 from app.api.errors import ErrorResponse
 from app.schemas.authorization import AuthorizationCreate, AuthorizationResponse
-from app.schemas.employee import EmployeeCreate, EmployeeResponse
+from app.schemas.employee import EmployeeCreate, EmployeeRegistrationStatus, EmployeeResponse
 from app.schemas.face_enrollment import FaceEnrollmentResponse
 from app.services.authorization_registration import AuthorizationRegistrationService
 from app.services.employee_registration import EmployeeRegistrationService
+from app.services.employee_lookup import EmployeeLookupService
 from app.services.face_enrollment import FaceEnrollmentService, MAX_ENROLLMENT_IMAGES
 
 employee_router = APIRouter(prefix="/api/v1/employees", tags=["employees"])
+
+
+@employee_router.get(
+    "/{employee_id}/registration-status",
+    response_model=EmployeeRegistrationStatus,
+    responses={404: {"model": ErrorResponse, "description": "Employee not found"}},
+)
+def get_employee_registration_status(
+    employee_id: Annotated[str, Path(min_length=1, max_length=50)],
+    service: Annotated[EmployeeLookupService, Depends(get_employee_lookup_service)],
+) -> EmployeeRegistrationStatus:
+    """Return saved employee, authorization, and face-enrollment progress."""
+    return service.get_registration_status(employee_id)
 
 
 @employee_router.post(
