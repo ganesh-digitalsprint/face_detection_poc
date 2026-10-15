@@ -500,7 +500,6 @@ class LivenessService:
             self._sessions.pop(session_id, None)
 
 
-<<<<<<< HEAD
 def _extract_features(image: Image, face: DetectedFaceInfo) -> _FaceFeatures | None:
     points = face.landmarks or {}
     required = ("left_eye", "right_eye", "nose", "mouth_left", "mouth_right")
@@ -646,8 +645,6 @@ def _evaluate_directional(
     return False, score, "Expected head movement not yet detected", "DETECTING"
 
 
-=======
->>>>>>> 1059e0f6ca90d6b684fc3159141a72ac66a0313d
 def _reset_calibration(session: _Session) -> None:
     session.baseline_samples.clear()
     session.baseline = None
