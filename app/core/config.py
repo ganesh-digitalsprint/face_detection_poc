@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     MAX_VIDEO_UPLOAD_MB: int = Field(default=500, ge=1)
 
     # ------------------------------------------------------------------
+    # Developer tools
+    # ------------------------------------------------------------------
+    # Liveness Test Lab API (/api/v1/liveness-test). Off unless explicitly enabled;
+    # keep it off in production. When off the router is not mounted (404).
+    LIVENESS_TEST_ENABLED: bool = False
+
+    # ------------------------------------------------------------------
     # Storage
     # ------------------------------------------------------------------
     # Where enrollment (registration) images are saved.

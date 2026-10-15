@@ -9,8 +9,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import lru_cache
 
-import numpy as np
-
 from app.core.liveness_config import LivenessChallenge, LivenessSettings, get_liveness_config
 from app.core.logging import get_logger
 from app.ml.deepface_service import (
@@ -21,31 +19,27 @@ from app.ml.deepface_service import (
 )
 from app.services.face_detection import FaceDetectionService, get_face_detection_service
 from app.services.fast_landmarks import FastLandmarker
+from app.services.liveness_features import (  # noqa: F401 - re-exported for existing importers
+    BASELINE_SAMPLES,
+    CROSS_AXIS_DOMINANCE,
+    CROSS_AXIS_LIMIT,
+    DIRECTIONAL as _DIRECTIONAL,
+    FRONTAL_PITCH_MAX,
+    FRONTAL_YAW_MAX,
+    PITCH_PASS_THRESHOLD,
+    REQUIRED_ACTION_HITS,
+    YAW_PASS_THRESHOLD,
+    ActionState,
+    FaceFeatures as _FaceFeatures,
+    apply_action_hits,
+    average_features,
+    evaluate_action,
+    extract_features,
+    is_frontal_pose,
+)
 from app.utils.image import Image
 
 logger = get_logger(__name__)
-
-FRONTAL_YAW_MAX = 0.07
-FRONTAL_PITCH_MAX = 0.06
-YAW_PASS_THRESHOLD = 0.12
-PITCH_PASS_THRESHOLD = 0.09
-CROSS_AXIS_LIMIT = 0.6
-CROSS_AXIS_DOMINANCE = 1.5
-REQUIRED_ACTION_HITS = 2
-
-# Coordinate convention (raw, un-mirrored camera frame; the UI preview mirror is
-# presentation-only and never reaches this code):
-#   yaw   = nose.x offset from eye midpoint. The subject's physical LEFT appears on
-#           the image's RIGHT in an un-mirrored frame, so physical left => yaw INCREASES.
-#   pitch = nose.y offset from eye midpoint. Looking UP => pitch DECREASES.
-# Maps challenge -> (axis, sign) where sign * delta > 0 means "toward the requested direction".
-_DIRECTIONAL: dict[LivenessChallenge, tuple[str, int]] = {
-    LivenessChallenge.TURN_LEFT: ("yaw", 1),
-    LivenessChallenge.TURN_RIGHT: ("yaw", -1),
-    LivenessChallenge.LOOK_UP: ("pitch", -1),
-    LivenessChallenge.LOOK_DOWN: ("pitch", 1),
-}
-
 
 class LivenessStatus(StrEnum):
     CHALLENGE_SELECTED = "CHALLENGE_SELECTED"
@@ -76,15 +70,6 @@ class LivenessSessionStarted:
     expires_in_seconds: int
 
 
-@dataclass(frozen=True, slots=True)
-class _FaceFeatures:
-    center_x_normalized: float
-    center_y_normalized: float
-    yaw: float
-    pitch: float
-    eye_openness: float
-
-
 @dataclass(slots=True)
 class _Session:
     session_id: str
@@ -96,15 +81,45 @@ class _Session:
     attempts: int = 1
     status: LivenessStatus = LivenessStatus.CHALLENGE_SELECTED
     baseline_samples: list[_FaceFeatures] = field(default_factory=list)
-    baseline: _FaceFeatures | None = None
-    blink_closed_seen: bool = False
-    hold_started_at: float | None = None
+    action: ActionState = field(default_factory=ActionState)
     scores: list[float] = field(default_factory=list)
     last_result: LivenessResult | None = None
     passed_at: float | None = None
     identity_attempts: int = 0
     identity_completed: bool = False
-    action_hits: int = 0
+
+    # Calibration/action fields live in the shared ActionState; these keep the old attribute API.
+    @property
+    def baseline(self) -> _FaceFeatures | None:
+        return self.action.baseline
+
+    @baseline.setter
+    def baseline(self, value: _FaceFeatures | None) -> None:
+        self.action.baseline = value
+
+    @property
+    def blink_closed_seen(self) -> bool:
+        return self.action.blink_closed_seen
+
+    @blink_closed_seen.setter
+    def blink_closed_seen(self, value: bool) -> None:
+        self.action.blink_closed_seen = value
+
+    @property
+    def hold_started_at(self) -> float | None:
+        return self.action.hold_started_at
+
+    @hold_started_at.setter
+    def hold_started_at(self, value: float | None) -> None:
+        self.action.hold_started_at = value
+
+    @property
+    def action_hits(self) -> int:
+        return self.action.action_hits
+
+    @action_hits.setter
+    def action_hits(self, value: int) -> None:
+        self.action.action_hits = value
 
 
 class LivenessSessionNotFoundError(LookupError):
@@ -233,7 +248,7 @@ class LivenessService:
                 "Facial landmarks are unavailable for the configured detector",
             )
 
-        features = _extract_features(image, face)
+        features = extract_features(image, face)
         self._log_detection_duration(session_id, detection_started)
         if features is None:
             return self._finish_by_id(
@@ -258,8 +273,8 @@ class LivenessService:
             if session.baseline is None:
                 session.baseline_samples.append(features)
                 session.status = LivenessStatus.WAITING_FOR_ACTION
-                if len(session.baseline_samples) >= 2:
-                    session.baseline = _average_features(session.baseline_samples)
+                if len(session.baseline_samples) >= BASELINE_SAMPLES:
+                    session.baseline = average_features(session.baseline_samples)
                     session.challenge_started_at = time.monotonic()
                 return self._result(
                     session,
@@ -269,18 +284,10 @@ class LivenessService:
                     reason="Keep facing the camera, then perform the requested challenge",
                 )
 
-            passed, score, reason, feedback = _evaluate_action(
-                session, challenge, features, self._config
+            passed, score, reason, feedback = evaluate_action(
+                session.action, challenge, features, self._config
             )
-            if passed and challenge in _DIRECTIONAL:
-                pass  # the time-based hold in _evaluate_directional already confirmed it
-            elif passed:
-                session.action_hits += 1
-                if session.action_hits < REQUIRED_ACTION_HITS:
-                    passed = False
-                    reason = "Hold that position"
-            else:
-                session.action_hits = 0
+            passed, reason = apply_action_hits(session.action, challenge, passed, reason)
             if not passed:
                 session.status = LivenessStatus.WAITING_FOR_ACTION
                 return self._result(
@@ -354,16 +361,10 @@ class LivenessService:
         """Compare the current face pose with the frontal liveness baseline."""
         with self._lock:
             baseline = self._get_session(session_id).baseline
-        features = _extract_features(image, face)
+        features = extract_features(image, face)
         if features is None:
             return False
-        if baseline is None:
-            return abs(features.yaw) <= FRONTAL_YAW_MAX
-        return (
-            abs(features.yaw) <= 0.15
-            and abs(features.yaw - baseline.yaw) <= FRONTAL_YAW_MAX
-            and abs(features.pitch - baseline.pitch) <= FRONTAL_PITCH_MAX
-        )
+        return is_frontal_pose(features, baseline)
 
     def _handle_challenge_timeout(self, session: _Session, now: float) -> LivenessResult | None:
         # Calibration is not part of the user's challenge time budget.
@@ -499,6 +500,7 @@ class LivenessService:
             self._sessions.pop(session_id, None)
 
 
+<<<<<<< HEAD
 def _extract_features(image: Image, face: DetectedFaceInfo) -> _FaceFeatures | None:
     points = face.landmarks or {}
     required = ("left_eye", "right_eye", "nose", "mouth_left", "mouth_right")
@@ -644,6 +646,8 @@ def _evaluate_directional(
     return False, score, "Expected head movement not yet detected", "DETECTING"
 
 
+=======
+>>>>>>> 1059e0f6ca90d6b684fc3159141a72ac66a0313d
 def _reset_calibration(session: _Session) -> None:
     session.baseline_samples.clear()
     session.baseline = None

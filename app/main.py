@@ -17,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import detection, employees, health, recognition, registration, streams, video
-from app.api.routes import vault_authorization
+from app.api.routes import liveness_test, vault_authorization
 from app.api.errors import install_error_handlers
 from app.core.config import settings
 from app.core.compute import get_compute_config
@@ -93,6 +93,9 @@ def create_app() -> FastAPI:
     app.include_router(video.router)
     app.include_router(streams.router)
     app.include_router(detection.router)
+    # Developer-only diagnostics; not mounted at all unless explicitly enabled.
+    if settings.LIVENESS_TEST_ENABLED:
+        app.include_router(liveness_test.router)
 
     @app.get("/", tags=["root"])
     async def root() -> dict[str, str]:

@@ -75,6 +75,8 @@ class MLConfigFile(BaseModel):
     performance_profiles: dict[str, PerformanceProfile]
     compute: ComputeSettings = Field(default_factory=ComputeSettings)
     liveness: dict
+    # Optional Liveness Test Lab tuning; validated by LivenessTestSettings.
+    liveness_test: dict = Field(default_factory=dict)
     vault_access: VaultAccessSettings = Field(default_factory=VaultAccessSettings)
 
 
