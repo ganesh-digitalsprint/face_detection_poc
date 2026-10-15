@@ -4,7 +4,7 @@ import StageRow from './StageRow.jsx';
 import { challengeUI } from './challengeUI.js';
 
 /** Simple user-facing feedback; raw pose values are never shown. */
-function feedbackText(liveness) {
+export function feedbackText(liveness) {
   const reason = liveness?.reason ?? '';
   if (reason === 'No face detected') return 'No face detected. Please position your face inside the camera frame.';
   if (/more than one face/i.test(reason)) return 'Multiple faces detected. Only one person should be visible.';

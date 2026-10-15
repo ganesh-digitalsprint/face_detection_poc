@@ -1,6 +1,6 @@
 """Responses for the multi-factor PGM vault authentication flow."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LivenessDecision(BaseModel):
@@ -18,11 +18,24 @@ class LivenessDecision(BaseModel):
 class RecognitionDecision(BaseModel):
     matched: bool
     employee_id: str | None = None
-    distance: float | None = None
+    # Internal only: face distance is never serialized to the client.
+    distance: float | None = Field(default=None, exclude=True)
 
 
 class AuthorizationDecision(BaseModel):
     active: bool
+
+
+class CustodianSummary(BaseModel):
+    """Display-only record of a custodian the dual-control session accepted."""
+
+    slot: int
+    employee_id: str
+    name: str
+    department: str | None = None
+    designation: str | None = None
+    verified_at: str  # ISO 8601 UTC
+    authorization_active: bool = True
 
 
 class VaultAuthenticationResponse(BaseModel):
@@ -37,6 +50,7 @@ class VaultAuthenticationResponse(BaseModel):
     remaining_seconds: int = 0
     next_challenge: str | None = None
     handoff_remaining_seconds: int = 0
+    authenticated_custodians: list[CustodianSummary] = Field(default_factory=list)
 
 
 class LivenessSessionResponse(BaseModel):

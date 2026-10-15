@@ -3,19 +3,35 @@ import { resolveStreamUrl } from '../../api/streams.js';
 import { CAMERA_KINDS } from '../../hooks/useCameraSource.js';
 import ErrorMessage from '../common/ErrorMessage.jsx';
 
-/** Renders the active source. Frames for verification are read from these elements by the hook. */
-export default function CameraPreview({ camera, errorHint = 'Unable to continue until the camera is available.' }) {
+const FRAME_CLASSES = {
+  default: 'aspect-video rounded-lg bg-slate-900',
+  // Vault stage: tall, dark ground; overlays are positioned over it by `children`.
+  stage: 'min-h-[360px] rounded-xl bg-[#0B1224] lg:min-h-[560px]',
+};
+
+/**
+ * Renders the active source. Frames for verification are read from these elements by the hook.
+ * `children` are drawn above the video (face guide, prompts) and never affect captured frames.
+ */
+export default function CameraPreview({
+  camera,
+  errorHint = 'Unable to continue until the camera is available.',
+  variant = 'default',
+  children,
+}) {
   const { kind, status, error, cctvSession, videoRef, imgRef } = camera;
   const showWebcam = kind === CAMERA_KINDS.WEBCAM && status === 'ready';
   const showCctv = kind === CAMERA_KINDS.CCTV && cctvSession;
+  const fit = variant === 'stage' ? 'object-cover' : 'object-contain';
+  const media = variant === 'stage' ? 'absolute inset-0' : '';
 
   return (
     <div className="space-y-3">
-      <div className="flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-slate-900">
+      <div className={`relative flex items-center justify-center overflow-hidden ${FRAME_CLASSES[variant]}`}>
         {/* Mirror is presentation-only: frames sent to the backend are captured from the raw
             video via canvas, so CSS transforms never reach liveness head-pose analysis. */}
         {showWebcam && (
-          <video ref={videoRef} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-contain" />
+          <video ref={videoRef} autoPlay playsInline muted className={`${media} h-full w-full -scale-x-100 ${fit}`} />
         )}
         {showCctv && (
           <img
@@ -24,7 +40,7 @@ export default function CameraPreview({ camera, errorHint = 'Unable to continue 
             crossOrigin="anonymous"
             src={resolveStreamUrl(cctvSession)}
             alt="CCTV camera stream"
-            className="h-full w-full object-contain"
+            className={`${media} h-full w-full ${fit}`}
             onLoad={camera.markCctvReady}
             onError={camera.markCctvFailed}
           />
@@ -35,6 +51,7 @@ export default function CameraPreview({ camera, errorHint = 'Unable to continue 
             <p className="text-sm">{status === 'starting' ? 'Starting camera...' : 'Camera is off'}</p>
           </div>
         )}
+        {children}
       </div>
       {status === 'error' && (
         <div className="space-y-1">

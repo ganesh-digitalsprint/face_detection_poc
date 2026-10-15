@@ -27,6 +27,25 @@ body {
   .direction-arrow { animation: none; }
 }
 
+/* Vault Access surfaces. Manrope is used only if installed locally; otherwise the app font. */
+.vault-card {
+  background: #fff;
+  border: 1px solid #e3e7f0;
+  border-radius: 16px;
+}
+.vault-heading {
+  font-family: Manrope, inherit;
+  font-weight: 700;
+  color: #0f1b3d;
+}
+
+@keyframes custodian-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.custodian-enter { animation: custodian-enter 200ms ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .custodian-enter { animation: none; }
+}
+
 :focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;

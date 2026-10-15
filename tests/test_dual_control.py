@@ -47,7 +47,10 @@ class _Liveness:
 
 class _Employees:
     def get_by_employee_id(self, employee_id):
-        return SimpleNamespace(employee_id=employee_id, id=int(employee_id[-1]))
+        return SimpleNamespace(
+            employee_id=employee_id, id=int(employee_id[-1]), name=f"Name {employee_id}",
+            department="Treasury", designation="Manager",
+        )
 
 
 class _Authorizations:
@@ -83,11 +86,11 @@ def test_start_and_first_person_keep_fixed_three_minute_window():
     assert result.authenticated_count == 1
     assert result.access_granted is False
     assert result.reason == "FIRST_PERSON_VERIFIED"
-    assert result.handoff_remaining_seconds == 8
+    assert result.handoff_remaining_seconds == 5
     assert session.expires_at == session.started_at + timedelta(seconds=180)
 
 
-def test_server_waits_eight_seconds_before_starting_second_liveness():
+def test_server_waits_handoff_seconds_before_starting_second_liveness():
     service, _, session = _service()
     image = np.zeros((80, 80, 3), dtype=np.uint8)
     service.process_frame(session.session_id, image)
@@ -109,10 +112,11 @@ def test_same_employee_cannot_fill_both_slots_and_different_employee_can():
     service, qdrant, session = _service()
     image = np.zeros((80, 80, 3), dtype=np.uint8)
     service.process_frame(session.session_id, image)
-    duplicate = service.process_frame(session.session_id, image)
-    assert duplicate.authenticated_count == 1
-    assert duplicate.access_granted is False
-    assert duplicate.reason == "FIRST_PERSON_VERIFIED"
+    # Frames during the handoff are not processed, so nobody is re-verified.
+    waiting = service.process_frame(session.session_id, image)
+    assert waiting.authenticated_count == 1
+    assert waiting.access_granted is False
+    assert waiting.reason == "WAITING_FOR_NEXT_PERSON"
 
     # Let the server-side custodian handoff elapse, then submit the next frame.
     session.handoff_until = 0
@@ -162,3 +166,46 @@ def test_concurrent_same_employee_counts_once():
     assert len(session.authenticated_employee_ids) == 1
     assert all(result.authenticated_count == 1 for result in results)
     assert not any(result.access_granted for result in results)
+
+
+def test_custodian_summaries_follow_verification_order():
+    service, qdrant, session = _service()
+    image = np.zeros((80, 80, 3), dtype=np.uint8)
+    first = service.process_frame(session.session_id, image)
+    assert [c.slot for c in first.authenticated_custodians] == [1]
+    custodian = first.authenticated_custodians[0]
+    assert custodian.employee_id == "EMP001"
+    assert custodian.name == "Name EMP001"
+    assert custodian.department == "Treasury"
+    assert custodian.designation == "Manager"
+    assert datetime.fromisoformat(custodian.verified_at).tzinfo is not None
+
+    session.handoff_until = 0
+    service.process_frame(session.session_id, image)
+    qdrant.employee_id = "EMP002"
+    granted = service.process_frame(session.session_id, image)
+    assert [c.employee_id for c in granted.authenticated_custodians] == ["EMP001", "EMP002"]
+    assert [c.slot for c in granted.authenticated_custodians] == [1, 2]
+
+
+def test_duplicate_does_not_add_custodian_and_timeout_clears_them():
+    service, _, session = _service()
+    image = np.zeros((80, 80, 3), dtype=np.uint8)
+    service.process_frame(session.session_id, image)
+    session.handoff_until = 0
+    service.process_frame(session.session_id, image)
+    duplicate = service.process_frame(session.session_id, image)
+    assert duplicate.reason == "DUPLICATE_EMPLOYEE_REJECTED"
+    assert len(duplicate.authenticated_custodians) == 1
+
+    session.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    expired = service.process_frame(session.session_id, image)
+    assert expired.authenticated_custodians == []
+
+
+def test_face_distance_is_never_serialized():
+    service, _, session = _service()
+    image = np.zeros((80, 80, 3), dtype=np.uint8)
+    payload = service.process_frame(session.session_id, image).model_dump(mode="json")
+    assert payload["recognition"]["employee_id"] == "EMP001"
+    assert "distance" not in payload["recognition"]

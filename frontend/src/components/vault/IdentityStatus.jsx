@@ -1,10 +1,13 @@
 import { findEmployee } from '../../utils/employeeDirectory.js';
 import StageRow from './StageRow.jsx';
 
-/** Identity checklist row(s). Name is display-only, looked up locally from the employee ID. */
-export default function IdentityStatus({ liveness, recognition }) {
+/**
+ * Identity checklist row(s). Name is display-only: the backend custodian record when available,
+ * otherwise the locally remembered employee directory.
+ */
+export default function IdentityStatus({ liveness, recognition, name: backendName }) {
   if (recognition?.matched) {
-    const name = findEmployee(recognition.employee_id)?.name;
+    const name = backendName ?? findEmployee(recognition.employee_id)?.name;
     return (
       <>
         <StageRow tone="pass" label="Identity verified" />

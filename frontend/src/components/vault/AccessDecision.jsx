@@ -1,14 +1,17 @@
 import { ShieldCheck, ShieldX } from 'lucide-react';
 
 // Backend `reason` codes -> user-safe text. Unlisted codes fall back to a generic message.
-const REASONS = {
+export const REASONS = {
   UNKNOWN_EMPLOYEE: 'Unknown employee',
   AUTHORIZATION_INACTIVE: 'Authorization is not active',
   IDENTITY_AUTHORIZATION_MISMATCH: 'Identity and authorization records do not match',
   DUAL_AUTHENTICATION_TIMEOUT: 'The two-person authorization window expired. Start a new verification.',
-  DUPLICATE_EMPLOYEE_REJECTED: 'A different employee must complete the second verification.',
-  FIRST_PERSON_VERIFIED: 'First custodian verified. A different employee must verify next.',
-  NEXT_PERSON_READY: 'Second custodian verification started.',
+  DUPLICATE_EMPLOYEE_REJECTED: 'This employee is already verified. A different employee must complete the next verification.',
+  FIRST_PERSON_VERIFIED: 'Custodian verified. A different employee must verify next.',
+  NEXT_PERSON_READY: 'Next custodian verification started.',
+  IDENTITY_WINDOW_EXPIRED: 'Identity check took too long after liveness. Please repeat the challenge.',
+  IDENTITY_ATTEMPTS_EXCEEDED: 'Too many identity attempts. Please repeat the challenge.',
+  LOOK_AT_CAMERA: 'Liveness verified. Look straight at the camera and hold still.',
 };
 
 export function denialReason(result, liveness) {

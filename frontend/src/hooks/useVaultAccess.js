@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { startLivenessSession, submitLivenessFrame } from '../api/vault.js';
 import { describeError } from '../utils/errors.js';
-import { BACKEND_TIMEOUT_STATUS, deriveDualState } from '../utils/dualControl.js';
-import useCountdown from './useCountdown.js';
+import { BACKEND_TIMEOUT_STATUS } from '../utils/dualControl.js';
 
 // Keep requests sequential, but resume capture promptly after each response.
 // This avoids overlapping uploads while providing more challenge samples.
@@ -10,14 +9,11 @@ const FRAME_INTERVAL_MS = 50;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Backend statuses after which the session can never progress again.
+const TERMINAL_STATUSES = ['ACCESS_GRANTED', BACKEND_TIMEOUT_STATUS, 'EXPIRED'];
+
 const INITIAL = {
   phase: 'idle', // idle | starting | liveness | done | error
-  sessionId: null,
-  expiresAt: null, // backend-provided ISO timestamp; the only basis for the countdown
-  requiredPersons: 2,
-  authenticatedCount: 0,
-  custodians: [], // employee ids in the order the backend verified them
-  secondActive: false,
   ended: null, // null | ACCESS_GRANTED | SESSION_EXPIRED | DENIED | CANCELLED
   endReason: null,
   challenge: null,
@@ -26,96 +22,74 @@ const INITIAL = {
   status: null,
   authenticatedCount: 0,
   requiredCount: 2,
-  expiresAt: null,
+  custodians: [], // backend `authenticated_custodians`, ordered by slot
+  expiresAt: null, // backend-provided ISO timestamp; the only basis for the countdown
   handoffUntil: null,
   handoffPending: false,
   now: Date.now(),
   error: null,
 };
 
-function applyFrame(state, response) {
-  const count = response.authenticated_count ?? state.authenticatedCount;
-  const employeeId = response.recognition?.employee_id;
-  const verified = count > state.authenticatedCount;
-  const custodians =
-    verified && employeeId && !state.custodians.includes(employeeId)
-      ? [...state.custodians, employeeId]
-      : state.custodians;
-  return {
-    ...state,
-    challenge: response.next_challenge ?? response.liveness.challenge,
-    liveness: response.liveness,
-    result: response,
-    authenticatedCount: count,
-    requiredPersons: response.required_count ?? state.requiredPersons,
-    custodians,
-    // Second custodian is "authenticating" once a face is in front of the camera after the first
-    // custodian was verified (not on the very frame that verified the first one).
-    secondActive: state.authenticatedCount >= 1 && count >= 1 && response.liveness.reason !== FACE_MISSING,
-  };
-}
-
 // Only the backend can finish a session with a decision; everything else keeps the session open.
 function frameOutcome(response) {
-  if (response.access_granted === true && response.status === 'ACCESS_GRANTED') return 'ACCESS_GRANTED';
-  if (response.status === BACKEND_TIMEOUT_STATUS) return 'SESSION_EXPIRED';
-  return null;
+  if (!TERMINAL_STATUSES.includes(response.status)) return null;
+  if (response.status !== 'ACCESS_GRANTED') return 'SESSION_EXPIRED';
+  // The UI never infers a grant: a terminal status without `access_granted` is a denial.
+  return response.access_granted === true ? 'ACCESS_GRANTED' : 'DENIED';
 }
 
 function reducer(state, action) {
   switch (action.type) {
     case 'starting':
-      return { ...INITIAL, phase: 'starting' };
+      return { ...INITIAL, phase: 'starting', now: Date.now() };
     case 'session':
       return {
         ...state, phase: 'liveness', challenge: action.challenge,
         status: action.session.status, authenticatedCount: 0,
         requiredCount: action.session.required_persons ?? 2,
+        custodians: [],
         expiresAt: action.session.expires_at,
         handoffUntil: null,
         handoffPending: false,
         now: Date.now(),
       };
     case 'frame': {
-      const { response } = action;
+      const { response, ended } = action;
+      const now = Date.now();
       return {
         ...state,
-        phase: action.terminal ? 'done' : 'liveness',
+        phase: ended ? 'done' : 'liveness',
+        ended,
         challenge: response.next_challenge ?? response.liveness.challenge,
         liveness: response.liveness,
         result: response,
         status: response.status,
         authenticatedCount: response.authenticated_count ?? 0,
         requiredCount: response.required_count ?? state.requiredCount,
+        custodians: response.authenticated_custodians ?? state.custodians,
         handoffUntil: response.handoff_remaining_seconds > 0
-          ? Date.now() + response.handoff_remaining_seconds * 1000
+          ? now + response.handoff_remaining_seconds * 1000
           : null,
-        handoffPending: response.handoff_remaining_seconds > 0
-          || (state.handoffPending && response.reason !== 'NEXT_PERSON_READY'),
+        handoffPending: !ended && (response.handoff_remaining_seconds > 0
+          || (state.handoffPending && response.reason !== 'NEXT_PERSON_READY')),
+        now,
       };
     }
-    case 'frame': {
-      const next = applyFrame(state, action.response);
-      return action.ended
-        ? { ...next, phase: 'done', ended: action.ended, sessionId: null }
-        : next;
-    }
     case 'ended':
-      return { ...state, phase: 'done', ended: action.ended, endReason: action.reason ?? null, sessionId: null };
+      return {
+        ...state, phase: 'done', ended: action.ended, endReason: action.reason ?? null,
+        handoffUntil: null, handoffPending: false,
+      };
     case 'error':
-      return { ...state, phase: 'error', error: action.error };
+      return { ...state, phase: 'error', error: action.error, handoffUntil: null, handoffPending: false };
     case 'reset':
-      return INITIAL;
+      return { ...INITIAL, now: Date.now() };
     case 'tick':
       return { ...state, now: action.now };
     default:
       return state;
   }
 }
-
-// The dual-control session continues across person-level liveness attempts.
-const isTerminal = (response) =>
-  ['ACCESS_GRANTED', 'DUAL_AUTHENTICATION_TIMEOUT'].includes(response.status);
 
 /**
  * Starts one dual-control session and feeds frames until the backend grants access or expires it.
@@ -135,16 +109,20 @@ export default function useVaultAccess(camera) {
       try {
         blob = await cameraRef.current.captureFrame();
       } catch (err) {
+        if (runId.current !== id) return;
         dispatch({ type: 'error', error: { message: err.message || 'Camera unavailable.', camera: true } });
         return;
       }
+      // Never send a frame captured for a session that was stopped or restarted meanwhile.
+      if (runId.current !== id) return;
       try {
         const response = await submitLivenessFrame(sessionId, blob);
         if (runId.current !== id) return;
         failures = 0;
-        const terminal = isTerminal(response);
-        dispatch({ type: 'frame', response, terminal });
-        if (terminal) return;
+        const ended = frameOutcome(response);
+        dispatch({ type: 'frame', response, ended });
+        if (ended) return;
+        // No frames are captured or sent while the custodians swap places.
         if (response.handoff_remaining_seconds > 0) {
           await sleep(response.handoff_remaining_seconds * 1000);
           if (runId.current !== id) return;
@@ -160,7 +138,7 @@ export default function useVaultAccess(camera) {
           return dispatch({ type: 'error', error: described });
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, FRAME_INTERVAL_MS));
+      await sleep(FRAME_INTERVAL_MS);
     }
     return undefined;
   }, []);
@@ -186,8 +164,13 @@ export default function useVaultAccess(camera) {
 
   const reset = useCallback(() => { cancelLoop(); dispatch({ type: 'reset' }); }, [cancelLoop]);
 
+  // Stop any in-flight loop when the page unmounts.
+  useEffect(() => cancelLoop, [cancelLoop]);
+
   useEffect(() => {
-    if (!state.expiresAt || state.phase === 'done' || state.phase === 'idle') return undefined;
+    if (!state.expiresAt || state.phase === 'done' || state.phase === 'idle' || state.phase === 'error') {
+      return undefined;
+    }
     const timer = window.setInterval(() => dispatch({ type: 'tick', now: Date.now() }), 250);
     return () => window.clearInterval(timer);
   }, [state.expiresAt, state.phase]);
@@ -198,5 +181,5 @@ export default function useVaultAccess(camera) {
   const handoffRemaining = state.handoffUntil
     ? Math.max(0, Math.ceil((state.handoffUntil - state.now) / 1000))
     : 0;
-  return { ...state, remainingSeconds, handoffRemaining, start, reset };
+  return { ...state, remainingSeconds, handoffRemaining, start, cancel, reset };
 }
