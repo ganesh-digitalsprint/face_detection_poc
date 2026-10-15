@@ -16,7 +16,6 @@ class LivenessChallenge(StrEnum):
     TURN_RIGHT = "TURN_RIGHT"
     LOOK_UP = "LOOK_UP"
     LOOK_DOWN = "LOOK_DOWN"
-    SMILE = "SMILE"
 
 
 class DirectionalSettings(BaseModel):

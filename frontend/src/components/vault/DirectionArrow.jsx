@@ -1,8 +1,8 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Eye, Smile, UserRound } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Eye, UserRound } from 'lucide-react';
 import { challengeUI } from './challengeUI.js';
 
 const ARROWS = { left: ArrowLeft, right: ArrowRight, up: ArrowUp, down: ArrowDown };
-const ACTION_ICONS = { BLINK: Eye, SMILE: Smile };
+const ACTION_ICONS = { BLINK: Eye };
 
 /**
  * Head silhouette with a large animated arrow on the side the user must move toward.

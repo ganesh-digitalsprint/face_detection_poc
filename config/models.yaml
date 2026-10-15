@@ -14,7 +14,6 @@ liveness:
     - TURN_RIGHT
     - LOOK_UP
     - LOOK_DOWN
-    - SMILE
   detection_max_side: 480
   challenge_timeout_seconds: 25
   max_attempts: 2

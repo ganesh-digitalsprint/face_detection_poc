@@ -9,7 +9,6 @@ export const CHALLENGE_UI = {
   LOOK_UP: { instruction: 'Tilt your head UP', direction: 'up', arrow: '↑', done: 'UP detected' },
   LOOK_DOWN: { instruction: 'Tilt your head DOWN', direction: 'down', arrow: '↓', done: 'DOWN detected' },
   BLINK: { instruction: 'Blink your eyes', direction: null, arrow: '👁', done: 'Blink detected' },
-  SMILE: { instruction: 'Smile', direction: null, arrow: '☺', done: 'Smile detected' },
 };
 
 export function challengeUI(challenge) {

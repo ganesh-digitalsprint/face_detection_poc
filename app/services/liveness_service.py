@@ -82,7 +82,6 @@ class _FaceFeatures:
     center_y_normalized: float
     yaw: float
     pitch: float
-    smile: float
     eye_openness: float
 
 
@@ -540,7 +539,6 @@ def _extract_features(image: Image, face: DetectedFaceInfo) -> _FaceFeatures | N
         center_y_normalized=(face.bbox.y + face.bbox.height / 2.0) / image.shape[0],
         yaw=yaw,
         pitch=pitch,
-        smile=float(np.linalg.norm(mouth_right - mouth_left) / eye_span),
         eye_openness=eye_openness,
     )
 
@@ -571,7 +569,6 @@ def _average_features(samples: list[_FaceFeatures]) -> _FaceFeatures:
         center_y_normalized=float(np.mean([sample.center_y_normalized for sample in samples])),
         yaw=float(np.mean([sample.yaw for sample in samples])),
         pitch=float(np.mean([sample.pitch for sample in samples])),
-        smile=float(np.mean([sample.smile for sample in samples])),
         eye_openness=float(np.mean([sample.eye_openness for sample in samples])),
     )
 
@@ -586,11 +583,6 @@ def _evaluate_action(
     assert baseline is not None
     if challenge in _DIRECTIONAL:
         return _evaluate_directional(session, challenge, current, config)
-    if challenge is LivenessChallenge.SMILE:
-        change = current.smile - baseline.smile
-        score = min(1.0, max(0.0, change) / 0.25)
-        return change >= 0.10, score, "Expected smile-related mouth movement not yet detected", None
-
     if current.eye_openness <= baseline.eye_openness * 0.62:
         session.blink_closed_seen = True
     reopened = current.eye_openness >= baseline.eye_openness * 0.82

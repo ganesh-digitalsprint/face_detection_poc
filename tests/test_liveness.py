@@ -70,7 +70,7 @@ def _liveness_service(
 
 def test_random_challenge_avoids_immediate_repeat():
     liveness = _liveness_service(
-        [LivenessChallenge.BLINK, LivenessChallenge.SMILE],
+        [LivenessChallenge.BLINK, LivenessChallenge.TURN_LEFT],
         SequenceDetection([]),
     )
     first = liveness.start_session().challenge
