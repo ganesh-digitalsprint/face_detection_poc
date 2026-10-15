@@ -12,16 +12,18 @@ export const CHALLENGE_LABELS = {
   LOOK_UP: 'Up',
   LOOK_DOWN: 'Down',
   SMILE: 'Smile',
+  BLINK: 'Blink',
 };
 export const DEFAULT_CHALLENGES = Object.keys(CHALLENGE_LABELS);
 
 // The axis each challenge moves, and the pose direction that counts as "the right way".
 export const CHALLENGE_AXIS = {
-  TURN_LEFT: { axis: 'yaw', direction: 'LEFT' },
-  TURN_RIGHT: { axis: 'yaw', direction: 'RIGHT' },
-  LOOK_UP: { axis: 'pitch', direction: 'UP' },
-  LOOK_DOWN: { axis: 'pitch', direction: 'DOWN' },
+  TURN_LEFT: { axis: 'yaw', direction: 'TURNED_LEFT' },
+  TURN_RIGHT: { axis: 'yaw', direction: 'TURNED_RIGHT' },
+  LOOK_UP: { axis: 'pitch', direction: 'LOOKING_UP' },
+  LOOK_DOWN: { axis: 'pitch', direction: 'LOOKING_DOWN' },
   SMILE: { axis: null, direction: null },
+  BLINK: { axis: null, direction: null },
 };
 
 export const NOT_VISIBLE_REASONS = {
@@ -62,15 +64,20 @@ export function shortLandmarkLabel(name, mirrored) {
   return name.split('_').map(side).join(' ');
 }
 
-/** "RIGHT" -> "Face tilted RIGHT"; centred/unknown directions read as centred. */
+// Backend pose.direction (subject's own direction) -> short word.
+const DIRECTION_WORDS = {
+  TURNED_LEFT: 'LEFT', TURNED_RIGHT: 'RIGHT', LOOKING_UP: 'UP', LOOKING_DOWN: 'DOWN',
+};
+
+/** "TURNED_RIGHT" -> "Face tilted RIGHT"; FRONTAL/unknown reads as centred. */
 export function directionHint(direction) {
-  if (!direction || ['CENTER', 'CENTRE', 'FRONTAL', 'NONE'].includes(direction)) return 'Face centred';
-  return `Face tilted ${direction}`;
+  const word = DIRECTION_WORDS[direction];
+  return word ? `Face tilted ${word}` : 'Face centred';
 }
 
 export function directionBadge(direction) {
-  if (!direction || ['CENTER', 'CENTRE', 'FRONTAL', 'NONE'].includes(direction)) return 'CENTRED';
-  return `TILTED ${direction}`;
+  const word = DIRECTION_WORDS[direction];
+  return word ? `TILTED ${word}` : 'CENTRED';
 }
 
 export const clamp01 = (value) => Math.min(1, Math.max(0, value));

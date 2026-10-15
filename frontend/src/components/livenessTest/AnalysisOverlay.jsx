@@ -7,7 +7,8 @@ const LABEL_STROKE = '#0B1224';
  * `slice` matches the video's `object-fit: cover`, so image-space points land on the face.
  */
 function DetectorLayer({ result, width, height, mirrored, toggles, color, scale }) {
-  if (!result?.visible) return null;
+  // Drawn whenever a face was located (also TOO_SMALL / LANDMARKS_UNAVAILABLE).
+  if (!result?.bbox) return null;
   const mx = (x) => (mirrored ? width - x : x);
   const { bbox, landmarks = {} } = result;
   const points = Object.entries(landmarks).filter(([, p]) => p && Number.isFinite(p.x) && Number.isFinite(p.y));

@@ -64,6 +64,26 @@ class LivenessSettings(BaseModel):
         return self
 
 
+class LivenessTestSettings(BaseModel):
+    """Developer Liveness Test Lab limits. Image-quality cut-offs are display/diagnostic only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_sharpness: float = Field(default=60.0, gt=0)
+    too_dark_brightness: float = Field(default=60.0, ge=0, le=255)
+    too_bright_brightness: float = Field(default=200.0, ge=0, le=255)
+    min_face_px: int = Field(default=112, ge=1)
+    session_ttl_seconds: int = Field(default=600, ge=10)
+    max_sessions: int = Field(default=20, ge=1)
+    max_upload_bytes: int = Field(default=2 * 1024 * 1024, ge=1024)
+    rate_limit_per_second: float = Field(default=15.0, gt=0)
+
+
+@lru_cache(maxsize=1)
+def get_liveness_test_config() -> LivenessTestSettings:
+    return LivenessTestSettings.model_validate(load_ml_config_file().liveness_test)
+
+
 @lru_cache(maxsize=1)
 def get_liveness_config() -> LivenessSettings:
     """Return validated liveness policy from ``config/models.yaml``."""
