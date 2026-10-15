@@ -6,12 +6,14 @@ import {
 } from 'lucide-react';
 import StatusBadge from '../components/common/StatusBadge.jsx';
 import useHealth from '../hooks/useHealth.js';
+import useLivenessTestFeature from '../hooks/useLivenessTestFeature.js';
 import useSidebar from '../hooks/useSidebar.js';
 
 const TITLES = [
   ['/registration/authorized', 'Authorized Employee Registration'],
   ['/registration/employees', 'Employee Registration'],
   ['/vault-access', 'Vault Access'],
+  ['/liveness-test', 'Liveness Test'],
   ['/detection', 'Face Detection'],
   ['/registration', 'Person Registration'],
   ['/identification', 'Face Identification'],
@@ -51,6 +53,8 @@ function Section({ label, collapsed }) {
 
 function Sidebar({ onNavigate, collapsed = false }) {
   const props = { collapsed };
+  // Hidden unless the backend reports the test tool enabled (404 = disabled).
+  const livenessTest = useLivenessTestFeature();
   return (
     <nav
       aria-label="Main"
@@ -66,6 +70,7 @@ function Sidebar({ onNavigate, collapsed = false }) {
       <Item to="/registration/employees" icon={Users} label="Employee Registration" {...props} />
       <Section label="Vault Access" {...props} />
       <Item to="/vault-access" icon={LockKeyhole} label="Vault Access" {...props} />
+      {livenessTest.status === 'enabled' && <Item to="/liveness-test" icon={ScanFace} label="Liveness Test" {...props} />}
       <Section label="Images" {...props} />
       <Item to="/detection" icon={ScanFace} label="Face Detection" {...props} />
       <Item to="/registration" end icon={UserPlus} label="Person Registration" {...props} />

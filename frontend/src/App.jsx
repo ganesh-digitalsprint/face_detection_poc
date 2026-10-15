@@ -1,4 +1,6 @@
+import { lazy, Suspense } from 'react';
 import { Route, Routes } from 'react-router-dom';
+import Loading from './components/common/Loading.jsx';
 import AppLayout from './layouts/AppLayout.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Detection from './pages/Detection.jsx';
@@ -12,6 +14,8 @@ import FaceEnrollment from './pages/registration/FaceEnrollment.jsx';
 import Verification from './pages/Verification.jsx';
 import VideoRecognition from './pages/VideoRecognition.jsx';
 
+const LivenessTestPage = lazy(() => import('./pages/LivenessTestPage.jsx'));
+
 export default function App() {
   return (
     <Routes>
@@ -23,6 +27,10 @@ export default function App() {
         <Route path="registration/authorized/:employeeId" element={<AuthorizedEmployeeRegistration />} />
         <Route path="registration/authorized/:employeeId/face" element={<FaceEnrollment />} />
         <Route path="vault-access" element={<VaultAccess />} />
+        <Route
+          path="liveness-test"
+          element={<Suspense fallback={<Loading message="Loading Liveness Test…" />}><LivenessTestPage /></Suspense>}
+        />
         <Route path="identification" element={<Identification />} />
         <Route path="verification" element={<Verification />} />
         <Route path="live/*" element={<LiveMonitoring />} />

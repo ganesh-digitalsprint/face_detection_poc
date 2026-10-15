@@ -13,7 +13,7 @@ function mediaErrorMessage(err) {
   return 'The camera could not be started.';
 }
 
-function toJpegBlob(source, width, height) {
+function toJpegBlob(source, width, height, quality = JPEG_QUALITY) {
   const scale = Math.min(1, MAX_FRAME_WIDTH / width);
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(width * scale);
@@ -21,7 +21,7 @@ function toJpegBlob(source, width, height) {
   canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
   return new Promise((resolve, reject) => {
     try {
-      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Frame capture failed.'))), 'image/jpeg', JPEG_QUALITY);
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Frame capture failed.'))), 'image/jpeg', quality);
     } catch {
       reject(new Error('This camera source does not allow frame capture (cross-origin).'));
     }
@@ -100,15 +100,16 @@ export default function useCameraSource() {
     setError('The CCTV stream failed to load.');
   }, [release]);
 
-  const captureFrame = useCallback(async () => {
+  // `quality` is optional; callers that omit it keep the default JPEG quality.
+  const captureFrame = useCallback(async ({ quality } = {}) => {
     if (kind === CAMERA_KINDS.WEBCAM) {
       const video = videoRef.current;
       if (!video || video.readyState < 2 || !video.videoWidth) throw new Error('Camera is not ready yet.');
-      return toJpegBlob(video, video.videoWidth, video.videoHeight);
+      return toJpegBlob(video, video.videoWidth, video.videoHeight, quality);
     }
     const img = imgRef.current;
     if (!img || !img.naturalWidth) throw new Error('CCTV stream is not ready yet.');
-    return toJpegBlob(img, img.naturalWidth, img.naturalHeight);
+    return toJpegBlob(img, img.naturalWidth, img.naturalHeight, quality);
   }, [kind]);
 
   useEffect(() => release, [release]);
