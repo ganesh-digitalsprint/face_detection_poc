@@ -43,7 +43,7 @@ class ClarityInfo(BaseModel):
 class ChallengeInfo(BaseModel):
     challenge: str | None
     passed: bool
-    # Signed delta on the challenge axis vs baseline (smile: width delta; blink: openness ratio).
+    # Signed delta on the challenge axis vs baseline (blink: openness ratio).
     movement: float
     # Signed pass threshold: movement must reach it in the same direction.
     threshold: float

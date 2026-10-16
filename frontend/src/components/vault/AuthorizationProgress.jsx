@@ -7,7 +7,7 @@ export default function AuthorizationProgress({ authenticatedCount, requiredCoun
         <h2 id="vault-progress-title" className="vault-heading text-base">Authorization progress</h2>
         <p className="text-[#0F1B3D]" aria-live="polite">
           <span className="text-3xl font-bold tabular-nums">{authenticatedCount}</span>
-          <span className="ml-1 text-base font-semibold text-[#55607A]">of {requiredCount}</span>
+          <span className="ml-1 text-base font-semibold text-[#55607A]">{requiredCount == null ? 'loading' : `of ${requiredCount}`}</span>
           <span className="sr-only"> custodians verified</span>
         </p>
       </div>
@@ -16,7 +16,13 @@ export default function AuthorizationProgress({ authenticatedCount, requiredCoun
           <span key={index} className={`h-2 flex-1 rounded-full ${filled ? 'bg-[#0B7A4B]' : 'bg-[#D9DEEB]'}`} />
         ))}
       </div>
-      <p className="mt-3 text-sm text-[#55607A]">Two different authorized employees must verify within 3 minutes.</p>
+      <p className="mt-3 text-sm text-[#55607A]">
+        {requiredCount == null
+          ? 'Loading authorization requirements.'
+          : requiredCount === 1
+          ? 'One authorized employee must complete all checks within 3 minutes.'
+          : `${requiredCount} different authorized employees must verify within 3 minutes.`}
+      </p>
     </section>
   );
 }

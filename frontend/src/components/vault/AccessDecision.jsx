@@ -5,7 +5,7 @@ export const REASONS = {
   UNKNOWN_EMPLOYEE: 'Unknown employee',
   AUTHORIZATION_INACTIVE: 'Authorization is not active',
   IDENTITY_AUTHORIZATION_MISMATCH: 'Identity and authorization records do not match',
-  DUAL_AUTHENTICATION_TIMEOUT: 'The two-person authorization window expired. Start a new verification.',
+  DUAL_AUTHENTICATION_TIMEOUT: 'The authorization window expired. Start a new verification.',
   DUPLICATE_EMPLOYEE_REJECTED: 'This employee is already verified. A different employee must complete the next verification.',
   FIRST_PERSON_VERIFIED: 'Custodian verified. A different employee must verify next.',
   NEXT_PERSON_READY: 'Next custodian verification started.',
@@ -24,7 +24,7 @@ export function denialReason(result, liveness) {
 }
 
 /** Final banner. `granted` is exactly the backend's `access_granted`; the UI never infers it. */
-export default function AccessDecision({ result, liveness, ended }) {
+export default function AccessDecision({ result, liveness, ended, requiredCount }) {
   const granted = result?.access_granted === true;
   const Icon = granted ? ShieldCheck : ShieldX;
   const tone = granted
@@ -34,10 +34,10 @@ export default function AccessDecision({ result, liveness, ended }) {
   let title = granted ? 'ACCESS GRANTED' : 'ACCESS DENIED';
   let detail;
   if (granted) {
-    detail = 'DUAL CONTROL VERIFIED';
+    detail = requiredCount === 1 ? 'CUSTODIAN VERIFIED · ALL CHECKS PASSED' : 'DUAL CONTROL VERIFIED';
   } else if (ended === 'SESSION_EXPIRED') {
     title = 'SESSION EXPIRED';
-    detail = 'Two authorized custodians were not authenticated within the authorization window.';
+    detail = `${requiredCount ?? 'Required'} ${requiredCount === 1 ? 'custodian was' : 'custodians were'} not authenticated within the authorization window.`;
   } else if (ended === 'CANCELLED') {
     title = 'SESSION CANCELLED';
     detail = 'The vault access session was cancelled.';

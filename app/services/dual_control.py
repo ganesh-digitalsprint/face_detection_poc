@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import secrets
 import threading
 
+from app.core.config import settings
 from app.core.ml_config import load_ml_config_file
 
 
@@ -53,22 +54,53 @@ class DualControlSessionNotFoundError(LookupError):
 
 
 class DualControlSessionManager:
-    def __init__(self) -> None:
+    def __init__(self, config_override=None) -> None:
         self._sessions: dict[str, DualControlSession] = {}
         self._lock = threading.RLock()
+        self._config_override = config_override
 
     @property
     def config(self):
-        return load_ml_config_file().vault_access.dual_control
+        if self._config_override is not None:
+            return self._config_override
+        configured = load_ml_config_file().vault_access.dual_control
+        required_persons = (
+            settings.VAULT_REQUIRED_PERSONS
+            if settings.VAULT_REQUIRED_PERSONS is not None
+            else configured.required_persons
+        )
+        allow_mode_select = (
+            settings.VAULT_ALLOW_MODE_SELECT
+            if settings.VAULT_ALLOW_MODE_SELECT is not None
+            else configured.allow_mode_select
+        )
+        return configured.model_copy(update={
+            "required_persons": required_persons,
+            "allow_mode_select": allow_mode_select,
+        })
 
-    def start(self, liveness_session_id: str, challenge: str) -> DualControlSession:
+    def start(
+        self,
+        liveness_session_id: str,
+        challenge: str,
+        required_persons: int | None = None,
+    ) -> DualControlSession:
+        if required_persons is not None and (
+            type(required_persons) is not int or required_persons not in (1, 2)
+        ):
+            raise ValueError("required_persons must be 1 or 2")
         now = datetime.now(timezone.utc)
         config = self.config
+        effective_required_persons = (
+            required_persons
+            if config.allow_mode_select and required_persons is not None
+            else config.required_persons
+        )
         session = DualControlSession(
             session_id=secrets.token_urlsafe(32),
             started_at=now,
             expires_at=now + timedelta(seconds=config.authorization_window_seconds),
-            required_persons=config.required_persons,
+            required_persons=effective_required_persons,
             liveness_session_id=liveness_session_id,
             liveness_challenge=challenge,
         )

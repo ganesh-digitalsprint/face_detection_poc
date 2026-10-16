@@ -20,9 +20,11 @@ export default function VaultStatusCard({ result, requiredCount }) {
           {granted ? 'VAULT ACCESS GRANTED' : 'VAULT LOCKED'}
         </p>
         <p className={`text-sm ${granted ? 'text-[#0B6B43]' : 'text-[#55607A]'}`}>
-          {granted
-            ? `${requiredCount} of ${requiredCount} custodians verified. Dual control satisfied.`
-            : `Opens when ${requiredCount} of ${requiredCount} custodians are verified`}
+          {requiredCount == null
+            ? 'Loading authorization requirements.'
+            : granted
+            ? `${requiredCount} of ${requiredCount} ${requiredCount === 1 ? 'custodian' : 'custodians'} verified. ${requiredCount === 1 ? 'All required checks passed.' : 'Dual control satisfied.'}`
+            : `Opens when ${requiredCount} of ${requiredCount} ${requiredCount === 1 ? 'custodian is' : 'custodians are'} verified`}
         </p>
       </div>
     </section>

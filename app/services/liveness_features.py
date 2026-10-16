@@ -29,7 +29,6 @@ CROSS_AXIS_LIMIT = 0.6
 CROSS_AXIS_DOMINANCE = 1.5
 REQUIRED_ACTION_HITS = 2
 BASELINE_SAMPLES = 2
-SMILE_PASS_DELTA = 0.10
 BLINK_CLOSED_RATIO = 0.62
 BLINK_REOPEN_RATIO = 0.82
 
@@ -53,7 +52,6 @@ class FaceFeatures:
     center_y_normalized: float
     yaw: float
     pitch: float
-    smile: float
     eye_openness: float
 
 
@@ -113,7 +111,6 @@ def extract_features(image: Image, face: DetectedFaceInfo) -> FaceFeatures | Non
         center_y_normalized=(face.bbox.y + face.bbox.height / 2.0) / image.shape[0],
         yaw=yaw,
         pitch=pitch,
-        smile=float(np.linalg.norm(mouth_right - mouth_left) / eye_span),
         eye_openness=openness,
     )
 
@@ -144,7 +141,6 @@ def average_features(samples: list[FaceFeatures]) -> FaceFeatures:
         center_y_normalized=float(np.mean([sample.center_y_normalized for sample in samples])),
         yaw=float(np.mean([sample.yaw for sample in samples])),
         pitch=float(np.mean([sample.pitch for sample in samples])),
-        smile=float(np.mean([sample.smile for sample in samples])),
         eye_openness=float(np.mean([sample.eye_openness for sample in samples])),
     )
 
@@ -170,11 +166,6 @@ def evaluate_action(
     assert baseline is not None
     if challenge in DIRECTIONAL:
         return evaluate_directional(state, challenge, current, config)
-    if challenge is LivenessChallenge.SMILE:
-        change = current.smile - baseline.smile
-        score = min(1.0, max(0.0, change) / 0.25)
-        return change >= SMILE_PASS_DELTA, score, "Expected smile-related mouth movement not yet detected", None
-
     if current.eye_openness <= baseline.eye_openness * BLINK_CLOSED_RATIO:
         state.blink_closed_seen = True
     reopened = current.eye_openness >= baseline.eye_openness * BLINK_REOPEN_RATIO

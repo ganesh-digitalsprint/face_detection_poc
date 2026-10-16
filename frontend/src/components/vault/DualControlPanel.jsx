@@ -15,8 +15,8 @@ const TIMER_CLS = {
 
 const WAITING_TEXT = {
   [DUAL_STATE.WAITING_FOR_FIRST_PERSON]: 'Waiting for first authorized custodian...',
-  [DUAL_STATE.WAITING_FOR_SECOND_PERSON]: 'Waiting for second authorized custodian...',
-  [DUAL_STATE.AUTHENTICATING_SECOND_PERSON]: 'Authenticating second custodian...',
+  [DUAL_STATE.WAITING_FOR_SECOND_PERSON]: 'Waiting for another authorized custodian...',
+  [DUAL_STATE.AUTHENTICATING_SECOND_PERSON]: 'Authenticating another custodian...',
 };
 
 function slotView(index, vault) {
@@ -47,7 +47,7 @@ export default function DualControlPanel({ vault }) {
 
   return (
     <section aria-label="Dual control" className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-4 text-center">
-      <p className="text-xs font-semibold uppercase tracking-wide text-brand">Dual Control Required</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-brand">{requiredPersons === 1 ? 'Authorization Required' : 'Dual Control Required'}</p>
       {showTimer && (
         <div>
           <p className="text-xs text-slate-600">Time Remaining</p>

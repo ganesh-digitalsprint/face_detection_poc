@@ -47,7 +47,6 @@ from app.services.liveness_features import (
     FRONTAL_PITCH_MAX,
     FRONTAL_YAW_MAX,
     REQUIRED_ACTION_HITS,
-    SMILE_PASS_DELTA,
     ActionState,
     FaceFeatures,
     apply_action_hits,
@@ -374,8 +373,6 @@ class LivenessTestService:
             if feedback == "HOLDING" and state.action.hold_started_at is not None:
                 held_ms = int((time.monotonic() - state.action.hold_started_at) * 1000)
                 reason = f"{reason} ({held_ms} of {self._liveness.directional_challenges.hold_duration_ms} ms)"
-        elif challenge is LivenessChallenge.SMILE:
-            movement, hits = features.smile - baseline.smile, state.action.action_hits
         else:  # BLINK: openness relative to baseline
             movement = features.eye_openness / max(baseline.eye_openness, 1e-6)
             hits = state.action.action_hits
@@ -388,8 +385,6 @@ class LivenessTestService:
         if challenge in DIRECTIONAL:
             axis, sign = DIRECTIONAL[challenge]
             threshold = sign * (directional.yaw_threshold if axis == "yaw" else directional.pitch_threshold)
-        elif challenge is LivenessChallenge.SMILE:
-            threshold = SMILE_PASS_DELTA
         else:
             threshold = BLINK_CLOSED_RATIO
         return ChallengeInfo(

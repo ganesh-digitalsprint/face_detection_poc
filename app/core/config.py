@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     RECOGNITION_MODEL: str | None = None
     PERFORMANCE_PROFILE: str | None = None
     COMPUTE_DEVICE: ComputeDevice | None = None
+    VAULT_REQUIRED_PERSONS: int | None = Field(default=None, ge=1, le=2)
+    VAULT_ALLOW_MODE_SELECT: bool | None = None
 
     # ------------------------------------------------------------------
     # Video / webcam

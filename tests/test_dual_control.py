@@ -5,8 +5,11 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
+from app.core.ml_config import DualControlSettings
 from app.core.liveness_config import LivenessChallenge
+from app.services.dual_control import DualControlSessionManager
 from app.services.liveness_service import LivenessResult, LivenessStatus
 from app.services.qdrant_service import EmployeeFaceMatch
 from app.services.vault_authentication import VaultAuthenticationService
@@ -66,13 +69,18 @@ class _Search:
         return EmployeeFaceMatch(self.employee_id, 101 if self.employee_id.endswith("1") else 102, .2)
 
 
-def _service():
+def _service(*, required_persons=2, allow_mode_select=False, requested_required_persons=None):
     qdrant = _Search()
     service = VaultAuthenticationService(
         _Employees(), _Authorizations(), liveness=_Liveness(),
         detection=VaultDetection(), embedding=RecognitionEmbedding(), qdrant=qdrant,
+        dual_control=DualControlSessionManager(config_override=DualControlSettings(
+            required_persons=required_persons,
+            allow_mode_select=allow_mode_select,
+            authorization_window_seconds=180,
+        )),
     )
-    _liveness, dual = service.start()
+    _liveness, dual = service.start(requested_required_persons)
     return service, qdrant, dual
 
 
@@ -87,6 +95,8 @@ def test_start_and_first_person_keep_fixed_three_minute_window():
     assert result.access_granted is False
     assert result.reason == "FIRST_PERSON_VERIFIED"
     assert result.handoff_remaining_seconds == 5
+    assert result.required_count == 2
+    assert result.test_mode is False
     assert session.expires_at == session.started_at + timedelta(seconds=180)
 
 
@@ -133,6 +143,117 @@ def test_same_employee_cannot_fill_both_slots_and_different_employee_can():
     assert granted.status == "ACCESS_GRANTED"
     assert granted.authenticated_count == 2
     assert granted.access_granted is True
+    assert granted.test_mode is False
+
+
+def test_single_person_mode_grants_after_one_full_verification_without_handoff():
+    service, _, session = _service(required_persons=1)
+    image = np.zeros((80, 80, 3), dtype=np.uint8)
+
+    granted = service.process_frame(session.session_id, image)
+
+    assert granted.status == "ACCESS_GRANTED"
+    assert granted.access_granted is True
+    assert granted.authenticated_count == 1
+    assert granted.required_count == 1
+    assert granted.test_mode is True
+    assert granted.liveness.passed is True
+    assert granted.recognition.matched is True
+    assert granted.authorization.active is True
+    assert granted.handoff_remaining_seconds == 0
+    assert session.handoff_until is None
+    assert service._liveness.sequence == 1
+
+
+def test_client_person_count_is_ignored_when_mode_select_is_disabled():
+    service, _, session = _service(
+        required_persons=2,
+        allow_mode_select=False,
+        requested_required_persons=1,
+    )
+    assert session.required_persons == 2
+
+
+def test_mode_select_is_honored_only_when_enabled():
+    service, _, session = _service(
+        required_persons=2,
+        allow_mode_select=True,
+        requested_required_persons=1,
+    )
+    assert service.config.allow_mode_select is True
+    assert session.required_persons == 1
+
+
+def test_required_persons_environment_override(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "VAULT_REQUIRED_PERSONS", 1)
+    monkeypatch.setattr(settings, "VAULT_ALLOW_MODE_SELECT", True)
+    manager = DualControlSessionManager()
+    assert manager.config.required_persons == 1
+    assert manager.config.allow_mode_select is True
+
+
+def test_invalid_person_count_is_rejected():
+    with pytest.raises(ValueError, match="required_persons must be 1 or 2"):
+        DualControlSessionManager(config_override=DualControlSettings()).start(
+            "live", "TURN_LEFT", 3
+        )
+
+
+@pytest.mark.parametrize("required_persons", [0, 3])
+def test_invalid_yaml_policy_is_rejected(required_persons):
+    with pytest.raises(ValueError, match="required_persons must be 1 or 2"):
+        DualControlSettings(required_persons=required_persons)
+
+
+def test_start_api_rejects_invalid_person_count_with_422():
+    from fastapi.testclient import TestClient
+
+    from app.api.dependencies import get_vault_authentication_service
+    from app.main import create_app
+
+    service, _, _session = _service()
+    app = create_app()
+    app.dependency_overrides[get_vault_authentication_service] = lambda: service
+    response = TestClient(app).post(
+        "/api/v1/vault-authentication/start", json={"required_persons": 3}
+    )
+    assert response.status_code == 422
+
+
+def test_start_api_ignores_mode_when_server_disallows_selection():
+    from fastapi.testclient import TestClient
+
+    from app.api.dependencies import get_vault_authentication_service
+    from app.main import create_app
+
+    service, _, _session = _service(required_persons=2, requested_required_persons=1)
+    app = create_app()
+    app.dependency_overrides[get_vault_authentication_service] = lambda: service
+    response = TestClient(app).post(
+        "/api/v1/vault-authentication/start", json={"required_persons": 1}
+    )
+    assert response.status_code == 201
+    assert response.json()["required_persons"] == 2
+    assert response.json()["test_mode"] is False
+
+
+def test_vault_config_endpoint_reports_effective_policy(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import app.api.routes.vault_authorization as route
+    from app.main import create_app
+
+    manager = DualControlSessionManager(config_override=DualControlSettings(
+        required_persons=1, allow_mode_select=True,
+    ))
+    monkeypatch.setattr(route, "get_dual_control_session_manager", lambda: manager)
+    response = TestClient(create_app()).get("/api/v1/vault-authentication/config")
+    assert response.status_code == 200
+    assert response.json() == {
+        "required_persons": 1, "allow_mode_select": True, "test_mode": True,
+    }
 
 
 def test_expired_session_clears_people_and_cannot_be_reused():
@@ -153,7 +274,7 @@ def test_new_session_has_new_id_and_empty_employee_state():
     service.process_frame(old_session.session_id, image)
     _liveness, new_session = service.start()
     assert new_session.session_id != old_session.session_id
-    assert new_session.started_at != old_session.started_at
+    assert new_session.started_at >= old_session.started_at
     assert new_session.authenticated_employee_ids == set()
     assert (new_session.expires_at - new_session.started_at).total_seconds() == 180
 

@@ -91,7 +91,11 @@ function ResultOverlay({ granted, title, detail, actionLabel, onAction }) {
 
 function resultProps(view, vault) {
   if (view === VAULT_VIEW.GRANTED) {
-    return { granted: true, title: 'VAULT ACCESS GRANTED', detail: 'Dual control verified.', actionLabel: 'Start new session' };
+    return {
+      granted: true, title: 'VAULT ACCESS GRANTED',
+      detail: vault.requiredCount === 1 ? 'Custodian verified. All required checks passed.' : 'Dual control verified.',
+      actionLabel: 'Start new session',
+    };
   }
   if (view === VAULT_VIEW.TIMEOUT) {
     return { granted: false, title: 'SESSION EXPIRED', detail: REASONS.DUAL_AUTHENTICATION_TIMEOUT, actionLabel: 'Try again' };
@@ -130,9 +134,24 @@ export default function VaultCameraOverlay({ camera, vault, view, onStart, onRea
       )}
 
       {view === VAULT_VIEW.IDLE && cameraOn && (
-        <div className="absolute inset-x-4 bottom-4 z-10 flex justify-center sm:bottom-6">
-          <button type="button" onClick={onStart}
-            className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[#34479B] px-5 text-sm font-semibold text-white shadow-lg hover:bg-brand-dark">
+        <div className="absolute inset-x-4 bottom-4 z-10 flex flex-wrap items-center justify-center gap-2 sm:bottom-6">
+          {vault.config?.allow_mode_select ? (
+            <label className="flex min-h-11 items-center gap-2 rounded-md bg-white px-3 text-sm font-medium text-[#0F1B3D] shadow-lg">
+              Required custodians:
+              <select aria-label="Required custodians" value={vault.selectedRequiredPersons ?? vault.config.required_persons}
+                disabled={vault.phase !== 'idle'}
+                onChange={(event) => vault.selectRequiredPersons(Number(event.target.value))}
+                className="min-h-9 rounded border border-slate-300 bg-white px-2">
+                <option value={1}>1</option><option value={2}>2</option>
+              </select>
+            </label>
+          ) : (
+            <span className="rounded-md bg-white px-3 py-3 text-sm font-medium text-[#0F1B3D] shadow-lg">
+              {vault.config?.required_persons === 1 ? 'Single-custodian test mode' : 'Two-person authorization required'}
+            </span>
+          )}
+          <button type="button" onClick={onStart} disabled={!vault.config || vault.configLoading}
+            className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[#34479B] px-5 text-sm font-semibold text-white shadow-lg hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60">
             <ScanFace className="h-4 w-4" aria-hidden /> Start vault access
           </button>
         </div>

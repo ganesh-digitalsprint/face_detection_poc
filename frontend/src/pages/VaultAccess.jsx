@@ -3,6 +3,9 @@ import AuthorizationProgress from '../components/vault/AuthorizationProgress.jsx
 import CameraPreview from '../components/vault/CameraPreview.jsx';
 import CustodianList from '../components/vault/CustodianList.jsx';
 import SecurityVerificationPanel from '../components/vault/SecurityVerificationPanel.jsx';
+import ErrorMessage from '../components/common/ErrorMessage.jsx';
+import Button from '../components/common/Button.jsx';
+import { RotateCcw } from 'lucide-react';
 import VaultCameraControls from '../components/vault/VaultCameraControls.jsx';
 import VaultCameraOverlay from '../components/vault/VaultCameraOverlay.jsx';
 import VaultStatusCard from '../components/vault/VaultStatusCard.jsx';
@@ -26,9 +29,20 @@ export default function VaultAccess() {
   const handleReady = () => { vault.reset(); };
   // The granted card set stays visible after a grant until a new session starts.
   const securitySlot = slot ?? (view === VAULT_VIEW.GRANTED ? vault.requiredCount : null);
+  const requiredCount = vault.requiredCount ?? vault.config?.required_persons;
 
   return (
     <div className="-m-4 min-h-full bg-[#F4F6FB] p-4 sm:-m-6 sm:p-6">
+      <div className="mx-auto mb-5 flex max-w-[1360px] items-center justify-between gap-3">
+        <h2 className="vault-heading text-xl">Vault Access</h2>
+        {vault.testMode && <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold tracking-wide text-amber-900">TEST MODE · 1 person</span>}
+      </div>
+      {vault.configError && (
+        <div className="mx-auto mb-5 max-w-[1360px] space-y-2" role="alert">
+          <ErrorMessage error={vault.configError} />
+          <Button variant="secondary" icon={RotateCcw} onClick={vault.loadConfig} className="min-h-11">Retry configuration</Button>
+        </div>
+      )}
       <div className="mx-auto grid max-w-[1360px] gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(380px,1fr)]">
         <div className="min-w-0 space-y-6">
           <section aria-label="Camera" className="vault-card space-y-4 p-4">
@@ -43,6 +57,7 @@ export default function VaultAccess() {
             </CameraPreview>
             <VaultCameraControls
               camera={camera}
+              vault={vault}
               sessionActive={running}
               sessionStarted={view !== VAULT_VIEW.IDLE}
               onRestart={vault.start}
@@ -61,7 +76,7 @@ export default function VaultAccess() {
         </div>
 
         <div className="min-w-0 space-y-6">
-          <AuthorizationProgress authenticatedCount={vault.authenticatedCount} requiredCount={vault.requiredCount} />
+          <AuthorizationProgress authenticatedCount={vault.authenticatedCount} requiredCount={requiredCount} />
           <SecurityVerificationPanel vault={vault} slot={securitySlot} onRetry={vault.start} />
           <CustodianList
             custodians={vault.custodians}
@@ -70,7 +85,7 @@ export default function VaultAccess() {
             handoff={handoff}
             handoffName={handoff ? handoffSubject(vault) : null}
           />
-          <VaultStatusCard result={vault.result} requiredCount={vault.requiredCount} />
+          <VaultStatusCard result={vault.result} requiredCount={requiredCount} />
         </div>
       </div>
     </div>

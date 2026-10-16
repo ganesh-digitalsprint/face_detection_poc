@@ -61,10 +61,28 @@ class VaultAuthenticationService:
         self._qdrant = qdrant or get_qdrant_service()
         self._dual_control = dual_control or get_dual_control_session_manager()
 
-    def start(self) -> tuple[LivenessSessionStarted, DualControlSession]:
+    @property
+    def config(self):
+        return self._dual_control.config
+
+    def start(
+        self, required_persons: int | None = None
+    ) -> tuple[LivenessSessionStarted, DualControlSession]:
+        if required_persons is not None and (
+            type(required_persons) is not int or required_persons not in (1, 2)
+        ):
+            raise ValueError("required_persons must be 1 or 2")
         liveness = self._liveness.start_session()
-        session = self._dual_control.start(liveness.session_id, liveness.challenge.value)
-        logger.info("SESSION_STARTED dual_control_session=%s", session.session_id)
+        session = self._dual_control.start(
+            liveness.session_id, liveness.challenge.value, required_persons
+        )
+        test_mode = session.required_persons < 2
+        if test_mode:
+            logger.warning("TEST MODE: single-custodian authorization is active")
+        logger.info(
+            "SESSION_STARTED dual_control_session=%s required_persons=%s test_mode=%s",
+            session.session_id, session.required_persons, test_mode,
+        )
         return liveness, session
 
     def process_frame(self, session_id: str, image: Image) -> VaultAuthenticationResponse:
@@ -110,8 +128,11 @@ class VaultAuthenticationService:
                     logger.info("PERSON_AUTHENTICATED employee=%s", employee_id)
                     if len(session.verified) >= session.required_persons:
                         session.status = "ACCESS_GRANTED"
-                        logger.info("DUAL_CONTROL_VERIFIED session=%s", session_id)
-                        logger.info("ACCESS_GRANTED session=%s", session_id)
+                        test_mode = session.required_persons < 2
+                        logger.info(
+                            "ACCESS_GRANTED session=%s required_persons=%s test_mode=%s",
+                            session_id, session.required_persons, test_mode,
+                        )
                         return self._dual_response(
                             response, session, status="ACCESS_GRANTED", access_granted=True
                         )
@@ -356,6 +377,7 @@ class VaultAuthenticationService:
             status=session.status,
             authenticated_count=len(session.verified),
             required_count=session.required_persons,
+            test_mode=session.required_persons < 2,
             remaining_seconds=session.remaining_seconds,
             next_challenge=None if active_handoff else session.liveness_challenge,
             handoff_remaining_seconds=math.ceil(max(0, remaining)),
@@ -391,6 +413,7 @@ class VaultAuthenticationService:
             status=status,
             authenticated_count=count,
             required_count=session.required_persons,
+            test_mode=session.required_persons < 2,
             remaining_seconds=0 if status == "DUAL_AUTHENTICATION_TIMEOUT" else session.remaining_seconds,
             next_challenge=session.liveness_challenge,
             authenticated_custodians=VaultAuthenticationService._custodian_summaries(session),

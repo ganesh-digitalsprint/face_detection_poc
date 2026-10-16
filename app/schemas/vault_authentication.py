@@ -1,5 +1,7 @@
 """Responses for the multi-factor PGM vault authentication flow."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -47,6 +49,7 @@ class VaultAuthenticationResponse(BaseModel):
     status: str = "DENIED"
     authenticated_count: int = 0
     required_count: int = 2
+    test_mode: bool = False
     remaining_seconds: int = 0
     next_challenge: str | None = None
     handoff_remaining_seconds: int = 0
@@ -58,8 +61,19 @@ class LivenessSessionResponse(BaseModel):
     challenge: str
     expires_in_seconds: int
     status: str = "WAITING_FOR_FIRST_PERSON"
-    required_persons: int = 2
+    required_persons: int
+    test_mode: bool
     authenticated_count: int = 0
     started_at: str | None = None
     expires_at: str | None = None
     remaining_seconds: int = 180
+
+
+class StartVaultAuthenticationRequest(BaseModel):
+    required_persons: Literal[1, 2] | None = None
+
+
+class VaultAuthenticationConfig(BaseModel):
+    required_persons: Literal[1, 2]
+    allow_mode_select: bool
+    test_mode: bool

@@ -24,6 +24,7 @@ liveness:
 vault_access:
   dual_control:
     required_persons: 2
+    allow_mode_select: false
     authorization_window_seconds: 180
 
 recognition_models:

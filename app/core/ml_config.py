@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, field_validator
 
 from app.core.config import ComputeDevice, settings
 
@@ -56,8 +56,16 @@ class ComputeSettings(BaseModel):
 class DualControlSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    required_persons: int = Field(default=2, ge=2, le=2)
+    required_persons: StrictInt = 2
+    allow_mode_select: bool = False
     authorization_window_seconds: int = Field(default=180, ge=1)
+
+    @field_validator("required_persons")
+    @classmethod
+    def _validate_required_persons(cls, value: int) -> int:
+        if type(value) is not int or value not in (1, 2):
+            raise ValueError("required_persons must be 1 or 2")
+        return value
 
 
 class VaultAccessSettings(BaseModel):

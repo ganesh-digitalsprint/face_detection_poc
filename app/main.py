@@ -26,6 +26,7 @@ from app.core.ml_config import get_ml_config
 from app.db.database import get_engine, init_db
 from app.ml.deepface_service import FaceProcessingError, get_deepface_service
 from app.services.qdrant_service import get_qdrant_service
+from app.services.dual_control import get_dual_control_session_manager
 
 logger = get_logger(__name__)
 
@@ -38,6 +39,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Using performance profile: %s", ml_config.performance_profile)
     logger.info("Using face detection backend: %s", ml_config.detector_backend)
     get_compute_config()
+    dual_control_config = get_dual_control_session_manager().config
+    if dual_control_config.required_persons < 2:
+        logger.warning("TEST MODE: single-custodian authorization is active")
 
     settings.ensure_directories()
     qdrant = get_qdrant_service()

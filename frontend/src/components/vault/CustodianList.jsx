@@ -29,7 +29,7 @@ function VerifiedCustodian({ custodian }) {
   );
 }
 
-function EmptySlot({ slot, inProgress }) {
+function EmptySlot({ slot, inProgress, requiredCount }) {
   return (
     <li className="flex gap-3 rounded-xl border border-dashed border-[#D9DEEB] p-4">
       <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#F4F6FB] text-[#55607A]">
@@ -38,7 +38,7 @@ function EmptySlot({ slot, inProgress }) {
       <div>
         <p className="text-base font-semibold text-[#0F1B3D]">Custodian {slot}</p>
         <p className="text-sm text-[#55607A]">
-          {inProgress ? 'Verifying now. A different employee must complete all checks.' : 'Waiting'}
+          {inProgress ? (requiredCount === 1 ? 'Verifying now.' : 'Verifying now. A different employee must complete all checks.') : 'Waiting'}
         </p>
       </div>
     </li>
@@ -59,7 +59,7 @@ export default function CustodianList({ custodians, requiredCount, activeSlot, h
       <h2 id="vault-custodians-title" className="vault-heading text-base">Authorized custodians</h2>
       <ul className="mt-3 space-y-3" aria-live="polite">
         {custodians.map((custodian) => <VerifiedCustodian key={custodian.employee_id} custodian={custodian} />)}
-        {emptySlots.map((slot) => <EmptySlot key={slot} slot={slot} inProgress={slot === activeSlot} />)}
+        {emptySlots.map((slot) => <EmptySlot key={slot} slot={slot} inProgress={slot === activeSlot} requiredCount={requiredCount} />)}
       </ul>
       {handoff && (
         <p className="mt-3 flex gap-2 rounded-lg bg-[#EAF0FF] p-3 text-sm text-[#1F2F6B]">

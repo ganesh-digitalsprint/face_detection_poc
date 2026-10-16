@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   Cctv, ChevronsLeft, ChevronsRight, Film, LayoutDashboard, LockKeyhole, Menu, PanelLeftClose, PanelLeftOpen,
-  Radio, ScanFace, ScanSearch, ScanEye, ShieldCheck, UserPlus, Users, Webcam, X,
+  Radio, ScanFace, ScanEye, ShieldCheck, Users, Webcam, X,
 } from 'lucide-react';
 import StatusBadge from '../components/common/StatusBadge.jsx';
 import useHealth from '../hooks/useHealth.js';
@@ -71,11 +71,6 @@ function Sidebar({ onNavigate, collapsed = false }) {
       <Item to="/registration/employees" icon={Users} label="Employee Registration" {...props} />
       <Section label="Vault Access" {...props} />
       <Item to="/vault-access" icon={LockKeyhole} label="Vault Access" {...props} />
-      <Section label="Images" {...props} />
-      <Item to="/detection" icon={ScanFace} label="Face Detection" {...props} />
-      <Item to="/registration" end icon={UserPlus} label="Person Registration" {...props} />
-      <Item to="/identification" icon={ScanSearch} label="Face Identification" {...props} />
-      <Item to="/verification" icon={ShieldCheck} label="Face Verification" {...props} />
       <Section label="Security" {...props} />
       {LIVENESS_TEST_MENU_ENABLED && <Item to="/liveness-test" icon={ScanFace} label="Liveness Test" badge="Dev" {...props} />}
       <Section label="Live &amp; Video" {...props} />

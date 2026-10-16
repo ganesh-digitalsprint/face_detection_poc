@@ -50,6 +50,15 @@ Key `.env` settings:
 | `WEBCAM_INDEX` | OpenCV index of the webcam on the **server** machine |
 | `MAX_VIDEO_UPLOAD_MB` | Video upload cap (default 500) |
 | `CORS_ALLOW_ORIGINS` | Allowed browser origins (default `["http://localhost:3000"]`) |
+| `VAULT_REQUIRED_PERSONS` | Optional override; allowed values are `1` or `2` |
+| `VAULT_ALLOW_MODE_SELECT` | Optional override for allowing the Vault Access selector (default `false`) |
+
+Vault Access requires two custodians by default. To test with one custodian, set
+`vault_access.dual_control.required_persons: 1` in `config/models.yaml`, or set
+`VAULT_REQUIRED_PERSONS=1` in `.env`, then restart the backend. In one-person
+mode, liveness, face matching and active authorization are still required.
+The browser only shows the 1/2 selector when `allow_mode_select` is enabled in
+the YAML configuration or with `VAULT_ALLOW_MODE_SELECT=true`.
 
 Edit `config/models.yaml` to choose a recognition model independently from a
 performance profile. `recognition_model` selects ArcFace, Facenet, or VGG-Face;

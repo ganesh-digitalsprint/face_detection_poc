@@ -13,7 +13,7 @@ const danger = `${base} bg-[#B3261E] text-white hover:bg-[#931F18]`;
 const primary = `${base} bg-[#34479B] text-white hover:bg-brand-dark`;
 
 /** Source picker + session/camera actions. Every control is a real button with a 44px target. */
-export default function VaultCameraControls({ camera, sessionActive, sessionStarted, onRestart, onStop }) {
+export default function VaultCameraControls({ camera, sessionActive, sessionStarted, onRestart, onStop, vault }) {
   const [source, setSource] = useState(camera.kind ?? CAMERA_KINDS.WEBCAM);
   const [streamIndex, setStreamIndex] = useState(0);
   const cameraOn = camera.status === 'starting' || camera.status === 'ready';
@@ -43,6 +43,16 @@ export default function VaultCameraControls({ camera, sessionActive, sessionStar
             onChange={(e) => setStreamIndex(Math.max(0, Number(e.target.value) || 0))}
             className="min-h-11 w-20 rounded-md border border-[#E3E7F0] px-2" />
         </div>
+      )}
+
+      {sessionActive && vault.config?.allow_mode_select && (
+        <label className="flex min-h-11 items-center gap-2 text-sm font-medium text-[#55607A]">
+          Required custodians:
+          <select aria-label="Required custodians" value={vault.selectedRequiredPersons ?? vault.config.required_persons}
+            disabled className="min-h-9 rounded border border-slate-300 bg-slate-100 px-2">
+            <option value={1}>1</option><option value={2}>2</option>
+          </select>
+        </label>
       )}
 
       <div className="flex flex-wrap gap-2 sm:ml-auto">

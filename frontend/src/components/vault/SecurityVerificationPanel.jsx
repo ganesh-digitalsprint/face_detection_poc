@@ -21,7 +21,7 @@ function faceStage(vault) {
  * Challenge prompts and the final decision are drawn over the camera instead.
  */
 export default function SecurityVerificationPanel({ vault, slot, onRetry }) {
-  const { phase, liveness, result, error, custodians } = vault;
+  const { phase, liveness, result, error, custodians, requiredCount, testMode } = vault;
   const idle = phase === 'idle';
   const face = faceStage(vault);
   const matchedName = custodians.find((c) => c.employee_id === result?.recognition?.employee_id)?.name;
@@ -31,11 +31,15 @@ export default function SecurityVerificationPanel({ vault, slot, onRetry }) {
       <h2 id="vault-security-title" className="vault-heading text-base">
         Security verification{slot ? ` · Custodian ${slot}` : ''}
       </h2>
+      {testMode && <p className="mt-2 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-bold tracking-wide text-amber-900">TEST MODE · 1 person</p>}
 
       {idle && (
         <p className="mt-2 text-sm text-[#55607A]">
-          Start a camera, then begin vault access. Two authorized custodians must each pass face,
-          liveness, identity and authorization checks within 3 minutes before access is granted.
+          Start a camera, then begin vault access. {requiredCount == null
+            ? 'Loading authorization requirements.'
+            : requiredCount === 1
+              ? 'One authorized custodian must pass face, liveness, identity and authorization checks within 3 minutes.'
+              : `${requiredCount} authorized custodians must each pass face, liveness, identity and authorization checks within 3 minutes before access is granted.`}
         </p>
       )}
 

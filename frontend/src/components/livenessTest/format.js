@@ -11,7 +11,6 @@ export const CHALLENGE_LABELS = {
   TURN_RIGHT: 'Right',
   LOOK_UP: 'Up',
   LOOK_DOWN: 'Down',
-  SMILE: 'Smile',
   BLINK: 'Blink',
 };
 export const DEFAULT_CHALLENGES = Object.keys(CHALLENGE_LABELS);
@@ -22,7 +21,6 @@ export const CHALLENGE_AXIS = {
   TURN_RIGHT: { axis: 'yaw', direction: 'TURNED_RIGHT' },
   LOOK_UP: { axis: 'pitch', direction: 'LOOKING_UP' },
   LOOK_DOWN: { axis: 'pitch', direction: 'LOOKING_DOWN' },
-  SMILE: { axis: null, direction: null },
   BLINK: { axis: null, direction: null },
 };
 

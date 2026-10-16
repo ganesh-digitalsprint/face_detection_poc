@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
-import { startLivenessSession, submitLivenessFrame } from '../api/vault.js';
+import { getVaultAuthenticationConfig, startLivenessSession, submitLivenessFrame } from '../api/vault.js';
 import { describeError } from '../utils/errors.js';
 import { BACKEND_TIMEOUT_STATUS } from '../utils/dualControl.js';
 
@@ -21,7 +21,12 @@ const INITIAL = {
   result: null, // last full VaultAuthenticationResponse
   status: null,
   authenticatedCount: 0,
-  requiredCount: 2,
+  requiredCount: null,
+  testMode: false,
+  config: null,
+  configError: null,
+  configLoading: true,
+  selectedRequiredPersons: null,
   custodians: [], // backend `authenticated_custodians`, ordered by slot
   expiresAt: null, // backend-provided ISO timestamp; the only basis for the countdown
   handoffUntil: null,
@@ -40,13 +45,40 @@ function frameOutcome(response) {
 
 function reducer(state, action) {
   switch (action.type) {
+    case 'configLoading':
+      return { ...state, configLoading: true, configError: null };
     case 'starting':
-      return { ...INITIAL, phase: 'starting', now: Date.now() };
+      return {
+        ...state,
+        phase: 'starting', ended: null, endReason: null, challenge: null,
+        liveness: null, result: null, status: null, authenticatedCount: 0,
+        requiredCount: state.selectedRequiredPersons ?? state.config?.required_persons ?? null,
+        testMode: (state.selectedRequiredPersons ?? state.config?.required_persons) === 1,
+        custodians: [], expiresAt: null, handoffUntil: null, handoffPending: false,
+        now: Date.now(), error: null,
+      };
+    case 'config':
+      return {
+        ...state, config: action.config, configError: null, configLoading: false,
+        requiredCount: action.config.required_persons,
+        selectedRequiredPersons: action.config.required_persons,
+        testMode: action.config.test_mode,
+      };
+    case 'configError':
+      return { ...state, configError: action.error, configLoading: false };
+    case 'selectRequiredPersons':
+      return {
+        ...state,
+        selectedRequiredPersons: action.value,
+        requiredCount: action.value,
+        testMode: action.value < 2,
+      };
     case 'session':
       return {
         ...state, phase: 'liveness', challenge: action.challenge,
         status: action.session.status, authenticatedCount: 0,
-        requiredCount: action.session.required_persons ?? 2,
+        requiredCount: action.session.required_persons,
+        testMode: action.session.test_mode,
         custodians: [],
         expiresAt: action.session.expires_at,
         handoffUntil: null,
@@ -66,6 +98,7 @@ function reducer(state, action) {
         status: response.status,
         authenticatedCount: response.authenticated_count ?? 0,
         requiredCount: response.required_count ?? state.requiredCount,
+        testMode: response.test_mode ?? state.testMode,
         custodians: response.authenticated_custodians ?? state.custodians,
         handoffUntil: response.handoff_remaining_seconds > 0
           ? now + response.handoff_remaining_seconds * 1000
@@ -83,7 +116,16 @@ function reducer(state, action) {
     case 'error':
       return { ...state, phase: 'error', error: action.error, handoffUntil: null, handoffPending: false };
     case 'reset':
-      return { ...INITIAL, now: Date.now() };
+      return {
+        ...INITIAL,
+        config: state.config,
+        configError: state.configError,
+        configLoading: state.configLoading,
+        selectedRequiredPersons: state.config?.required_persons ?? null,
+        requiredCount: state.config?.required_persons ?? null,
+        testMode: state.config?.test_mode ?? false,
+        now: Date.now(),
+      };
     case 'tick':
       return { ...state, now: action.now };
     default:
@@ -99,6 +141,17 @@ export default function useVaultAccess(camera) {
   const runId = useRef(0);
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
+
+  const loadConfig = useCallback(async () => {
+    dispatch({ type: 'configLoading' });
+    try {
+      dispatch({ type: 'config', config: await getVaultAuthenticationConfig() });
+    } catch (err) {
+      dispatch({ type: 'configError', error: describeError(err) });
+    }
+  }, []);
+
+  useEffect(() => { loadConfig(); }, [loadConfig]);
 
   const cancelLoop = useCallback(() => { runId.current += 1; }, []);
 
@@ -148,14 +201,16 @@ export default function useVaultAccess(camera) {
     const id = runId.current;
     dispatch({ type: 'starting' });
     try {
-      const session = await startLivenessSession();
+      if (!state.config) throw new Error('Vault configuration is unavailable. Retry loading configuration.');
+      const requested = state.config.allow_mode_select ? state.selectedRequiredPersons : null;
+      const session = await startLivenessSession(requested);
       if (runId.current !== id) return;
       dispatch({ type: 'session', session, challenge: session.challenge });
       loop(id, session.session_id);
     } catch (err) {
       if (runId.current === id) dispatch({ type: 'error', error: describeError(err) });
     }
-  }, [cancelLoop, loop]);
+  }, [cancelLoop, loop, state.config, state.selectedRequiredPersons]);
 
   const cancel = useCallback(() => {
     cancelLoop();
@@ -181,5 +236,9 @@ export default function useVaultAccess(camera) {
   const handoffRemaining = state.handoffUntil
     ? Math.max(0, Math.ceil((state.handoffUntil - state.now) / 1000))
     : 0;
-  return { ...state, remainingSeconds, handoffRemaining, start, cancel, reset };
+  const selectRequiredPersons = useCallback((value) => {
+    dispatch({ type: 'selectRequiredPersons', value });
+  }, []);
+
+  return { ...state, remainingSeconds, handoffRemaining, start, cancel, reset, loadConfig, selectRequiredPersons };
 }

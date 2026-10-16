@@ -30,8 +30,8 @@ def _config(hold_ms=0):
     )
 
 
-def _features(yaw=0.0, pitch=0.0, smile=0.6, eye=10.0):
-    return FaceFeatures(0.5, 0.5, yaw, pitch, smile, eye)
+def _features(yaw=0.0, pitch=0.0, eye=10.0):
+    return FaceFeatures(0.5, 0.5, yaw, pitch, eye)
 
 
 # ---------------------------------------------------------------- refactor parity
@@ -57,8 +57,6 @@ def test_vault_service_uses_the_shared_functions_and_constants():
         (LivenessChallenge.LOOK_DOWN, {"pitch": 0.10}, True),
         (LivenessChallenge.LOOK_DOWN, {"pitch": 0.08}, False),
         (LivenessChallenge.TURN_LEFT, {"yaw": 0.13, "pitch": 0.08}, False),  # cross-axis drift
-        (LivenessChallenge.SMILE, {"smile": 0.71}, True),
-        (LivenessChallenge.SMILE, {"smile": 0.69}, False),
     ],
 )
 def test_production_thresholds_per_challenge(challenge, move, passes):
@@ -66,17 +64,11 @@ def test_production_thresholds_per_challenge(challenge, move, passes):
     current = _features(**move)
     config = _config()
     outcome = False
-    # Smile needs REQUIRED_ACTION_HITS consecutive frames; directional uses the (0 ms) hold.
+    # Blink needs REQUIRED_ACTION_HITS consecutive frames; directional uses the (0 ms) hold.
     for _ in range(features_mod.REQUIRED_ACTION_HITS):
         passed, _score, reason, _fb = evaluate_action(state, challenge, current, config)
         outcome, _ = apply_action_hits(state, challenge, passed, reason)
     assert outcome is passes
-
-
-def test_smile_needs_consecutive_hits():
-    state = ActionState(baseline=_features())
-    passed, _s, reason, _f = evaluate_action(state, LivenessChallenge.SMILE, _features(smile=0.8), _config())
-    assert apply_action_hits(state, LivenessChallenge.SMILE, passed, reason) == (False, "Hold that position")
 
 
 # ---------------------------------------------------------------- service
