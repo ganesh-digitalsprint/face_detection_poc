@@ -58,7 +58,9 @@ export default function VaultCameraControls({ camera, sessionActive, sessionStar
       <div className="flex flex-wrap gap-2 sm:ml-auto">
         {cameraOn ? (
           <>
-            <button type="button" className={secondary} disabled={!sessionStarted} onClick={onRestart}>
+            <button type="button" className={secondary} disabled={!sessionStarted || vault.roomBlocked}
+              title={vault.roomBlocked ? 'Vault room session is active' : undefined}
+              aria-describedby={vault.roomBlocked ? 'vault-room-restart-disabled' : undefined} onClick={onRestart}>
               <RotateCcw className="h-4 w-4" aria-hidden /> Restart session
             </button>
             <button type="button" className={danger} onClick={onStop}>
@@ -72,6 +74,7 @@ export default function VaultCameraControls({ camera, sessionActive, sessionStar
           </button>
         )}
       </div>
+      {sessionStarted && vault.roomBlocked && <p id="vault-room-restart-disabled" className="text-sm text-[#55607A]">Vault room session is active</p>}
     </div>
   );
 }

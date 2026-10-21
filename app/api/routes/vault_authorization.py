@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_vault_authentication_service, read_upload_image
 from app.api.errors import ErrorResponse
@@ -16,6 +17,7 @@ from app.schemas.vault_authentication import (
 )
 from app.services.dual_control import get_dual_control_session_manager
 from app.services.vault_authentication import VaultAuthenticationService
+from app.services.vault_room_manager import VaultRoomSessionActiveError, get_vault_room_manager
 
 router = APIRouter(prefix="/api/v1/vault-authentication", tags=["vault authentication"])
 Service = Annotated[VaultAuthenticationService, Depends(get_vault_authentication_service)]
@@ -25,7 +27,10 @@ Service = Annotated[VaultAuthenticationService, Depends(get_vault_authentication
     "/sessions",
     response_model=LivenessSessionResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={500: {"model": ErrorResponse, "description": "Liveness configuration error"}},
+    responses={
+        409: {"model": ErrorResponse, "description": "A vault room session is active"},
+        500: {"model": ErrorResponse, "description": "Liveness configuration error"},
+    },
 )
 def start_session(
     service: Service,
@@ -36,6 +41,17 @@ def start_session(
         liveness, session = service.start(
             body.required_persons if body is not None else None
         )
+    except VaultRoomSessionActiveError as exc:
+        info = exc.info
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={
+            "detail": str(exc),
+            "code": "VAULT_ROOM_SESSION_ACTIVE",
+            "details": {
+                "vault_room_state": info.state,
+                "remaining_seconds": info.remaining_seconds,
+                "entry_buffer_remaining_seconds": info.entry_buffer_remaining_seconds,
+            },
+        })
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return LivenessSessionResponse(
@@ -55,17 +71,25 @@ def start_session(
 @router.get("/config", response_model=VaultAuthenticationConfig)
 def get_config() -> VaultAuthenticationConfig:
     config = get_dual_control_session_manager().config
+    room = get_vault_room_manager()
+    room_state = room.state()
     return VaultAuthenticationConfig(
         required_persons=config.required_persons,
         allow_mode_select=config.allow_mode_select,
         test_mode=config.required_persons < 2,
+        new_access_allowed=not room.is_session_active(),
+        vault_room_state=room_state["state"],
+        vault_room_remaining_seconds=room_state["remaining_seconds"],
     )
 
 
 router.add_api_route(
     "/start", start_session, methods=["POST"],
     response_model=LivenessSessionResponse, status_code=status.HTTP_201_CREATED,
-    responses={500: {"model": ErrorResponse, "description": "Authentication configuration error"}},
+    responses={
+        409: {"model": ErrorResponse, "description": "A vault room session is active"},
+        500: {"model": ErrorResponse, "description": "Authentication configuration error"},
+    },
 )
 
 

@@ -32,7 +32,7 @@ Requires Python 3.12, a PostgreSQL database and a Qdrant (Cloud) cluster.
 ```bash
 uv sync                      # or: pip install -r requirements.txt
 cp .env.example .env         # then fill in the values below
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000   
 ```
 
 Swagger UI: http://localhost:8000/docs
@@ -78,6 +78,13 @@ Haar detection and ByteTrack remain CPU based.
 For the TensorFlow backend, startup enables the installed `tf-keras` compatibility
 mode before importing TensorFlow. This avoids Keras 3 symbolic-tensor errors in
 the current RetinaFace package.
+
+Vault Room person counting uses RF-DETR Small with `device: cpu` by default in
+`config/models.yaml`, so it does not require a GPU. RF-DETR is included in
+`requirements.txt`; after updating requirements, install it into the backend
+environment with `python -m pip install -r requirements.txt` (or `uv sync`).
+CPU inference is slower than GPU inference, so frame processing may run below
+the configured recommended FPS.
 
 ### Frontend
 
@@ -257,3 +264,8 @@ Stop a webcam or RTSP session and release the capture device and its database se
 - The webcam stream uses the camera on the machine running the backend, not the browser's camera.
 - There is no authentication; this is a POC and should not be exposed publicly as is.
 - Stream sessions live in memory and are lost on server restart.
+# Auditing duplicate employee face enrollments
+
+Run `uv run python scripts/find_duplicate_faces.py` to scan the active model's Qdrant collection. Add `--json` for JSON output or `--threshold 0.4` to override the configured cosine-distance threshold. The command is read-only and does not change Qdrant or PostgreSQL.
+
+For each reported pair, review which employee should retain the authorization. De-authorize or delete the duplicate employee as appropriate, then call `delete_employee_enrollments` for that employee to remove their face points.

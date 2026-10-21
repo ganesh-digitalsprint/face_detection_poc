@@ -314,10 +314,14 @@ class EmployeeSearch:
     def __init__(self, candidate):
         self.candidate = candidate
         self.calls = 0
+        self.close_distance = None
 
     def search_employee_face(self, *args, **kwargs):
         self.calls += 1
         return self.candidate
+
+    def find_close_faces_for_employee(self, *args, **kwargs):
+        return self.close_distance
 
 
 def _vault_service(
@@ -360,6 +364,7 @@ def test_access_requires_liveness_recognition_and_active_authorization():
     assert granted.liveness.passed is True
     assert granted.recognition.matched is True
     assert granted.authorization.active is True
+    assert "_probe_vector" not in granted.model_dump()
 
     service, qdrant, session_id = _vault_service(live=False)
     denied = service.process_frame(session_id, image)
@@ -412,3 +417,40 @@ def test_face_match_cannot_use_another_employees_authorization():
 
     assert result.access_granted is False
     assert result.reason == "IDENTITY_AUTHORIZATION_MISMATCH"
+
+
+def test_ambiguous_match_is_denied_without_returning_employee_identity():
+    image = np.zeros((80, 80, 3), dtype=np.uint8)
+    candidate = EmployeeFaceMatch("EMP001", 20, 0.30, "EMP002", 0.32)
+    service, _, session_id = _vault_service(candidate=candidate)
+
+    result = service.process_frame(session_id, image)
+
+    assert result.reason == "IDENTITY_AMBIGUOUS"
+    assert result.recognition.matched is False
+    assert result.recognition.employee_id is None
+    assert "_probe_vector" not in result.model_dump()
+
+
+def test_second_custodian_cannot_reuse_first_custodians_face():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    image = np.zeros((80, 80, 3), dtype=np.uint8)
+    candidate = EmployeeFaceMatch("EMP002", 21, 0.31)
+    service, qdrant, session_id = _vault_service(candidate=candidate)
+    session = service._dual_control.get(session_id)
+    session.verified["EMP001"] = SimpleNamespace(
+        slot=1, employee_id="EMP001", name="First custodian", department=None,
+        designation=None, verified_at=datetime.now(timezone.utc),
+    )
+    session.status = "WAITING_FOR_SECOND_PERSON"
+    service._employees.employee = SimpleNamespace(employee_id="EMP002", id=11)
+    service._authorizations.authorization = SimpleNamespace(id=21, employee_id=11, is_active=True)
+    qdrant.close_distance = 0.1
+
+    result = service.process_frame(session_id, image)
+
+    assert result.reason == "DUPLICATE_PERSON_DIFFERENT_ID"
+    assert result.access_granted is False
+    assert result.recognition.employee_id is None

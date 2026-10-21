@@ -68,11 +68,80 @@ class DualControlSettings(BaseModel):
         return value
 
 
+class EnrollmentSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    duplicate_check_enabled: bool = True
+    duplicate_distance_threshold: float | None = Field(default=None, ge=0, le=2)
+    same_person_check_enabled: bool = True
+    same_person_distance_threshold: float | None = Field(default=None, ge=0, le=2)
+    reveal_conflicting_employee: bool = False
+    ambiguity_margin: float = Field(default=0.05, ge=0, le=2)
+
+
 class VaultAccessSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dual_control: DualControlSettings = Field(default_factory=DualControlSettings)
+    enrollment: EnrollmentSettings = Field(default_factory=EnrollmentSettings)
 
+
+class VaultRoomSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entry_buffer_seconds: int = Field(ge=1)
+    session_seconds: int = Field(ge=1)
+    warn_before_expiry_seconds: int = Field(ge=1)
+    expired_repeat_seconds: int = Field(ge=1)
+    expired_open_max_seconds: int | None = Field(default=None, ge=1)
+    counting: "VaultRoomCountingSettings" = Field(default_factory=lambda: VaultRoomCountingSettings())
+
+
+class VaultRoomDetectorSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model: Literal["rfdetr-nano", "rfdetr-small", "rfdetr-medium"] = "rfdetr-small"
+    confidence: float = Field(ge=0, le=1)
+    min_box_area_ratio: float = Field(ge=0, le=1)
+    weights_path: str | None = None
+    device: Literal["cpu"] = "cpu"
+    cpu_threads: int = Field(default=4, ge=1)
+
+
+class VaultRoomTrackerSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    track_activation_threshold: float = Field(ge=0, le=1)
+    minimum_matching_threshold: float = Field(ge=0, le=1)
+    minimum_consecutive_frames: int = Field(ge=1)
+    lost_track_seconds: float = Field(gt=0)
+    frame_rate: int = Field(ge=1)
+
+
+class VaultRoomCountingSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    idle_monitoring_enabled: bool = False
+    recommended_fps: float = Field(ge=0.5)
+    min_fps: float = Field(default=0.5, ge=0.1)
+    max_frame_bytes: int = Field(ge=1)
+    rate_limit_per_second: int = Field(ge=1)
+    count_stable_seconds: float = Field(gt=0)
+    stable_min_samples: int = Field(ge=1)
+    stable_majority_ratio: float = Field(gt=0.5, le=1)
+    mismatch_alert_after_seconds: float = Field(ge=0)
+    frame_stale_seconds: float = Field(gt=0)
+    feed_lost_alert_after_seconds: float = Field(gt=0)
+    empty_lock_enabled: bool = True
+    empty_lock_seconds: float = Field(gt=0)
+    lock_countdown_seconds: float = Field(ge=0)
+    detector: VaultRoomDetectorSettings
+    tracker: VaultRoomTrackerSettings
+
+    @field_validator("min_fps")
+    @classmethod
+    def _min_fps_within_cap(cls, value, info):
+        maximum = info.data.get("recommended_fps")
+        if maximum is not None and value > maximum:
+            raise ValueError("min_fps must not exceed recommended_fps")
+        return value
 
 class MLConfigFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -86,6 +155,7 @@ class MLConfigFile(BaseModel):
     # Optional Liveness Test Lab tuning; validated by LivenessTestSettings.
     liveness_test: dict = Field(default_factory=dict)
     vault_access: VaultAccessSettings = Field(default_factory=VaultAccessSettings)
+    vault_room: VaultRoomSettings
 
 
 class MLRuntimeConfig(BaseModel):
@@ -121,6 +191,10 @@ def get_compute_device_setting() -> ComputeDevice:
     """Return the environment override or YAML compute-device selector."""
     config = load_ml_config_file()
     return settings.COMPUTE_DEVICE or config.compute.device
+
+
+def get_vault_room_config() -> VaultRoomSettings:
+    return load_ml_config_file().vault_room
 
 
 @lru_cache(maxsize=1)

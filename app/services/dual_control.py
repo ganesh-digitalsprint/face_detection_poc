@@ -115,6 +115,11 @@ class DualControlSessionManager:
             except KeyError as exc:
                 raise DualControlSessionNotFoundError("Dual-control session not found") from exc
 
+    def discard(self, session_id: str) -> None:
+        """Remove a completed session; missing IDs are intentionally harmless."""
+        with self._lock:
+            self._sessions.pop(session_id, None)
+
     def expire_if_needed(self, session: DualControlSession) -> bool:
         if datetime.now(timezone.utc) < session.expires_at:
             return False

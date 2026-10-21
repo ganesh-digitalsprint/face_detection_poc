@@ -7,6 +7,7 @@ const FRAME_CLASSES = {
   default: 'aspect-video rounded-lg bg-slate-900',
   // Vault stage: tall, dark ground; overlays are positioned over it by `children`.
   stage: 'min-h-[360px] rounded-xl bg-[#0B1224] lg:min-h-[560px]',
+  room: 'min-h-[560px] rounded-xl bg-[#0B1224]',
 };
 
 /**
@@ -22,8 +23,8 @@ export default function CameraPreview({
   const { kind, status, error, cctvSession, videoRef, imgRef } = camera;
   const showWebcam = kind === CAMERA_KINDS.WEBCAM && status === 'ready';
   const showCctv = kind === CAMERA_KINDS.CCTV && cctvSession;
-  const fit = variant === 'stage' ? 'object-cover' : 'object-contain';
-  const media = variant === 'stage' ? 'absolute inset-0' : '';
+  const fit = variant === 'stage' || variant === 'room' ? 'object-cover' : 'object-contain';
+  const media = variant === 'stage' || variant === 'room' ? 'absolute inset-0' : '';
 
   return (
     <div className="space-y-3">

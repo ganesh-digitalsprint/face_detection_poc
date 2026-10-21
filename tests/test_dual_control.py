@@ -13,6 +13,7 @@ from app.services.dual_control import DualControlSessionManager
 from app.services.liveness_service import LivenessResult, LivenessStatus
 from app.services.qdrant_service import EmployeeFaceMatch
 from app.services.vault_authentication import VaultAuthenticationService
+from app.services.vault_room_manager import ActiveSessionInfo, VaultRoomSessionActiveError
 from tests.test_liveness import RecognitionEmbedding, VaultDetection
 
 
@@ -68,8 +69,29 @@ class _Search:
     def search_employee_face(self, *args, **kwargs):
         return EmployeeFaceMatch(self.employee_id, 101 if self.employee_id.endswith("1") else 102, .2)
 
+    def find_close_faces_for_employee(self, *args, **kwargs):
+        return None
 
-def _service(*, required_persons=2, allow_mode_select=False, requested_required_persons=None):
+
+class _RoomManager:
+    def __init__(self, state="IDLE"):
+        self.state_name = state
+        self.grants = []
+
+    def is_session_active(self):
+        return self.state_name in {"ENTRY_BUFFER", "ACTIVE", "EXPIRED_OPEN"}
+
+    def active_session_info(self):
+        if not self.is_session_active():
+            return None
+        return ActiveSessionInfo(self.state_name, 120 if self.state_name == "ACTIVE" else None,
+                                 10 if self.state_name == "ENTRY_BUFFER" else 0, "room-session")
+
+    def on_access_granted(self, *args):
+        self.grants.append(args)
+
+
+def _service(*, required_persons=2, allow_mode_select=False, requested_required_persons=None, room=None):
     qdrant = _Search()
     service = VaultAuthenticationService(
         _Employees(), _Authorizations(), liveness=_Liveness(),
@@ -79,6 +101,7 @@ def _service(*, required_persons=2, allow_mode_select=False, requested_required_
             allow_mode_select=allow_mode_select,
             authorization_window_seconds=180,
         )),
+        vault_room_manager=room or _RoomManager(),
     )
     _liveness, dual = service.start(requested_required_persons)
     return service, qdrant, dual
@@ -163,6 +186,76 @@ def test_single_person_mode_grants_after_one_full_verification_without_handoff()
     assert granted.handoff_remaining_seconds == 0
     assert session.handoff_until is None
     assert service._liveness.sequence == 1
+
+
+def test_room_hook_failure_does_not_break_authentication(monkeypatch):
+    class BrokenRoom(_RoomManager):
+        def on_access_granted(self, *_args):
+            raise RuntimeError("room unavailable")
+    service, _, session = _service(required_persons=1, room=BrokenRoom())
+    result = service.process_frame(session.session_id, np.zeros((80, 80, 3), dtype=np.uint8))
+    assert result.status == "ACCESS_GRANTED"
+    assert result.access_granted is True
+
+
+@pytest.mark.parametrize("state", ["ENTRY_BUFFER", "ACTIVE", "EXPIRED_OPEN"])
+def test_start_is_rejected_before_creating_sessions_when_room_is_open(state):
+    room = _RoomManager(state)
+    liveness = _Liveness()
+    dual = DualControlSessionManager(config_override=DualControlSettings(required_persons=1))
+    service = VaultAuthenticationService(_Employees(), _Authorizations(), liveness=liveness,
+        detection=VaultDetection(), embedding=RecognitionEmbedding(), qdrant=_Search(),
+        dual_control=dual, vault_room_manager=room)
+    with pytest.raises(VaultRoomSessionActiveError):
+        service.start()
+    assert liveness.sequence == 0
+    assert dual._sessions == {}
+
+
+@pytest.mark.parametrize("state", ["IDLE", "CLOSED"])
+def test_start_is_allowed_when_room_is_idle_or_closed(state):
+    service, _, session = _service(required_persons=1, room=_RoomManager(state))
+    assert session.status == "WAITING_FOR_FIRST_PERSON"
+    _, next_session = service.start()
+    assert next_session.session_id != session.session_id
+
+
+def test_grant_time_guard_does_not_add_final_custodian_or_open_room():
+    room = _RoomManager()
+    service, _, session = _service(required_persons=1, room=room)
+    room.state_name = "ACTIVE"
+    result = service.process_frame(session.session_id, np.zeros((80, 80, 3), dtype=np.uint8))
+    assert result.status == "DENIED"
+    assert result.reason == "VAULT_ROOM_SESSION_ACTIVE"
+    assert result.access_granted is False
+    assert session.verified == {}
+    assert room.grants == []
+
+
+@pytest.mark.parametrize("path", ["/sessions", "/start"])
+def test_active_room_returns_safe_409_for_both_start_routes(path):
+    from fastapi.testclient import TestClient
+    from app.api.dependencies import get_vault_authentication_service
+    from app.main import create_app
+
+    room = _RoomManager()
+    service, _, _ = _service(required_persons=1, room=room)
+    sequence_before = service._liveness.sequence
+    sessions_before = len(service._dual_control._sessions)
+    room.state_name = "EXPIRED_OPEN"
+    app = create_app()
+    app.dependency_overrides[get_vault_authentication_service] = lambda: service
+    response = TestClient(app).post(f"/api/v1/vault-authentication{path}", json={})
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "A vault room session is active. A new vault access can be started after it ends.",
+        "code": "VAULT_ROOM_SESSION_ACTIVE",
+        "details": {"vault_room_state": "EXPIRED_OPEN", "remaining_seconds": None,
+                    "entry_buffer_remaining_seconds": 0},
+    }
+    assert "employees" not in response.text and "employee_id" not in response.text
+    assert service._liveness.sequence == sequence_before
+    assert len(service._dual_control._sessions) == sessions_before
 
 
 def test_client_person_count_is_ignored_when_mode_select_is_disabled():
@@ -253,7 +346,33 @@ def test_vault_config_endpoint_reports_effective_policy(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {
         "required_persons": 1, "allow_mode_select": True, "test_mode": True,
+        "new_access_allowed": True, "vault_room_state": "IDLE",
+        "vault_room_remaining_seconds": None,
     }
+
+
+@pytest.mark.parametrize("state,remaining,allowed", [
+    ("ENTRY_BUFFER", None, False), ("ACTIVE", 42, False),
+    ("EXPIRED_OPEN", 0, False), ("CLOSED", None, True),
+])
+def test_vault_config_reports_room_state_and_start_availability(monkeypatch, state, remaining, allowed):
+    from fastapi.testclient import TestClient
+
+    import app.api.routes.vault_authorization as route
+    from app.main import create_app
+
+    class Room:
+        def is_session_active(self): return state in {"ENTRY_BUFFER", "ACTIVE", "EXPIRED_OPEN"}
+        def state(self): return {"state": state, "remaining_seconds": remaining}
+
+    monkeypatch.setattr(route, "get_dual_control_session_manager", lambda: DualControlSessionManager(
+        config_override=DualControlSettings(required_persons=2)))
+    monkeypatch.setattr(route, "get_vault_room_manager", lambda: Room())
+    response = TestClient(create_app()).get("/api/v1/vault-authentication/config")
+    assert response.status_code == 200
+    assert response.json()["vault_room_state"] == state
+    assert response.json()["vault_room_remaining_seconds"] == remaining
+    assert response.json()["new_access_allowed"] is allowed
 
 
 def test_expired_session_clears_people_and_cannot_be_reused():

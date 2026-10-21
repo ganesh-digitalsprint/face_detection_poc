@@ -160,6 +160,7 @@ export default function RegistrationForm() {
               )}
               {camera.status !== 'idle' && <CameraPreview camera={camera} />}
               {camera.status === 'error' && <Button variant="secondary" onClick={startWebcam}>Retry Camera</Button>}
+              {camera.status === 'ready' && <p className="text-sm font-medium text-slate-700">Only one person should be in front of the camera.</p>}
               {camera.status === 'ready' && (
                 <div className="flex gap-2">
                   <Button icon={ScanFace} disabled={locked} onClick={capture}>Capture Image</Button>

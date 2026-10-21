@@ -26,6 +26,49 @@ vault_access:
     required_persons: 2
     allow_mode_select: false
     authorization_window_seconds: 180
+  enrollment:
+    duplicate_check_enabled: true
+    duplicate_distance_threshold: null
+    same_person_check_enabled: true
+    same_person_distance_threshold: null
+    reveal_conflicting_employee: false
+    ambiguity_margin: 0.05
+
+vault_room:
+  entry_buffer_seconds: 30
+  session_seconds: 360
+  warn_before_expiry_seconds: 60
+  expired_repeat_seconds: 60
+  expired_open_max_seconds: null
+  counting:
+    enabled: true
+    idle_monitoring_enabled: false
+    recommended_fps: 5
+    min_fps: 0.5
+    max_frame_bytes: 1048576
+    rate_limit_per_second: 5
+    count_stable_seconds: 4
+    stable_min_samples: 3
+    stable_majority_ratio: 0.7
+    mismatch_alert_after_seconds: 10
+    frame_stale_seconds: 6
+    feed_lost_alert_after_seconds: 10
+    empty_lock_enabled: true
+    empty_lock_seconds: 60
+    lock_countdown_seconds: 15
+    detector:
+      model: rfdetr-nano
+      confidence: 0.5
+      min_box_area_ratio: 0.01
+      weights_path: null
+      device: cpu
+      cpu_threads: 4
+    tracker:
+      track_activation_threshold: 0.4
+      minimum_matching_threshold: 0.7
+      minimum_consecutive_frames: 2
+      lost_track_seconds: 3.0
+      frame_rate: 1
 
 recognition_models:
   ArcFace:

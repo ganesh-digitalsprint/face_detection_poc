@@ -64,7 +64,7 @@ function Sidebar({ onNavigate, collapsed = false }) {
     >
       <div className={`mb-4 flex items-center gap-2 text-white ${collapsed ? 'justify-center' : 'px-3'}`}>
         <ScanEye className="h-6 w-6 shrink-0 text-accent" aria-hidden />
-        <span className={collapsed ? 'sr-only' : 'text-lg font-semibold'}>Face AI POC</span>
+        <span className={collapsed ? 'sr-only' : 'text-lg font-semibold'}>Vault Monitoring POC</span>
       </div>
       <Item to="/" end icon={LayoutDashboard} label="Dashboard" {...props} />
       <Section label="Registration" {...props} />
@@ -127,9 +127,9 @@ export default function AppLayout() {
   const { status } = useHealth();
   const drawerRef = useRef(null);
   const toggleRef = useRef(null);
-  const title = TITLES.find(([p]) => (p === '/' ? pathname === '/' : pathname.startsWith(p)))?.[1] ?? 'Face AI POC';
+  const title = TITLES.find(([p]) => (p === '/' ? pathname === '/' : pathname.startsWith(p)))?.[1] ?? 'Vault Monitoring POC';
 
-  useEffect(() => { document.title = `${title} · Face AI POC`; }, [title]);
+  useEffect(() => { document.title = `${title} · Vault Monitoring POC`; }, [title]);
   useEffect(() => { closeDrawer(); }, [pathname, closeDrawer]);
   useDrawerFocus(drawerOpen, drawerRef, toggleRef, closeDrawer);
 

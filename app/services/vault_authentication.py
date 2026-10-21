@@ -7,6 +7,7 @@ import time
 import math
 
 from app.core.logging import get_logger
+from app.core.ml_config import load_ml_config_file
 from app.services.dual_control import (
     DualControlSession,
     DualControlSessionManager,
@@ -52,6 +53,7 @@ class VaultAuthenticationService:
         embedding: FaceEmbeddingService | None = None,
         qdrant: QdrantService | None = None,
         dual_control: DualControlSessionManager | None = None,
+        vault_room_manager=None,
     ) -> None:
         self._employees = employees
         self._authorizations = authorizations
@@ -60,6 +62,10 @@ class VaultAuthenticationService:
         self._embedding = embedding or get_face_embedding_service()
         self._qdrant = qdrant or get_qdrant_service()
         self._dual_control = dual_control or get_dual_control_session_manager()
+        if vault_room_manager is None:
+            from app.services.vault_room_manager import get_vault_room_manager
+            vault_room_manager = get_vault_room_manager()
+        self._vault_room_manager = vault_room_manager
 
     @property
     def config(self):
@@ -72,6 +78,12 @@ class VaultAuthenticationService:
             type(required_persons) is not int or required_persons not in (1, 2)
         ):
             raise ValueError("required_persons must be 1 or 2")
+        if self._vault_room_manager.is_session_active():
+            room_info = self._vault_room_manager.active_session_info()
+            # It may have closed between the active check and info snapshot.
+            if room_info is not None:
+                from app.services.vault_room_manager import VaultRoomSessionActiveError
+                raise VaultRoomSessionActiveError(room_info)
         liveness = self._liveness.start_session()
         session = self._dual_control.start(
             liveness.session_id, liveness.challenge.value, required_persons
@@ -112,6 +124,34 @@ class VaultAuthenticationService:
                 logger.info("SESSION_EXPIRED dual_control_session=%s", session_id)
                 return self._dual_response(response, session, status="DUAL_AUTHENTICATION_TIMEOUT")
 
+            probe_vector = response._probe_vector
+            employee_id = response.recognition.employee_id if response.recognition else None
+            if probe_vector is not None and employee_id and session.verified:
+                threshold = get_face_model_config().threshold
+                for verified_id in session.authenticated_employee_ids:
+                    if verified_id == employee_id:
+                        continue
+                    distance = self._qdrant.find_close_faces_for_employee(
+                        probe_vector,
+                        model_name=get_face_model_config().model_name,
+                        employee_id=verified_id,
+                    )
+                    if distance is not None and distance <= threshold:
+                        logger.warning(
+                            "DUPLICATE_PERSON_DIFFERENT_ID employee=%s verified_employee=%s distance=%.6f",
+                            employee_id, verified_id, distance,
+                        )
+                        response.access_granted = False
+                        response.reason = "DUPLICATE_PERSON_DIFFERENT_ID"
+                        if response.recognition is not None:
+                            response.recognition.matched = False
+                            response.recognition.employee_id = None
+                        session.handoff_until = time.monotonic() + HANDOFF_SECONDS
+                        return self._handoff_response(
+                            session, HANDOFF_SECONDS, response=response,
+                            reason="DUPLICATE_PERSON_DIFFERENT_ID",
+                        )
+
             if response.access_granted and response.recognition and response.recognition.employee_id:
                 employee_id = response.recognition.employee_id
                 if employee_id in session.authenticated_employee_ids:
@@ -125,10 +165,32 @@ class VaultAuthenticationService:
                     )
                 else:
                     self._record_custodian(session, employee_id)
-                    logger.info("PERSON_AUTHENTICATED employee=%s", employee_id)
                     if len(session.verified) >= session.required_persons:
+                        if self._vault_room_manager.is_session_active():
+                            logger.warning("Vault room became active before grant dual_control_session=%s", session.session_id[:8])
+                            session.verified = {
+                                key: custodian for key, custodian in session.verified.items()
+                                if key != employee_id
+                            }
+                            response.access_granted = False
+                            response.reason = "VAULT_ROOM_SESSION_ACTIVE"
+                            response.status = "DENIED"
+                            return self._dual_response(response, session, status="DENIED")
+                        logger.info("PERSON_AUTHENTICATED employee=%s", employee_id)
                         session.status = "ACCESS_GRANTED"
                         test_mode = session.required_persons < 2
+                        try:
+                            custodians = [
+                                {"slot": c.slot, "employee_id": c.employee_id, "name": c.name,
+                                 "department": c.department, "designation": c.designation,
+                                 "verified_at": c.verified_at}
+                                for c in session.custodians()
+                            ]
+                            self._vault_room_manager.on_access_granted(
+                                session.session_id, custodians, session.required_persons, test_mode
+                            )
+                        except Exception:
+                            logger.exception("Could not initialize vault-room session after access grant")
                         logger.info(
                             "ACCESS_GRANTED session=%s required_persons=%s test_mode=%s",
                             session_id, session.required_persons, test_mode,
@@ -136,6 +198,7 @@ class VaultAuthenticationService:
                         return self._dual_response(
                             response, session, status="ACCESS_GRANTED", access_granted=True
                         )
+                    logger.info("PERSON_AUTHENTICATED employee=%s", employee_id)
                     session.status = "WAITING_FOR_SECOND_PERSON"
                     logger.info("FIRST_PERSON_AUTHENTICATED employee=%s", employee_id)
                     logger.info("SECOND_PERSON_WAITING session=%s", session_id)
@@ -155,6 +218,7 @@ class VaultAuthenticationService:
                         "UNKNOWN_EMPLOYEE", "IDENTITY_AUTHORIZATION_MISMATCH",
                         "AUTHORIZATION_INACTIVE", "IDENTITY_WINDOW_EXPIRED",
                         "IDENTITY_ATTEMPTS_EXCEEDED", "DUPLICATE_EMPLOYEE_REJECTED",
+                        "DUPLICATE_PERSON_DIFFERENT_ID", "IDENTITY_AMBIGUOUS",
                     }
                 )
             )
@@ -251,9 +315,8 @@ class VaultAuthenticationService:
 
         embedding = self._embedding.generate_embedding_for_bbox(image, face.bbox)
         model_name = self._embedding.model_config.model_name
-        candidate = self._qdrant.search_employee_face(
-            self._embedding.to_vector(embedding), model_name=model_name
-        )
+        probe_vector = self._embedding.to_vector(embedding)
+        candidate = self._qdrant.search_employee_face(probe_vector, model_name=model_name)
         threshold = get_face_model_config().threshold
         if candidate is None or candidate.distance > threshold:
             recognition = RecognitionDecision(
@@ -263,6 +326,19 @@ class VaultAuthenticationService:
             logger.info("Vault recognition result: UNKNOWN")
             logger.warning("UNAUTHORIZED_EMPLOYEE_REJECTED: no authorized employee match")
             return self._deny(liveness_decision, recognition, "UNKNOWN_EMPLOYEE")
+
+        ambiguity_margin = load_ml_config_file().vault_access.enrollment.ambiguity_margin
+        if (candidate.runner_up_employee_id is not None
+                and candidate.runner_up_distance is not None
+                and candidate.runner_up_distance <= threshold
+                and candidate.runner_up_distance - candidate.distance < ambiguity_margin):
+            logger.warning(
+                "IDENTITY_AMBIGUOUS best_employee=%s runner_up_employee=%s best_distance=%.6f runner_up_distance=%.6f",
+                candidate.employee_id, candidate.runner_up_employee_id,
+                candidate.distance, candidate.runner_up_distance,
+            )
+            recognition = RecognitionDecision(matched=False, distance=candidate.distance)
+            return self._deny(liveness_decision, recognition, "IDENTITY_AMBIGUOUS")
 
         employee = self._employees.get_by_employee_id(candidate.employee_id)
         if employee is None:
@@ -284,12 +360,14 @@ class VaultAuthenticationService:
                 employee.employee_id,
             )
             logger.warning("UNAUTHORIZED_EMPLOYEE_REJECTED employee='%s'", employee.employee_id)
-            return self._deny(
+            mismatch = self._deny(
                 liveness_decision,
                 recognition,
                 "IDENTITY_AUTHORIZATION_MISMATCH",
                 AuthorizationDecision(active=False),
             )
+            mismatch._probe_vector = probe_vector
+            return mismatch
 
         authorization_decision = AuthorizationDecision(active=authorization.is_active)
         access_granted = bool(
@@ -308,7 +386,7 @@ class VaultAuthenticationService:
         logger.info("Current employee authentication result: %s", reason)
         if access_granted:
             self._liveness.clear_identity_attempts(session_id)
-        return VaultAuthenticationResponse(
+        response = VaultAuthenticationResponse(
             liveness=liveness_decision,
             recognition=recognition,
             authorization=authorization_decision,
@@ -316,6 +394,8 @@ class VaultAuthenticationService:
             reason=reason,
             status="DUAL_CONTROL_VERIFIED" if access_granted else "DENIED",
         )
+        response._probe_vector = probe_vector
+        return response
 
     def _record_custodian(self, session: DualControlSession, employee_id: str) -> None:
         employee = self._employees.get_by_employee_id(employee_id)

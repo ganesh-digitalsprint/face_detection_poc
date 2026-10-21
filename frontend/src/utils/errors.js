@@ -9,6 +9,10 @@ const DEFAULT_MESSAGES = {
   503: 'Camera/CCTV stream could not be started.',
 };
 
+const DEFAULT_CODES = {
+  VAULT_ROOM_SESSION_ACTIVE: 'A vault room session is active. Start a new vault access after it ends.',
+};
+
 /** Extract the backend `detail` (string or FastAPI validation list) when safe. */
 function extractDetail(data) {
   const detail = data?.detail;
@@ -30,8 +34,9 @@ export function describeError(error, overrides = {}) {
     };
   }
   const detail = extractDetail(error.response.data);
-  const message = detail || overrides[status] || DEFAULT_MESSAGES[status] || `Request failed (HTTP ${status}).`;
-  return { status, message };
+  const code = error?.response?.data?.code ?? null;
+  const message = detail || overrides[status] || DEFAULT_CODES[code] || DEFAULT_MESSAGES[status] || `Request failed (HTTP ${status}).`;
+  return { status, message, code };
 }
 
 /** Axios interceptor helper: JSON error bodies of blob endpoints arrive as Blob; decode them. */

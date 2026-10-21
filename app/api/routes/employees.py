@@ -84,6 +84,8 @@ def register_employee_authorization(
     responses={
         400: {"model": ErrorResponse, "description": "Invalid image or face count"},
         404: {"model": ErrorResponse, "description": "Employee or authorization not found"},
+        409: {"model": ErrorResponse, "description": "Face is already enrolled under another employee (FACE_ALREADY_ENROLLED)"},
+        422: {"model": ErrorResponse, "description": "Images show different people (IMAGES_NOT_SAME_PERSON)"},
         413: {"model": ErrorResponse, "description": "An uploaded image is too large"},
         500: {"model": ErrorResponse, "description": "Face processing, Qdrant, or database error"},
     },

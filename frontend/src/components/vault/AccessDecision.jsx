@@ -6,6 +6,7 @@ export const REASONS = {
   AUTHORIZATION_INACTIVE: 'Authorization is not active',
   IDENTITY_AUTHORIZATION_MISMATCH: 'Identity and authorization records do not match',
   DUAL_AUTHENTICATION_TIMEOUT: 'The authorization window expired. Start a new verification.',
+  VAULT_ROOM_SESSION_ACTIVE: 'A vault room session is active. Start a new vault access after it ends.',
   DUPLICATE_EMPLOYEE_REJECTED: 'This employee is already verified. A different employee must complete the next verification.',
   FIRST_PERSON_VERIFIED: 'Custodian verified. A different employee must verify next.',
   NEXT_PERSON_READY: 'Next custodian verification started.',

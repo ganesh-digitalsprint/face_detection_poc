@@ -100,6 +100,7 @@ export default function VideoEnrollmentPanel({ source, onSourceChange, frames, m
       <p role="status" className="text-xs text-slate-500">Status: {STATUS_TEXT[camera.status]}</p>
       <ErrorMessage error={captureError} />
 
+      <p className="text-sm font-medium text-slate-700">Only one person should be in front of the camera.</p>
       <div className="flex flex-wrap gap-3">
         {isCctv ? (
           <Button icon={Link2} loading={busy} disabled={disabled || live || cctvIndex === ''} onClick={connect}>

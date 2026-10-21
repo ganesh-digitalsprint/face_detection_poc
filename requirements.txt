@@ -6,7 +6,8 @@ deepface[tensorflow]
 tf-keras
 opencv-contrib-python
 numpy
-supervision
+supervision==0.30.6
+rfdetr==1.11.2
 mediapipe==1.1.0
 
 # Database

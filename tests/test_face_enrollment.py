@@ -57,11 +57,14 @@ class FakeEmbedding:
     def __init__(self):
         self.failure = False
         self.calls = 0
+        self.vectors = None
 
     def generate_embedding_for_bbox(self, image, bbox):
         self.calls += 1
         if self.failure:
             raise EmbeddingError("mock embedding failure")
+        if self.vectors is not None:
+            return FakeEmbeddingResult(self.vectors[self.calls - 1])
         return FakeEmbeddingResult([float(self.calls)] * 512)
 
     @staticmethod
@@ -75,10 +78,18 @@ class FakeQdrant:
         self.failure = False
         self.partial_failure = False
         self.calls = 0
+        self.conflicting_face = None
+        self.duplicate_calls = 0
+
+    def find_conflicting_employee_face(self, *args, **kwargs):
+        self.duplicate_calls += 1
+        return self.conflicting_face
 
     def replace_employee_enrollment(
-        self, *, employee_id, authorized_employee_id, vectors, model_name
+        self, *, employee_id, authorized_employee_id, vectors, model_name, conflict_check=None
     ):
+        if conflict_check is not None:
+            conflict_check()
         self.calls += 1
         previous = self.points.get(authorized_employee_id, [])
         if self.partial_failure:
@@ -277,4 +288,95 @@ def test_active_authorization_boolean_is_not_changed_by_face_enrollment(enrollme
     assert response.status_code == 201
     session.refresh(authorization)
     assert authorization.is_active is True
+    assert authorization.face_registered is True
+
+
+def test_duplicate_face_is_rejected_without_qdrant_write_or_registration_flag(enrollment_context):
+    from app.services.face_enrollment import DuplicateFaceError
+    from app.services.qdrant_service import ConflictingFace
+
+    client, session, _, _, qdrant = enrollment_context
+    _, authorization = _add_employee(session, "EMP907")
+    qdrant.points[1] = [[1.0] * 512]
+    qdrant.conflicting_face = ConflictingFace("EMP001", 1, 0.1)
+
+    response = _upload(client, "EMP907")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "This face is already enrolled under another employee.",
+        "code": "FACE_ALREADY_ENROLLED",
+    }
+    assert qdrant.calls == 0
+    session.refresh(authorization)
+    assert authorization.face_registered is False
+
+
+def test_images_with_different_embeddings_are_rejected(enrollment_context):
+    client, session, _, embedding, qdrant = enrollment_context
+    _, authorization = _add_employee(session, "EMP908")
+    embedding.vectors = [[1.0] + [0.0] * 511, [0.0, 1.0] + [0.0] * 510, [1.0] + [0.0] * 511]
+
+    response = _upload(client, "EMP908")
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "IMAGES_NOT_SAME_PERSON"
+    assert qdrant.calls == 0
+    session.refresh(authorization)
+    assert authorization.face_registered is False
+
+
+def test_far_face_and_single_image_are_allowed(enrollment_context):
+    from types import SimpleNamespace
+
+    client, session, _, embedding, qdrant = enrollment_context
+    _, authorization = _add_employee(session, "EMP909")
+    qdrant.conflicting_face = SimpleNamespace(employee_id="EMP001", distance=0.9)
+    embedding.vectors = [[1.0] + [0.0] * 511]
+
+    response = _upload(client, "EMP909", payloads=[_image_bytes()])
+
+    assert response.status_code == 201
+    session.refresh(authorization)
+    assert authorization.face_registered is True
+
+
+def test_disabled_duplicate_check_does_not_query_conflicts(enrollment_context, monkeypatch):
+    from types import SimpleNamespace
+    import app.services.face_enrollment as enrollment_module
+
+    client, session, _, _, qdrant = enrollment_context
+    _, authorization = _add_employee(session, "EMP910")
+    settings = SimpleNamespace(duplicate_check_enabled=False, duplicate_distance_threshold=None,
+        same_person_check_enabled=True, same_person_distance_threshold=None,
+        reveal_conflicting_employee=False, ambiguity_margin=0.05)
+    monkeypatch.setattr(enrollment_module, "load_ml_config_file",
+        lambda: SimpleNamespace(vault_access=SimpleNamespace(enrollment=settings)))
+    qdrant.conflicting_face = SimpleNamespace(employee_id="EMP001", distance=0.0)
+
+    response = _upload(client, "EMP910")
+
+    assert response.status_code == 201
+    assert qdrant.duplicate_calls == 0
+    session.refresh(authorization)
+    assert authorization.face_registered is True
+
+
+def test_duplicate_threshold_override_is_used(enrollment_context, monkeypatch):
+    from types import SimpleNamespace
+    from app.services.qdrant_service import ConflictingFace
+    import app.services.face_enrollment as enrollment_module
+
+    client, session, _, _, qdrant = enrollment_context
+    _, authorization = _add_employee(session, "EMP911")
+    current = enrollment_module.load_ml_config_file().vault_access.enrollment
+    override = current.model_copy(update={"duplicate_distance_threshold": 0.2})
+    monkeypatch.setattr(enrollment_module, "load_ml_config_file",
+        lambda: SimpleNamespace(vault_access=SimpleNamespace(enrollment=override)))
+    qdrant.conflicting_face = ConflictingFace("EMP001", 1, 0.3)
+
+    response = _upload(client, "EMP911", payloads=[_image_bytes()])
+
+    assert response.status_code == 201
+    session.refresh(authorization)
     assert authorization.face_registered is True

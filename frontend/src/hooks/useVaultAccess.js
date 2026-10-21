@@ -11,6 +11,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Backend statuses after which the session can never progress again.
 const TERMINAL_STATUSES = ['ACCESS_GRANTED', BACKEND_TIMEOUT_STATUS, 'EXPIRED'];
+const ACTIVE_ROOM_STATES = new Set(['ENTRY_BUFFER', 'ACTIVE', 'EXPIRED_OPEN']);
 
 const INITIAL = {
   phase: 'idle', // idle | starting | liveness | done | error
@@ -33,6 +34,7 @@ const INITIAL = {
   handoffPending: false,
   now: Date.now(),
   error: null,
+  roomConflict: null,
 };
 
 // Only the backend can finish a session with a decision; everything else keeps the session open.
@@ -55,7 +57,7 @@ function reducer(state, action) {
         requiredCount: state.selectedRequiredPersons ?? state.config?.required_persons ?? null,
         testMode: (state.selectedRequiredPersons ?? state.config?.required_persons) === 1,
         custodians: [], expiresAt: null, handoffUntil: null, handoffPending: false,
-        now: Date.now(), error: null,
+        now: Date.now(), error: null, roomConflict: null,
       };
     case 'config':
       return {
@@ -115,6 +117,14 @@ function reducer(state, action) {
       };
     case 'error':
       return { ...state, phase: 'error', error: action.error, handoffUntil: null, handoffPending: false };
+    case 'roomBlocked':
+      return {
+        ...state, phase: 'idle', ended: null, endReason: null, challenge: null,
+        liveness: null, result: null, status: null, error: null,
+        handoffUntil: null, handoffPending: false, roomConflict: action.info,
+      };
+    case 'roomConflictCleared':
+      return { ...state, roomConflict: null };
     case 'reset':
       return {
         ...INITIAL,
@@ -136,11 +146,20 @@ function reducer(state, action) {
 /**
  * Starts one dual-control session and feeds frames until the backend grants access or expires it.
  */
-export default function useVaultAccess(camera) {
+export default function useVaultAccess(camera, paused = false, room = {}) {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const runId = useRef(0);
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const roomStateRef = useRef(room.roomState);
+  roomStateRef.current = room.roomState;
+  const roomConflictRef = useRef(state.roomConflict);
+  roomConflictRef.current = state.roomConflict;
+  const roomConflictObservedRef = useRef(null);
+  const refreshRoomStateRef = useRef(room.refreshState);
+  refreshRoomStateRef.current = room.refreshState;
 
   const loadConfig = useCallback(async () => {
     dispatch({ type: 'configLoading' });
@@ -155,9 +174,57 @@ export default function useVaultAccess(camera) {
 
   const cancelLoop = useCallback(() => { runId.current += 1; }, []);
 
+  const blockForRoomSession = useCallback((details = {}) => {
+    const current = roomStateRef.current;
+    roomConflictObservedRef.current = {
+      state: current?.state ?? null,
+      sessionId: current?.session_id ?? null,
+      activeSeen: false,
+    };
+    const info = {
+      state: details.vault_room_state ?? details.state ?? current?.state
+        ?? state.config?.vault_room_state ?? 'ACTIVE',
+      remaining_seconds: details.remaining_seconds ?? current?.remaining_seconds
+        ?? state.config?.vault_room_remaining_seconds ?? null,
+      entry_buffer_remaining_seconds: details.entry_buffer_remaining_seconds
+        ?? current?.entry_buffer_remaining_seconds ?? 0,
+    };
+    cancelLoop();
+    dispatch({ type: 'roomBlocked', info });
+    const refresh = refreshRoomStateRef.current;
+    if (refresh) {
+      refresh().then((next) => {
+        if (ACTIVE_ROOM_STATES.has(next?.state)) {
+          dispatch({ type: 'roomBlocked', info: next });
+        } else {
+          dispatch({ type: 'roomConflictCleared' });
+        }
+      }).catch(() => {});
+    }
+  }, [cancelLoop, state.config]);
+
+  useEffect(() => {
+    const current = room.roomState;
+    const observed = roomConflictObservedRef.current;
+    if (!current || !observed || !roomConflictRef.current) return;
+    if (ACTIVE_ROOM_STATES.has(current.state)) {
+      observed.activeSeen = true;
+      return;
+    }
+    if (observed.activeSeen || current.state !== observed.state || current.session_id !== observed.sessionId) {
+      roomConflictObservedRef.current = null;
+      dispatch({ type: 'roomConflictCleared' });
+    }
+  }, [room.roomState?.state, room.roomState?.session_id]);
+
   const loop = useCallback(async (id, sessionId) => {
     let failures = 0;
     while (runId.current === id) {
+      // The room view reuses this camera; pause entrance submissions without cancelling the session.
+      if (pausedRef.current) {
+        await sleep(FRAME_INTERVAL_MS);
+        continue;
+      }
       let blob;
       try {
         blob = await cameraRef.current.captureFrame();
@@ -168,10 +235,16 @@ export default function useVaultAccess(camera) {
       }
       // Never send a frame captured for a session that was stopped or restarted meanwhile.
       if (runId.current !== id) return;
+      // The user may have switched views while the frame was being encoded.
+      if (pausedRef.current) continue;
       try {
         const response = await submitLivenessFrame(sessionId, blob);
         if (runId.current !== id) return;
         failures = 0;
+        if (response.reason === 'VAULT_ROOM_SESSION_ACTIVE') {
+          blockForRoomSession();
+          return;
+        }
         const ended = frameOutcome(response);
         dispatch({ type: 'frame', response, ended });
         if (ended) return;
@@ -194,9 +267,19 @@ export default function useVaultAccess(camera) {
       await sleep(FRAME_INTERVAL_MS);
     }
     return undefined;
-  }, []);
+  }, [blockForRoomSession]);
 
   const start = useCallback(async () => {
+    const currentRoom = roomStateRef.current;
+    const blockedState = ACTIVE_ROOM_STATES.has(currentRoom?.state);
+    const configBlocked = !currentRoom && state.config?.new_access_allowed === false;
+    if (blockedState || configBlocked || state.roomConflict) {
+      blockForRoomSession(blockedState ? currentRoom : state.roomConflict ?? {
+        vault_room_state: state.config?.vault_room_state,
+        remaining_seconds: state.config?.vault_room_remaining_seconds,
+      });
+      return;
+    }
     cancelLoop();
     const id = runId.current;
     dispatch({ type: 'starting' });
@@ -208,9 +291,14 @@ export default function useVaultAccess(camera) {
       dispatch({ type: 'session', session, challenge: session.challenge });
       loop(id, session.session_id);
     } catch (err) {
+      if (runId.current === id && err?.response?.status === 409
+          && err?.response?.data?.code === 'VAULT_ROOM_SESSION_ACTIVE') {
+        blockForRoomSession(err.response.data.details ?? {});
+        return;
+      }
       if (runId.current === id) dispatch({ type: 'error', error: describeError(err) });
     }
-  }, [cancelLoop, loop, state.config, state.selectedRequiredPersons]);
+  }, [blockForRoomSession, cancelLoop, loop, state.config, state.roomConflict, state.selectedRequiredPersons]);
 
   const cancel = useCallback(() => {
     cancelLoop();
@@ -240,5 +328,15 @@ export default function useVaultAccess(camera) {
     dispatch({ type: 'selectRequiredPersons', value });
   }, []);
 
-  return { ...state, remainingSeconds, handoffRemaining, start, cancel, reset, loadConfig, selectRequiredPersons };
+  const currentRoom = room.roomState;
+  const roomIsActive = ACTIVE_ROOM_STATES.has(currentRoom?.state);
+  const configBlocksRoom = !currentRoom && state.config?.new_access_allowed === false;
+  const roomBlockInfo = roomIsActive ? currentRoom
+    : state.roomConflict ?? (configBlocksRoom ? {
+      state: state.config?.vault_room_state,
+      remaining_seconds: state.config?.vault_room_remaining_seconds,
+    } : null);
+  const roomBlocked = roomIsActive || configBlocksRoom || Boolean(state.roomConflict);
+  return { ...state, remainingSeconds, handoffRemaining, start, cancel, reset, loadConfig, selectRequiredPersons,
+    roomBlocked, roomBlockInfo };
 }

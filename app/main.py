@@ -17,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import detection, employees, health, recognition, registration, streams, video
-from app.api.routes import liveness_test, vault_authorization
+from app.api.routes import liveness_test, vault_authorization, vault_room
 from app.api.errors import install_error_handlers
 from app.core.config import settings
 from app.core.compute import get_compute_config
@@ -27,6 +27,7 @@ from app.db.database import get_engine, init_db
 from app.ml.deepface_service import FaceProcessingError, get_deepface_service
 from app.services.qdrant_service import get_qdrant_service
 from app.services.dual_control import get_dual_control_session_manager
+from app.services.vault_room_manager import get_vault_room_manager
 
 logger = get_logger(__name__)
 
@@ -42,6 +43,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     dual_control_config = get_dual_control_session_manager().config
     if dual_control_config.required_persons < 2:
         logger.warning("TEST MODE: single-custodian authorization is active")
+    if not settings.VAULT_ROOM_API_KEY:
+        logger.warning("vault-room routes are unprotected, POC only")
 
     settings.ensure_directories()
     qdrant = get_qdrant_service()
@@ -60,8 +63,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # Keep the API up (health still works); requests will report the failure.
             logger.exception("Model warm-up failed; continuing without it")
     logger.info("FastAPI application startup completed: %s v%s", settings.APP_NAME, settings.APP_VERSION)
+    get_vault_room_manager().start()
     yield
     streams.stream_manager.stop_all()
+    get_vault_room_manager().stop()
     if get_engine.cache_info().currsize:  # only if an engine was ever created
         get_engine().dispose()
     qdrant.close()
@@ -87,11 +92,13 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["Retry-After"],
     )
 
     app.include_router(health.router)
     app.include_router(employees.employee_router)
     app.include_router(vault_authorization.router)
+    app.include_router(vault_room.router)
     app.include_router(registration.router)
     app.include_router(recognition.router)
     app.include_router(video.router)

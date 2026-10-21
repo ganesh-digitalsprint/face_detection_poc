@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     COMPUTE_DEVICE: ComputeDevice | None = None
     VAULT_REQUIRED_PERSONS: int | None = Field(default=None, ge=1, le=2)
     VAULT_ALLOW_MODE_SELECT: bool | None = None
+    VAULT_ROOM_API_KEY: str | None = None
 
     # ------------------------------------------------------------------
     # Video / webcam

@@ -6,6 +6,7 @@ from functools import lru_cache
 import json
 import math
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -38,6 +39,15 @@ class EmployeeEnrollmentSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class EmployeeFaceMatch:
+    employee_id: str
+    authorized_employee_id: int
+    distance: float
+    runner_up_employee_id: str | None = None
+    runner_up_distance: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ConflictingFace:
     employee_id: str
     authorized_employee_id: int
     distance: float
@@ -215,6 +225,7 @@ class QdrantService:
         authorized_employee_id: int,
         vectors: list[list[float]],
         model_name: str,
+        conflict_check: Callable[[], None] | None = None,
     ) -> EmployeeEnrollmentSnapshot:
         """Safely replace one employee's points, retaining the old set until upsert succeeds.
 
@@ -222,6 +233,8 @@ class QdrantService:
         generations, which allows a new set to be prepared before the old set is removed.
         """
         with self._employee_enrollment_lock:
+            if conflict_check is not None:
+                conflict_check()
             return self._replace_employee_enrollment(
                 employee_id=employee_id,
                 authorized_employee_id=authorized_employee_id,
@@ -485,6 +498,7 @@ class QdrantService:
                 limit=max(1, limit),
                 with_payload=True,
             )
+            matches: list[EmployeeFaceMatch] = []
             for point in response.points:
                 payload = point.payload or {}
                 try:
@@ -493,12 +507,22 @@ class QdrantService:
                     distance = 1.0 - float(point.score)
                 except (KeyError, TypeError, ValueError):
                     continue
-                return EmployeeFaceMatch(
+                matches.append(EmployeeFaceMatch(
                     employee_id=employee_id,
                     authorized_employee_id=authorization_id,
                     distance=max(0.0, min(distance, 2.0)),
-                )
-            return None
+                ))
+            if not matches:
+                return None
+            best = matches[0]
+            runner_up = next((match for match in matches if match.employee_id != best.employee_id), None)
+            return EmployeeFaceMatch(
+                employee_id=best.employee_id,
+                authorized_employee_id=best.authorized_employee_id,
+                distance=best.distance,
+                runner_up_employee_id=runner_up.employee_id if runner_up else None,
+                runner_up_distance=runner_up.distance if runner_up else None,
+            )
         except UnexpectedResponse as exc:
             logger.error("Qdrant rejected employee face search (HTTP %s)", exc.status_code)
             raise QdrantConnectionError("Qdrant rejected the employee face search.") from exc
@@ -507,6 +531,77 @@ class QdrantService:
         except Exception as exc:
             logger.error("Qdrant employee face search failed due to a client or connection error")
             raise QdrantConnectionError("Qdrant employee face search failed.") from exc
+
+    def find_conflicting_employee_face(
+        self, embedding: list[float], *, model_name: str, exclude_employee_id: str,
+        exclude_authorized_employee_id: int, limit: int = 8,
+    ) -> ConflictingFace | None:
+        """Find the nearest existing employee enrollment outside this identity."""
+        self._validate(embedding)
+        try:
+            response = self.client.query_points(
+                collection_name=self.collection_name,
+                query=embedding,
+                query_filter=models.Filter(
+                    must=[models.FieldCondition(key="model_name", match=models.MatchValue(value=model_name))],
+                    must_not=[
+                        models.FieldCondition(key="employee_id", match=models.MatchValue(value=exclude_employee_id)),
+                        models.FieldCondition(key="authorized_employee_id", match=models.MatchValue(value=exclude_authorized_employee_id)),
+                        models.IsEmptyCondition(is_empty=models.PayloadField(key="employee_id")),
+                    ],
+                ),
+                limit=max(1, limit),
+                with_payload=True,
+            )
+            for point in response.points:
+                payload = point.payload or {}
+                if payload.get("employee_id") is None:
+                    continue
+                try:
+                    return ConflictingFace(
+                        employee_id=str(payload["employee_id"]),
+                        authorized_employee_id=int(payload["authorized_employee_id"]),
+                        distance=max(0.0, min(1.0 - float(point.score), 2.0)),
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+            return None
+        except UnexpectedResponse as exc:
+            logger.error("Qdrant rejected duplicate face search (HTTP %s)", exc.status_code)
+            raise QdrantConnectionError("Qdrant rejected the duplicate face search.") from exc
+        except QdrantConnectionError:
+            raise
+        except Exception as exc:
+            logger.error("Qdrant duplicate face search failed due to a client or connection error")
+            raise QdrantConnectionError("Qdrant duplicate face search failed.") from exc
+
+    def find_close_faces_for_employee(
+        self, embedding: list[float], *, model_name: str, employee_id: str, limit: int = 3,
+    ) -> float | None:
+        """Return the nearest point distance for an enrolled employee."""
+        self._validate(embedding)
+        try:
+            response = self.client.query_points(
+                collection_name=self.collection_name,
+                query=embedding,
+                query_filter=models.Filter(must=[
+                    models.FieldCondition(key="model_name", match=models.MatchValue(value=model_name)),
+                    models.FieldCondition(key="employee_id", match=models.MatchValue(value=employee_id)),
+                ]),
+                limit=max(1, limit),
+                with_payload=True,
+            )
+            distances = [max(0.0, min(1.0 - float(point.score), 2.0))
+                         for point in response.points if (point.payload or {}).get("employee_id") is not None]
+            return min(distances) if distances else None
+        except UnexpectedResponse as exc:
+            logger.error("Qdrant rejected custodian face search (HTTP %s)", exc.status_code)
+            raise QdrantConnectionError("Qdrant rejected the custodian face search.") from exc
+        except QdrantConnectionError:
+            raise
+        except Exception as exc:
+            logger.error("Qdrant custodian face search failed due to a client or connection error")
+            raise QdrantConnectionError("Qdrant custodian face search failed.") from exc
 
     @staticmethod
     def _validate(vector: list[float]) -> None:

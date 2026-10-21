@@ -73,7 +73,7 @@ function HandoffOverlay({ vault }) {
   );
 }
 
-function ResultOverlay({ granted, title, detail, actionLabel, onAction }) {
+function ResultOverlay({ granted, title, detail, actionLabel, onAction, onGoRoom, disabled }) {
   const Icon = granted ? ShieldCheck : ShieldX;
   const tone = granted ? 'bg-[#0B7A4B]/92' : 'bg-[#B3261E]/92';
   return (
@@ -81,10 +81,15 @@ function ResultOverlay({ granted, title, detail, actionLabel, onAction }) {
       <Icon className="h-14 w-14" aria-hidden />
       <p className="mt-3 text-2xl font-bold tracking-wide sm:text-3xl">{title}</p>
       {detail && <p className="mt-2 max-w-md text-sm sm:text-base">{detail}</p>}
-      <button type="button" onClick={onAction}
-        className={`${actionButton} bg-white ${granted ? 'text-[#0B6B43]' : 'text-[#B3261E]'} hover:bg-slate-100`}>
+      <button type="button" onClick={onAction} disabled={disabled}
+        title={disabled ? 'Vault room session is active' : undefined}
+        aria-describedby={disabled ? 'vault-room-action-disabled' : undefined}
+        className={`${actionButton} bg-white ${granted ? 'text-[#0B6B43]' : 'text-[#B3261E]'} hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60`}>
         <RotateCcw className="h-4 w-4" aria-hidden /> {actionLabel}
       </button>
+      {disabled && <p id="vault-room-action-disabled" className="mt-2 text-sm">Vault room session is active</p>}
+      {granted && onGoRoom && <button type="button" onClick={onGoRoom}
+        className="mt-2 inline-flex min-h-11 items-center justify-center rounded-md border border-white/80 px-5 text-sm font-semibold text-white hover:bg-white/10">Go to Vault Room Camera</button>}
     </div>
   );
 }
@@ -93,7 +98,7 @@ function resultProps(view, vault) {
   if (view === VAULT_VIEW.GRANTED) {
     return {
       granted: true, title: 'VAULT ACCESS GRANTED',
-      detail: vault.requiredCount === 1 ? 'Custodian verified. All required checks passed.' : 'Dual control verified.',
+      detail: 'Access granted. You can check the Vault Room Camera.',
       actionLabel: 'Start new session',
     };
   }
@@ -110,7 +115,7 @@ function resultProps(view, vault) {
 }
 
 /** Everything drawn over the live video. Pure presentation of hook state. */
-export default function VaultCameraOverlay({ camera, vault, view, onStart, onReady }) {
+export default function VaultCameraOverlay({ camera, vault, view, onStart, onReady, onGoRoom }) {
   const cameraOn = camera.status === 'ready';
   const live = LIVE_VIEWS.includes(view);
   const slot = activeSlot(vault, view);
@@ -150,10 +155,13 @@ export default function VaultCameraOverlay({ camera, vault, view, onStart, onRea
               {vault.config?.required_persons === 1 ? 'Single-custodian test mode' : 'Two-person authorization required'}
             </span>
           )}
-          <button type="button" onClick={onStart} disabled={!vault.config || vault.configLoading}
+          <button type="button" onClick={onStart} disabled={!vault.config || vault.configLoading || vault.roomBlocked}
+            title={vault.roomBlocked ? 'Vault room session is active' : undefined}
+            aria-describedby={vault.roomBlocked ? 'vault-room-start-disabled' : undefined}
             className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[#34479B] px-5 text-sm font-semibold text-white shadow-lg hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60">
             <ScanFace className="h-4 w-4" aria-hidden /> Start vault access
           </button>
+          {vault.roomBlocked && <span id="vault-room-start-disabled" className="text-sm font-medium text-white">Vault room session is active</span>}
         </div>
       )}
       {view === VAULT_VIEW.STARTING && (
@@ -169,7 +177,7 @@ export default function VaultCameraOverlay({ camera, vault, view, onStart, onRea
         </PromptCard>
       )}
       {view === VAULT_VIEW.HANDOFF && <HandoffOverlay vault={vault} />}
-      {terminal && <ResultOverlay {...resultProps(view, vault)} onAction={onReady} />}
+      {terminal && <ResultOverlay {...resultProps(view, vault)} onAction={onReady} onGoRoom={onGoRoom} disabled={vault.roomBlocked} />}
     </>
   );
 }

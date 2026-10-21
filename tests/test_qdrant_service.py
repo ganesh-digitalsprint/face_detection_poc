@@ -1,6 +1,7 @@
 """Offline unit checks for safe Qdrant collection initialization."""
 
 from types import SimpleNamespace
+import threading
 from unittest import TestCase
 from unittest.mock import Mock
 
@@ -160,6 +161,69 @@ class QdrantInitializationTests(TestCase):
     def test_rejects_non_finite_embedding_values(self) -> None:
         with self.assertRaisesRegex(EmbeddingDimensionError, "non-finite"):
             QdrantService._validate([float("nan")] + [0.0] * 511)
+
+    def test_conflict_search_ignores_person_registry_and_excludes_same_employee(self) -> None:
+        client = QdrantClient(location=":memory:")
+        client.create_collection(collection_name="face_embeddings",
+            vectors_config=models.VectorParams(size=512, distance=models.Distance.COSINE))
+        client.upsert(collection_name="face_embeddings", wait=True, points=[
+            models.PointStruct(id="00000000-0000-0000-0000-000000000001", vector=[1.0] + [0.0] * 511,
+                               payload={"person_id": 3, "model_name": "ArcFace"}),
+            models.PointStruct(id="00000000-0000-0000-0000-000000000002", vector=[1.0] + [0.0] * 511,
+                               payload={"employee_id": "EMP1", "authorized_employee_id": 1, "model_name": "ArcFace"}),
+            models.PointStruct(id="00000000-0000-0000-0000-000000000003", vector=[0.99, 0.1] + [0.0] * 510,
+                               payload={"employee_id": "EMP2", "authorized_employee_id": 2, "model_name": "ArcFace"}),
+        ])
+        service = QdrantService(client=client)
+        try:
+            conflict = service.find_conflicting_employee_face(
+                [1.0] + [0.0] * 511, model_name="ArcFace",
+                exclude_employee_id="EMP1", exclude_authorized_employee_id=1,
+            )
+            assert conflict is not None and conflict.employee_id == "EMP2"
+            assert conflict.distance < 0.02
+            assert service.find_close_faces_for_employee(
+                [1.0] + [0.0] * 511, model_name="ArcFace", employee_id="EMP2"
+            ) < 0.02
+            match = service.search_employee_face([1.0] + [0.0] * 511, model_name="ArcFace")
+            assert match.employee_id == "EMP1"
+            assert match.runner_up_employee_id == "EMP2"
+        finally:
+            client.close()
+
+    def test_enrollment_conflict_check_is_locked_with_write(self) -> None:
+        service = QdrantService(client=Mock())
+        entered = threading.Event()
+        release = threading.Event()
+        order = []
+
+        def write(*, employee_id, **kwargs):
+            order.append(f"write:{employee_id}")
+            return employee_id
+
+        service._replace_employee_enrollment = write
+
+        def enroll(employee_id):
+            def check():
+                order.append(f"check:{employee_id}")
+                if employee_id == "EMP1":
+                    entered.set()
+                    assert release.wait(2)
+            return service.replace_employee_enrollment(
+                employee_id=employee_id, authorized_employee_id=1,
+                vectors=[[1.0] * 512], model_name="ArcFace", conflict_check=check,
+            )
+
+        first = threading.Thread(target=enroll, args=("EMP1",))
+        second = threading.Thread(target=enroll, args=("EMP2",))
+        first.start()
+        assert entered.wait(2)
+        second.start()
+        release.set()
+        first.join(2)
+        second.join(2)
+        assert not first.is_alive() and not second.is_alive()
+        assert order == ["check:EMP1", "write:EMP1", "check:EMP2", "write:EMP2"]
 
     def test_extracts_qdrant_validation_message_without_raw_body(self) -> None:
         exc = UnexpectedResponse(

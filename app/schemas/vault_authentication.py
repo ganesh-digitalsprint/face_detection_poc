@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 class LivenessDecision(BaseModel):
@@ -41,6 +41,8 @@ class CustodianSummary(BaseModel):
 
 
 class VaultAuthenticationResponse(BaseModel):
+    _probe_vector: list[float] | None = PrivateAttr(default=None)
+
     liveness: LivenessDecision
     recognition: RecognitionDecision | None = None
     authorization: AuthorizationDecision | None = None
@@ -77,3 +79,6 @@ class VaultAuthenticationConfig(BaseModel):
     required_persons: Literal[1, 2]
     allow_mode_select: bool
     test_mode: bool
+    new_access_allowed: bool
+    vault_room_state: str
+    vault_room_remaining_seconds: int | None = None

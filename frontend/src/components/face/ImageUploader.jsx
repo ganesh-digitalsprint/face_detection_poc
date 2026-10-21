@@ -71,7 +71,7 @@ export default function ImageUploader({ file, onChange, disabled = false, kind =
             onClick={reset}
             disabled={disabled}
             aria-label={`Remove ${noun}`}
-            className="absolute right-2 top-2 rounded-full bg-white/90 p-1 text-slate-700 shadow hover:bg-white disabled:opacity-50"
+            className="absolute right-2 top-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/90 p-1 text-slate-700 shadow hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-50"
           >
             <X className="h-4 w-4" />
           </button>
