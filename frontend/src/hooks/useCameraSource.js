@@ -59,7 +59,7 @@ export default function useCameraSource() {
     setError(null);
   }, [release]);
 
-  const start = useCallback(async (nextKind, { streamIndex = 0 } = {}) => {
+  const start = useCallback(async (nextKind, { streamIndex = 0, rtspUrl } = {}) => {
     release();
     setKind(nextKind);
     setStatus('starting');
@@ -71,7 +71,7 @@ export default function useCameraSource() {
         streamRef.current = stream;
         setStatus('ready'); // <video> attaches the stream via the effect below
       } else {
-        const session = await startCCTV(streamIndex);
+        const session = await startCCTV(rtspUrl ?? streamIndex);
         sessionRef.current = session;
         setCctvSession(session);
       }

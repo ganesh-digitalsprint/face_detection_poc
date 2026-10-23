@@ -18,6 +18,7 @@ from app.core.logging import get_logger
 from app.db.database import session_scope
 from app.services.face_recognition import FaceRecognitionService
 from app.services.video_processing import annotate_frame
+from app.services.camera_capture import CameraCaptureError, open_webcam_capture
 
 logger = get_logger(__name__)
 
@@ -63,7 +64,10 @@ class StreamManager:
         return self._start("rtsp", url)
 
     def _start(self, source_type: str, uri: str | int) -> LiveSession:
-        capture = self._open_capture(source_type, uri)
+        try:
+            capture = open_webcam_capture(int(uri), capture_factory=self._capture_factory) if source_type == "webcam" else self._open_capture(source_type, uri)
+        except CameraCaptureError as exc:
+            raise StreamOpenError(str(exc)) from exc
         reconnects = 0
         while not capture.isOpened() and source_type == "rtsp" and reconnects < settings.RTSP_RECONNECT_ATTEMPTS:
             capture.release()

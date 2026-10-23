@@ -82,6 +82,9 @@ class VaultRoomManager:
         self._inference_slot = threading.Semaphore(1)
         self._last_frame_at: float | None = None
         self._processing_ms: deque[float] = deque(maxlen=10)
+        self._latest_tracks: list[dict] = []
+        self._latest_image_size = (640, 360)
+        self._video_source = "browser"
         self._log_batch_ms: deque[float] = deque(maxlen=30)
         self._completed_frames: deque[float] = deque()
         self._frames_since_log = 0
@@ -252,7 +255,7 @@ class VaultRoomManager:
             remaining = max(0, int(self._config.session_seconds - (now - ctx.session_started_at))) if ctx.state == ACTIVE else (0 if ctx.state == EXPIRED_OPEN else None)
             return ActiveSessionInfo(ctx.state, remaining, entry_remaining, ctx.session_id)
 
-    def process_frame(self, frame_bgr):
+    def process_frame(self, frame_bgr, *, source="browser"):
         """Run one browser-uploaded frame; never retains the image after this call."""
         if not self._inference_slot.acquire(blocking=False):
             raise VaultRoomBusyError("Vault-room detector is busy")
@@ -264,6 +267,7 @@ class VaultRoomManager:
                     self._ctx.state == "IDLE" and self._counting.idle_monitoring_enabled
                 )
                 if not accepts:
+                    self._video_source = source
                     return {"accepts_frames": False}
                 if not self._counting.enabled or self._detector is None:
                     raise VaultRoomDetectorUnavailableError("People counting is disabled")
@@ -297,6 +301,11 @@ class VaultRoomManager:
                 stable = self._counter.stable_count(completed_at)
                 expected = self._ctx.required_persons
                 self._last_frame_at = completed_at
+                self._video_source = source
+                self._latest_tracks = [{"track_id": t.track_id, "x": t.x1 / frame_bgr.shape[1],
+                    "y": t.y1 / frame_bgr.shape[0], "w": (t.x2-t.x1) / frame_bgr.shape[1],
+                    "h": (t.y2-t.y1) / frame_bgr.shape[0], "confidence": t.confidence} for t in tracks]
+                self._latest_image_size = (frame_bgr.shape[1], frame_bgr.shape[0])
                 self._record_processing_locked(processing_ms, completed_at)
             height, width = frame_bgr.shape[:2]
             return {"image_width": width, "image_height": height, "raw_count": raw_count,
@@ -453,6 +462,7 @@ class VaultRoomManager:
                 open_alerts = [{"type":"SESSION_EXPIRED", "severity":"critical", "message":"Vault session expired; room remains open", "opened_at":expired.get("opened_at")}]
             feed = "NONE" if self._counter is None or self._counter.last_feed_at is None else (
                 "LIVE" if now-self._counter.last_feed_at < self._counting.frame_stale_seconds else "STALE")
+            latest_tracks = list(self._latest_tracks) if feed == "LIVE" else []
             stable = self._counter.stable_count(now) if self._counter else None
             rolling_median_ms = statistics.median(self._processing_ms) if self._processing_ms else None
             effective_fps = self._effective_fps_locked() if self._counter else None
@@ -467,12 +477,14 @@ class VaultRoomManager:
                 "test_mode":c.test_mode, "entry_buffer_remaining_seconds":entry, "remaining_seconds":remaining,
                 "door":"LOCKED" if self._door.locked else "UNLOCKED", "employees":list(c.employees),
                 "open_alerts":current_open_alerts, "expired_alert_level":c.expired_alert_level,
-                "video_source":"browser", "stable_count":stable, "expected_persons":c.required_persons,
+                "video_source":self._video_source, "stable_count":stable, "expected_persons":c.required_persons,
                 "feed":feed, "accepts_frames":c.state in (ENTRY_BUFFER, ACTIVE, EXPIRED_OPEN) or
                     (c.state == "IDLE" and self._counting.idle_monitoring_enabled),
                 "recommended_fps":effective_fps,
                 "rolling_median_ms":rolling_median_ms,
                 "measured_fps":measured_fps,
+                "tracks":latest_tracks, "image_width":self._latest_image_size[0],
+                "image_height":self._latest_image_size[1],
                 "detector_status":self._detector.status.get("status", "unavailable") if self._detector else "unavailable",
                 "zones": self._zone_monitor.snapshot(),
                 "lock_countdown_remaining_seconds":countdown,

@@ -3,8 +3,10 @@ import client, { apiUrl } from './client.js';
 // Backend: StreamStartedResponse { session_id, stream_url, stop_url } (relative URLs).
 export const startWebcam = () => client.post('/api/v1/streams/webcam').then((r) => r.data);
 
-export const startCCTV = (streamIndex) =>
-  client.post('/api/v1/streams/cctv', { stream_index: streamIndex }).then((r) => r.data);
+export const startCCTV = (source) =>
+  client.post('/api/v1/streams/cctv', typeof source === 'string'
+    ? { rtsp_url: source }
+    : { stream_index: source }).then((r) => r.data);
 
 export const stopStream = (sessionId) =>
   client.post(`/api/v1/streams/${encodeURIComponent(sessionId)}/stop`).then((r) => r.data);

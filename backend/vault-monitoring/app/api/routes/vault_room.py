@@ -21,6 +21,8 @@ from app.db.database import session_scope
 from app.db.models.vault_room import VaultRoomAlert, VaultRoomEvent, VaultRoomSession
 from app.core.ml_config import get_vault_room_config
 from app.api.dependencies import read_upload_bytes
+from app.schemas.vault_room_camera import VaultRoomCameraSessionResponse, VaultRoomCameraStartRequest
+from app.services.vault_room_camera import get_vault_room_camera_manager, validate_rtsp_url
 from app.services.vault_room_manager import (VaultRoomBusyError, VaultRoomDetectorUnavailableError,
     VaultRoomSessionConflictError, get_vault_room_manager)
 
@@ -82,6 +84,8 @@ def process_frame(frame: UploadFile = File(...)):
     image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None or image.size == 0:
         raise HTTPException(status_code=400, detail="Invalid image")
+    if get_vault_room_camera_manager().is_active():
+        raise HTTPException(status_code=409, detail="A Vault Room camera session is already processing frames.")
     try:
         result = get_vault_room_manager().process_frame(image)
         if not result.get("accepts_frames", True):
@@ -93,6 +97,55 @@ def process_frame(frame: UploadFile = File(...)):
                             headers={"Retry-After": "1"}) from exc
     except VaultRoomDetectorUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/camera-sessions", dependencies=[Depends(require_vault_room_key)], response_model=VaultRoomCameraSessionResponse)
+def start_camera_session(payload: VaultRoomCameraStartRequest):
+    """Create a webcam or RTSP source feeding the Vault Room person tracker."""
+    try:
+        camera_manager = get_vault_room_camera_manager()
+        if payload.source_type == "webcam":
+            if payload.rtsp_url is not None:
+                raise HTTPException(status_code=422, detail="Webcam requests must not include an RTSP URL.")
+            session = camera_manager.start_webcam(payload.name, payload.camera_index)
+        else:
+            if payload.rtsp_url is None:
+                raise HTTPException(status_code=422, detail="An RTSP URL is required for an RTSP camera.")
+            url = validate_rtsp_url(payload.rtsp_url.get_secret_value())
+            session = camera_manager.start_rtsp(payload.name, url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {**camera_manager.status(session),
+            "stream_url": f"/api/v1/vault-room/camera-sessions/{session.session_id}/stream"}
+
+
+@router.get("/camera-sessions/{session_id}", dependencies=[Depends(require_vault_room_key)], response_model=VaultRoomCameraSessionResponse)
+def camera_session_status(session_id: str):
+    session = get_vault_room_camera_manager().get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Camera session not found.")
+    return {**get_vault_room_camera_manager().status(session),
+            "stream_url": f"/api/v1/vault-room/camera-sessions/{session.session_id}/stream"}
+
+
+@router.get("/camera-sessions/{session_id}/stream")
+def camera_session_stream(session_id: str):
+    try:
+        frames = get_vault_room_camera_manager().stream(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Camera session not found.") from exc
+    # The unpredictable session id acts as a short-lived capability for the <img> preview URL.
+    return StreamingResponse(frames, media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@router.delete("/camera-sessions/{session_id}", dependencies=[Depends(require_vault_room_key)])
+def stop_camera_session(session_id: str):
+    if not get_vault_room_camera_manager().stop(session_id):
+        raise HTTPException(status_code=404, detail="Camera session not found.")
+    return {"session_id": session_id, "status": "stopped"}
 
 
 @router.get("/state", dependencies=[Depends(require_vault_room_key)],

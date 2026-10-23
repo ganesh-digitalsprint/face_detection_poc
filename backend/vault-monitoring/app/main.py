@@ -16,8 +16,8 @@ from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import detection, employees, health, recognition, registration, streams, video
-from app.api.routes import liveness_test, vault_authorization, vault_room
+from app.api.routes import liveness_test, video
+from app.api.routes import vault_room
 from app.api.errors import install_error_handlers
 from app.core.config import settings
 from app.core.compute import get_compute_config
@@ -28,6 +28,8 @@ from app.ml.deepface_service import FaceProcessingError, get_deepface_service
 from app.services.qdrant_service import get_qdrant_service
 from app.services.dual_control import get_dual_control_session_manager
 from app.services.vault_room_manager import get_vault_room_manager
+from app.services.vault_room_camera import get_vault_room_camera_manager
+from app.api.routes import detection, employees, health, recognition, registration, streams, vault_authorization
 
 logger = get_logger(__name__)
 
@@ -66,6 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     get_vault_room_manager().start()
     yield
     streams.stream_manager.stop_all()
+    get_vault_room_camera_manager().stop_all()
     get_vault_room_manager().stop()
     if get_engine.cache_info().currsize:  # only if an engine was ever created
         get_engine().dispose()

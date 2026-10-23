@@ -48,8 +48,9 @@ export function VaultRoomVideoOverlay({ roomState, connection, counting, mirrore
   else if (state === 'CLOSED') banner = ['bg-slate-200 text-slate-800', roomState?.end_reason?.startsWith('AUTO_LOCK_')
     ? `Vault locked automatically: ${END_REASONS[roomState.end_reason] || 'automatic timeout'}`
     : 'Vault closed'];
-  const width = counting?.imageWidth || 640;
-  const height = counting?.imageHeight || 360;
+  const width = counting?.imageWidth || roomState?.image_width || 640;
+  const height = counting?.imageHeight || roomState?.image_height || 360;
+  const tracks = counting?.tracks ?? roomState?.tracks ?? [];
   const count = roomState?.stable_count;
   const expected = roomState?.expected_persons;
   const boxTone = count == null || expected == null ? '#D18A00' : count > expected ? '#B3261E' : count === expected ? '#0B7A4B' : '#D18A00';
@@ -58,13 +59,13 @@ export function VaultRoomVideoOverlay({ roomState, connection, counting, mirrore
     try { window.localStorage.setItem('vault-room-show-boxes', String(next)); } catch { /* Optional preference only. */ }
   };
   return <>
-    <span className="absolute left-3 top-3 z-10 inline-flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs font-semibold text-white sm:left-4 sm:top-4"><span className="h-2 w-2 rounded-full bg-red-500" aria-hidden /> Live ? Vault room (demo)</span>
+    <span className="absolute left-3 top-3 z-10 inline-flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs font-semibold text-white sm:left-4 sm:top-4"><span className="h-2 w-2 rounded-full bg-red-500" aria-hidden /> Live · Vault Room</span>
     <span className="absolute right-3 top-3 z-10 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#0F1B3D] sm:right-4 sm:top-4">{stateNames[state]}</span>
     {(connection === 'reconnecting' || connection === 'offline') && <span className="absolute left-3 top-12 z-10 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-[#6B4500] sm:left-4">Reconnecting...</span>}
     <span className="absolute left-3 top-12 z-10 rounded-full bg-white/95 px-3 py-1.5 text-xs font-bold text-[#0F1B3D] sm:left-4">{count ?? '?'} of {expected ?? '?'} present</span>
     <button type="button" aria-pressed={showBoxes} onClick={toggleBoxes} className="absolute right-3 top-12 z-10 inline-flex min-h-11 items-center rounded-full bg-white/95 px-3 text-xs font-bold text-[#0F1B3D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:right-4">{showBoxes ? 'Hide boxes' : 'Show boxes'}</button>
-    {showBoxes && counting?.tracks?.length > 0 && <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid slice">
-      {counting.tracks.map((track) => {
+    {showBoxes && tracks.length > 0 && <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid slice">
+      {tracks.map((track) => {
         const boxWidth = track.w * width; const boxHeight = track.h * height;
         const x = (mirrored ? 1 - track.x - track.w : track.x) * width; const y = track.y * height;
         return <g key={track.track_id}><rect x={x} y={y} width={boxWidth} height={boxHeight} rx="8" fill="none" stroke={boxTone} strokeWidth="3" vectorEffect="non-scaling-stroke" />

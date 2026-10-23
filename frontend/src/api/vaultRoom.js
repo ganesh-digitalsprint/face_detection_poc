@@ -12,6 +12,12 @@ export const analyzeVaultFrame = (blob, signal) => {
   return client.post('/api/v1/vault-room/frames', body, { headers, signal, timeout: 10000 }).then((r) => r.data);
 };
 export const getSessionAlerts = (sessionId) => client.get(`/api/v1/vault-room/sessions/${encodeURIComponent(sessionId)}/alerts`, { headers }).then((r) => r.data);
+export const startRoomRtspCamera = (name, rtspUrl) => client.post('/api/v1/vault-room/camera-sessions',
+  { source_type: 'rtsp', name, rtsp_url: rtspUrl }, { headers }).then((r) => r.data);
+export const startRoomWebcam = (name, cameraIndex) => client.post('/api/v1/vault-room/camera-sessions',
+  { source_type: 'webcam', name, ...(cameraIndex == null ? {} : { camera_index: cameraIndex }) }, { headers }).then((r) => r.data);
+export const getRoomCameraSession = (sessionId) => client.get(`/api/v1/vault-room/camera-sessions/${encodeURIComponent(sessionId)}`, { headers }).then((r) => r.data);
+export const stopRoomCameraSession = (sessionId) => client.delete(`/api/v1/vault-room/camera-sessions/${encodeURIComponent(sessionId)}`, { headers }).then((r) => r.data);
 
 /** Fetch-based SSE is used because EventSource cannot send the configured API-key header. */
 export async function openVaultEvents(onSnapshot, onEvent, onState, signal) {

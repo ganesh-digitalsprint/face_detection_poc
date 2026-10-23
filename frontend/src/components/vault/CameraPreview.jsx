@@ -21,8 +21,8 @@ export default function CameraPreview({
   children,
 }) {
   const { kind, status, error, cctvSession, videoRef, imgRef } = camera;
-  const showWebcam = kind === CAMERA_KINDS.WEBCAM && status === 'ready';
-  const showCctv = kind === CAMERA_KINDS.CCTV && cctvSession;
+  const showWebcam = kind === CAMERA_KINDS.WEBCAM && status === 'ready' && !cctvSession;
+  const showCctv = (kind === CAMERA_KINDS.CCTV || cctvSession) && cctvSession && status !== 'error' && status !== 'stopped';
   const fit = variant === 'stage' || variant === 'room' ? 'object-cover' : 'object-contain';
   const media = variant === 'stage' || variant === 'room' ? 'absolute inset-0' : '';
 
@@ -40,8 +40,8 @@ export default function CameraPreview({
             key={cctvSession.session_id}
             crossOrigin="anonymous"
             src={resolveStreamUrl(cctvSession)}
-            alt="CCTV camera stream"
-            className={`${media} h-full w-full ${fit}`}
+            alt={`${cctvSession.name || (kind === CAMERA_KINDS.WEBCAM ? 'Webcam' : 'CCTV camera')} live stream`}
+            className={`${media} h-full w-full ${cctvSession.source_type === 'webcam' ? '-scale-x-100' : ''} ${fit}`}
             onLoad={camera.markCctvReady}
             onError={camera.markCctvFailed}
           />

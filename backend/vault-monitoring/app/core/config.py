@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     # OpenCV camera index used for webcam input.
     WEBCAM_INDEX: int = Field(default=0, ge=0)
     RTSP_URLS: list[SecretStr] = Field(default_factory=list)
+    # User-entered RTSP destinations may be restricted to these hostnames/domains.
+    # When unset, dynamic Vault Room RTSP connections are limited to private IP ranges.
+    RTSP_ALLOWED_HOSTS: list[str] = Field(default_factory=list)
     RTSP_RECONNECT_ATTEMPTS: int = Field(default=5, ge=0)
     RTSP_RECONNECT_DELAY_SECONDS: float = Field(default=2.0, ge=0.1)
     RTSP_READ_TIMEOUT_MS: int = Field(default=5000, ge=100)

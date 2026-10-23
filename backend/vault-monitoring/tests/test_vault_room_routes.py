@@ -7,6 +7,9 @@ from app.api.routes import vault_room
 
 
 class FakeManager:
+    def is_active(self):
+        return False
+
     def state(self):
         return {"state":"IDLE", "session_id":None, "required_persons":None, "test_mode":None,
                 "entry_buffer_remaining_seconds":0, "remaining_seconds":None, "door":"LOCKED",
@@ -77,3 +80,57 @@ def test_frames_endpoint_maps_busy_rate_limit_and_unavailable(monkeypatch):
     limited = test_client.post("/api/v1/vault-room/frames", files={"frame": ("f.jpg", _jpeg(), "image/jpeg")})
     assert limited.status_code == 429
     assert limited.headers["retry-after"] == "1"
+
+
+def test_rtsp_camera_start_validates_url_and_never_returns_credentials(monkeypatch):
+    from types import SimpleNamespace
+
+    class FakeCameraManager:
+        started = None
+        def start_rtsp(self, name, url):
+            self.started = (name, url)
+            self.session = SimpleNamespace(session_id="opaque-session", name=name, source_type="rtsp", camera_index=None, status="connecting", error=None)
+            return self.session
+        def start_webcam(self, name, camera_index):
+            self.started = (name, camera_index)
+            self.session = SimpleNamespace(session_id="opaque-session", name=name, source_type="webcam", camera_index=camera_index, status="connecting", error=None)
+            return self.session
+        def status(self, _session):
+            return {"session_id": "opaque-session", "name": _session.name, "source_type": _session.source_type,
+                    "camera_index": _session.camera_index, "status": "connecting", "error": None}
+        def get(self, session_id):
+            return self.session if session_id == "opaque-session" else None
+        def stop(self, session_id):
+            if self.get(session_id) is None:
+                return False
+            self.session = None
+            return True
+
+    camera_manager = FakeCameraManager()
+    monkeypatch.setattr(vault_room, "get_vault_room_camera_manager", lambda: camera_manager)
+    monkeypatch.setattr(vault_room.settings, "VAULT_ROOM_API_KEY", "secret")
+    monkeypatch.setattr(vault_room.settings, "RTSP_ALLOWED_HOSTS", ["camera.local"])
+    app = FastAPI()
+    app.include_router(vault_room.router)
+    test_client = TestClient(app)
+    headers = {"X-API-Key": "secret"}
+    assert test_client.post("/api/v1/vault-room/camera-sessions",
+        json={"source_type": "webcam", "name": "Room camera"}).status_code == 401
+    invalid = test_client.post("/api/v1/vault-room/camera-sessions", headers=headers,
+        json={"source_type": "rtsp", "name": "Room camera", "rtsp_url": "https://host/stream"})
+    assert invalid.status_code == 422
+    assert "https://host" not in invalid.text
+    response = test_client.post("/api/v1/vault-room/camera-sessions", headers=headers,
+        json={"source_type": "rtsp", "name": "Room camera", "rtsp_url": "rtsps://user:pass@camera.local/live"})
+    assert response.status_code == 200
+    assert response.json()["status"] == "connecting"
+    assert "user:pass" not in response.text
+    assert camera_manager.started == ("Room camera", "rtsps://user:pass@camera.local/live")
+    assert test_client.get("/api/v1/vault-room/camera-sessions/opaque-session", headers=headers).status_code == 200
+    assert test_client.delete("/api/v1/vault-room/camera-sessions/opaque-session", headers=headers).json()["status"] == "stopped"
+    webcam = test_client.post("/api/v1/vault-room/camera-sessions", headers=headers,
+        json={"source_type": "webcam", "name": "Entrance side webcam"})
+    assert webcam.status_code == 200
+    assert webcam.json()["source_type"] == "webcam"
+    assert webcam.json()["camera_index"] is None
+    assert camera_manager.started == ("Entrance side webcam", None)

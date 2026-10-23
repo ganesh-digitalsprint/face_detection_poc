@@ -1,10 +1,13 @@
 """Request/response schemas for live video sources."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
 class CCTVStartRequest(BaseModel):
-    stream_index: int = Field(ge=0, description="Index in the configured RTSP_URLS list")
+    model_config = ConfigDict(extra="forbid")
+
+    stream_index: int | None = Field(default=None, ge=0, description="Index in configured RTSP_URLS")
+    rtsp_url: SecretStr | None = Field(default=None, description="A validated RTSP/RTSPS source URL")
 
 
 class CCTVCamera(BaseModel):

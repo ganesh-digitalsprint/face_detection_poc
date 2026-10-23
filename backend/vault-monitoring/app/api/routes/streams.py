@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from app.core.config import settings
 from app.schemas.streams import CCTVCamera, CCTVStartRequest, StreamStartedResponse
 from app.services.stream_manager import StreamManager, StreamOpenError
+from app.services.vault_room_camera import validate_rtsp_url
 
 router = APIRouter(prefix="/api/v1/streams", tags=["streams"])
 stream_manager = StreamManager()
@@ -38,12 +39,21 @@ def list_cctv_cameras() -> list[CCTVCamera]:
 
 @router.post("/cctv", response_model=StreamStartedResponse)
 def start_cctv(request: CCTVStartRequest) -> StreamStartedResponse:
-    """Start a configured RTSP source by its index; credentials stay in config."""
-    urls = settings.RTSP_URLS
-    if request.stream_index >= len(urls):
-        raise HTTPException(status_code=404, detail="Configured RTSP stream index not found.")
+    """Start a configured CCTV source or a validated RTSP URL submitted by the operator."""
+    if (request.stream_index is None) == (request.rtsp_url is None):
+        raise HTTPException(status_code=422, detail="Provide exactly one of stream_index or rtsp_url.")
+    if request.rtsp_url is not None:
+        try:
+            source_url = validate_rtsp_url(request.rtsp_url.get_secret_value())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    else:
+        urls = settings.RTSP_URLS
+        if request.stream_index >= len(urls):
+            raise HTTPException(status_code=404, detail="Configured RTSP stream index not found.")
+        source_url = urls[request.stream_index].get_secret_value()
     try:
-        session = stream_manager.start_rtsp(urls[request.stream_index].get_secret_value())
+        session = stream_manager.start_rtsp(source_url)
     except StreamOpenError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return StreamStartedResponse(
