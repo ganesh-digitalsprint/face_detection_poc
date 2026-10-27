@@ -182,11 +182,7 @@ def evaluate_count(ctx: VaultRoomContext, stable_count: int | None, now: float, 
                   peak_count=max(ctx.peak_count, stable_count), ever_present=ctx.ever_present or stable_count >= 1)
 
     if ctx.state == IDLE:
-        if config.counting.idle_monitoring_enabled:
-            if stable_count >= 1:
-                ctx = _open_alert(ctx, "UNAUTHORIZED_ENTRY", "critical", "Person detected while vault is idle", stable_count, now, events)
-            else:
-                ctx = _close_alert(ctx, "UNAUTHORIZED_ENTRY", now, events)
+        # Per Stage 3, presence in IDLE is deliberately not an access alert.
         return Result(ctx, tuple(events))
 
     if ctx.state == ENTRY_BUFFER:

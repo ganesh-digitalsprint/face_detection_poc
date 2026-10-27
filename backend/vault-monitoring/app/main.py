@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import liveness_test, video
+from app.api.routes import alerts, evidence, incidents, liveness_test, video
 from app.api.routes import vault_room
 from app.api.errors import install_error_handlers
 from app.core.config import settings
@@ -29,6 +29,7 @@ from app.services.qdrant_service import get_qdrant_service
 from app.services.dual_control import get_dual_control_session_manager
 from app.services.vault_room_manager import get_vault_room_manager
 from app.services.vault_room_camera import get_vault_room_camera_manager
+from app.services.cloudinary_evidence import get_evidence_capture_queue
 from app.api.routes import detection, employees, health, recognition, registration, streams, vault_authorization
 
 logger = get_logger(__name__)
@@ -66,10 +67,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.exception("Model warm-up failed; continuing without it")
     logger.info("FastAPI application startup completed: %s v%s", settings.APP_NAME, settings.APP_VERSION)
     get_vault_room_manager().start()
+    get_evidence_capture_queue().start()
     yield
     streams.stream_manager.stop_all()
     get_vault_room_camera_manager().stop_all()
     get_vault_room_manager().stop()
+    get_evidence_capture_queue().stop()
     if get_engine.cache_info().currsize:  # only if an engine was ever created
         get_engine().dispose()
     qdrant.close()
@@ -102,6 +105,9 @@ def create_app() -> FastAPI:
     app.include_router(employees.employee_router)
     app.include_router(vault_authorization.router)
     app.include_router(vault_room.router)
+    app.include_router(evidence.router)
+    app.include_router(alerts.router)
+    app.include_router(incidents.router)
     app.include_router(registration.router)
     app.include_router(recognition.router)
     app.include_router(video.router)

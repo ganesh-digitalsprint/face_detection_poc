@@ -54,7 +54,10 @@ from app.db.models.employee import Employee  # noqa: E402
 from app.db.models.authorized_employee import (  # noqa: E402
     AuthorizedEmployee,
 )
-from app.db.models.vault_room import VaultRoomAlert, VaultRoomEvent, VaultRoomSession  # noqa: E402
+from app.db.models.vault_room import (  # noqa: E402
+    VaultAuditEvent, VaultEvidence, VaultIncident, VaultIncidentComment,
+    VaultRoomAlert, VaultRoomEvent, VaultRoomSession, VaultSession, VaultAlertCondition,
+)
 
 __all__ = [
     "AuthorizedEmployee",
@@ -64,4 +67,10 @@ __all__ = [
     "VaultRoomEvent",
     "VaultRoomAlert",
     "VaultRoomSession",
+    "VaultIncident",
+    "VaultEvidence",
+    "VaultIncidentComment",
+    "VaultAuditEvent",
+    "VaultSession",
+    "VaultAlertCondition",
 ]

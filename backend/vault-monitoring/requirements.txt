@@ -23,6 +23,8 @@ pydantic-settings
 python-dotenv
 PyYAML
 python-multipart
+cloudinary>=1.46,<2
+Pillow>=10
 
 # Testing
 pytest

@@ -61,7 +61,112 @@ Key `.env` settings:
 | `MAX_VIDEO_UPLOAD_MB` | Video upload cap (default 500) |
 | `CORS_ALLOW_ORIGINS` | Allowed browser origins (default `["http://localhost:3000"]`) |
 | `VAULT_REQUIRED_PERSONS` | Optional override; allowed values are `1` or `2` |
-| `VAULT_ALLOW_MODE_SELECT` | Optional override for allowing the Vault Access selector (default `false`) |
+| `VAULT_ALLOW_MODE_SELECT` | Optional override for allowing the Vault Access selector (default `true`) |
+| `VAULT_ROOM_API_KEY` | Shared POC operator key required by alerts, incidents, evidence and vault-room routes; match the frontend `VITE_VAULT_ROOM_API_KEY` |
+
+### Incident and evidence persistence (Stage 1)
+
+The SQL migration at `migrations/20261026_vault_incidents_evidence_audit.sql` extends
+the existing `vault_room_alerts` table and creates `vault_incidents`,
+`vault_evidence`, `vault_incident_comments` and `vault_audit_events`. Apply it
+once to an existing PostgreSQL database after earlier dated migrations, using
+your SQL client. This repository currently has no Alembic runner; startup
+`create_all()` only creates missing tables and does not apply column migrations.
+Back up the database before applying SQL changes. To roll the schema back,
+first export any Stage 1 workflow records, then apply the companion
+`migrations/20261026_vault_incidents_evidence_audit_down.sql`; it removes Stage 1
+workflow data while retaining the original alert columns and rows. The up
+migration backfills alert workflow status and timestamps from existing
+open/closed alert columns.
+
+Stage 3 (`migrations/20261026_vault_alerts_stage3.sql`) depends on the Stage 1
+migration above. If Stage 3 was applied without Stage 1, apply
+`migrations/20261026_vault_schema_repair.sql` once; it safely adds any missing
+alert and session columns while preserving existing records. The repair is
+additive, restores the incident-number sequence, and can also be applied after
+both earlier migrations.
+
+`vault_room_alerts` remains the source of truth for alert rows. Incidents group
+related alerts; evidence can reference an alert, an incident, or both. Comments
+belong to an incident and may point to evidence. Audit events are append-only
+by convention and are written in the same SQLAlchemy transaction as repository
+changes. Dismissing an alert preserves the alert row and does not alter vault
+authorization or session state.
+
+The application has no authenticated operator/user table and no persistent
+camera registry. Actor and camera identifiers are therefore opaque nullable
+strings; comment creation requires the backend caller to pass the authenticated
+actor. No incident API routes are added in this stage. Vault room session IDs
+are process-local until the session summary is written at session end, so those
+references intentionally have no foreign key. Evidence and incident history
+use restrictive foreign keys.
+
+Retention candidates are query-only; no scheduler or deletion task is enabled.
+The repository proposes 90 days for ordinary resolved/dismissed alerts and 180
+days for HIGH/CRITICAL alerts, excluding alerts tied to open or investigating
+incidents and incidents on retention hold. Define an approved policy before
+implementing deletion. Stage 2 Cloudinary code must store provider public IDs
+and metadata, never image bytes or unrestricted permanent URLs. PostgreSQL and
+Cloudinary cannot share a transaction; upload workflows must handle orphaned
+remote uploads or failed metadata commits through compensation or reconciliation.
+Asset removal must preserve audit history and mark evidence unavailable.
+
+### Cloudinary evidence storage (Stage 2)
+
+Configure `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` and
+`CLOUDINARY_API_SECRET` in the backend `.env`; configure upload size, timeout,
+retry count, folder and signed URL lifetime with `EVIDENCE_MAX_UPLOAD_BYTES`,
+`EVIDENCE_UPLOAD_TIMEOUT_SECONDS`, `EVIDENCE_UPLOAD_RETRIES`,
+`CLOUDINARY_EVIDENCE_FOLDER` and `EVIDENCE_URL_TTL_SECONDS`. Set
+`VAULT_ROOM_API_KEY` before enabling evidence routes. The same shared key
+authorizes all POC operator actions, including evidence deletion; there are no
+roles or separate admin key. The matching frontend value is
+`VITE_VAULT_ROOM_API_KEY` in `frontend/.env.local`. These browser-visible keys
+are for local POC use. Example placeholders are in `.env.example`.
+
+Apply `migrations/20261026_cloudinary_evidence.sql` after the Stage 1 migration;
+the paired `_down.sql` removes the metadata column and constraint but leaves
+Cloudinary assets untouched. The migration adds the authenticated delivery
+type and a unique provider/public-ID key for idempotency. Cloudinary stores the
+original asset under `CLOUDINARY_EVIDENCE_FOLDER/incidents/{incident UUID}/evidence`
+with a server-generated SHA-256 asset name. Evidence is uploaded with delivery
+type `authenticated`, which restricts originals and derivatives to signed
+delivery. The API only returns a signed access URL after API-key authorization;
+it expires according to `EVIDENCE_URL_TTL_SECONDS`. Cloudinary account-level
+settings must allow authenticated assets and signed delivery. No Cloudinary
+account credentials were available here, so account policy was not independently
+verified. The provider's authenticated delivery behavior is documented in the
+[Cloudinary access-control guide](https://cloudinary.com/documentation/control_access_to_media).
+
+Manual evidence endpoints are `POST /api/v1/incidents/{incident_id}/evidence`,
+`GET /api/v1/incidents/{incident_id}/evidence`, `GET /api/v1/evidence/{id}` and
+`POST /api/v1/evidence/{id}/access-url`. They require `X-API-Key`. Deletion is
+`DELETE /api/v1/evidence/{id}` and uses that same key; it records request,
+failure and completion audit events. The project has no operator identity
+provider, so audit actor IDs identify the shared operator key rather than a
+named user.
+
+Only decoded JPEG and PNG images are accepted, with an upload byte cap and a
+40-megapixel dimension cap. The original filename and remote URL are ignored.
+Metadata contains the Cloudinary public ID internally, but ordinary API
+responses omit it and do not return image bytes. Uploads use authenticated
+delivery and deterministic content-addressed IDs; retries check for an existing
+asset before uploading again. A PostgreSQL failure after upload triggers a
+Cloudinary destroy compensation. If compensation fails, an audit reconciliation
+event is attempted and the safe public ID is logged; the upload is reported as
+failed. Cloudinary and PostgreSQL cannot share a transaction, so failed audit
+storage during a database outage still requires operational reconciliation.
+
+The automatic capture interface is `get_evidence_capture_queue().submit(...)`.
+It accepts the captured bytes, event type, UTC capture time and alert/incident,
+camera and session references, and submits work to a bounded queue started with
+the FastAPI lifecycle. Queue overflow and worker failures create audit failure
+events where PostgreSQL is reachable. The current event state machine does not
+retain image snapshots alongside its asynchronous timer events, so callers
+must submit the actual frame at the event timestamp; the evidence worker does
+not start a camera or inference loop. The queue is process-local and does not
+survive a process restart; persistent retries/outbox reconciliation are a
+follow-up for deployments that require delivery guarantees.
 
 Vault Access requires two custodians by default. To test with one custodian, set
 `vault_access.dual_control.required_persons: 1` in `config/models.yaml`, or set

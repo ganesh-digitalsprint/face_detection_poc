@@ -8,6 +8,8 @@ import Identification from './pages/Identification.jsx';
 import LiveMonitoring from './pages/LiveMonitoring.jsx';
 import Registration from './pages/Registration.jsx';
 import VaultAccess from './pages/VaultAccess.jsx';
+import VaultAlerts from './pages/VaultAlerts.jsx';
+import VaultIncident from './pages/VaultIncident.jsx';
 import AuthorizedEmployeeRegistration from './pages/registration/AuthorizedEmployeeRegistration.jsx';
 import EmployeeRegistration from './pages/registration/EmployeeRegistration.jsx';
 import FaceEnrollment from './pages/registration/FaceEnrollment.jsx';
@@ -27,6 +29,8 @@ export default function App() {
         <Route path="registration/authorized/:employeeId" element={<AuthorizedEmployeeRegistration />} />
         <Route path="registration/authorized/:employeeId/face" element={<FaceEnrollment />} />
         <Route path="vault-access" element={<VaultAccess />} />
+        <Route path="vault-alerts" element={<VaultAlerts />} />
+        <Route path="vault-alerts/incidents/:incidentId" element={<VaultIncident />} />
         <Route
           path="liveness-test"
           element={<Suspense fallback={<Loading message="Loading Liveness Test…" />}><LivenessTestPage /></Suspense>}

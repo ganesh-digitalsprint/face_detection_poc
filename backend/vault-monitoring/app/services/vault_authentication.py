@@ -11,6 +11,7 @@ from app.core.ml_config import load_ml_config_file
 from app.services.dual_control import (
     DualControlSession,
     DualControlSessionManager,
+    DualControlSessionNotFoundError,
     VerifiedCustodian,
     get_dual_control_session_manager,
 )
@@ -88,24 +89,33 @@ class VaultAuthenticationService:
         session = self._dual_control.start(
             liveness.session_id, liveness.challenge.value, required_persons
         )
+        start_monitoring = getattr(self._vault_room_manager, "on_access_attempt_started", None)
+        if start_monitoring is not None:
+            start_monitoring(session.session_ref, session.required_persons)
         test_mode = session.required_persons < 2
         if test_mode:
             logger.warning("TEST MODE: single-custodian authorization is active")
         logger.info(
-            "SESSION_STARTED dual_control_session=%s required_persons=%s test_mode=%s",
-            session.session_id, session.required_persons, test_mode,
+            "SESSION_STARTED session_ref=%s required_persons=%s test_mode=%s",
+            session.session_ref, session.required_persons, test_mode,
         )
         return liveness, session
 
     def process_frame(self, session_id: str, image: Image) -> VaultAuthenticationResponse:
-        session = self._dual_control.get(session_id)
+        # Public routes carry only the non-secret UUID reference. Resolve the
+        # credential in memory; it is never returned or persisted.
+        try:
+            session = self._dual_control.get(session_id)  # in-process callers only
+        except DualControlSessionNotFoundError:
+            session = self._dual_control.get(self._dual_control.resolve_ref(session_id))
         with session.lock:
             if session.status == "ACCESS_GRANTED":
                 return self._dual_response(
                     None, session, status="ACCESS_GRANTED", access_granted=True
                 )
             if self._dual_control.expire_if_needed(session):
-                logger.info("SESSION_EXPIRED dual_control_session=%s", session_id)
+                logger.info("SESSION_EXPIRED session_ref=%s", session.session_ref)
+                self._notify_terminal_auth_failure(session.session_ref, "SESSION_EXPIRED")
                 return self._dual_response(None, session, status="DUAL_AUTHENTICATION_TIMEOUT")
 
             if session.handoff_until is not None:
@@ -114,14 +124,22 @@ class VaultAuthenticationService:
                     return self._handoff_response(session, handoff_remaining)
                 session.handoff_until = None
                 self._start_person_liveness(session)
-                logger.info("SECOND_PERSON_LIVENESS_STARTED session=%s", session_id)
+                logger.info("SECOND_PERSON_LIVENESS_STARTED session_ref=%s", session.session_ref)
                 return self._handoff_response(
                     session, 0, reason="NEXT_PERSON_READY"
                 )
 
             response = self._process_person_frame(session.liveness_session_id, image)
+            # Liveness FAILED/EXPIRED is a terminal outcome; pending challenge
+            # frames deliberately do not signal an unauthorized-entry event.
+            if response.reason == "LIVENESS_FAILED":
+                self._notify_terminal_auth_failure(session.session_ref, "LIVENESS_FAILED")
+            progress = getattr(self._vault_room_manager, "on_auth_progress", None)
+            if progress is not None:
+                progress(session.session_ref, len(session.verified))
             if self._dual_control.expire_if_needed(session):
-                logger.info("SESSION_EXPIRED dual_control_session=%s", session_id)
+                logger.info("SESSION_EXPIRED session_ref=%s", session.session_ref)
+                self._notify_terminal_auth_failure(session.session_ref, "SESSION_EXPIRED")
                 return self._dual_response(response, session, status="DUAL_AUTHENTICATION_TIMEOUT")
 
             probe_vector = response._probe_vector
@@ -147,6 +165,7 @@ class VaultAuthenticationService:
                             response.recognition.matched = False
                             response.recognition.employee_id = None
                         session.handoff_until = time.monotonic() + HANDOFF_SECONDS
+                        self._notify_terminal_auth_failure(session.session_ref, "DUPLICATE_PERSON_DIFFERENT_ID")
                         return self._handoff_response(
                             session, HANDOFF_SECONDS, response=response,
                             reason="DUPLICATE_PERSON_DIFFERENT_ID",
@@ -159,6 +178,7 @@ class VaultAuthenticationService:
                     response.access_granted = False
                     response.reason = "DUPLICATE_EMPLOYEE_REJECTED"
                     session.handoff_until = time.monotonic() + HANDOFF_SECONDS
+                    self._notify_terminal_auth_failure(session.session_ref, "DUPLICATE_EMPLOYEE_REJECTED")
                     return self._handoff_response(
                         session, HANDOFF_SECONDS, response=response,
                         reason="DUPLICATE_EMPLOYEE_REJECTED",
@@ -167,7 +187,7 @@ class VaultAuthenticationService:
                     self._record_custodian(session, employee_id)
                     if len(session.verified) >= session.required_persons:
                         if self._vault_room_manager.is_session_active():
-                            logger.warning("Vault room became active before grant dual_control_session=%s", session.session_id[:8])
+                            logger.warning("Vault room became active before grant session_ref=%s", session.session_ref)
                             session.verified = {
                                 key: custodian for key, custodian in session.verified.items()
                                 if key != employee_id
@@ -187,13 +207,13 @@ class VaultAuthenticationService:
                                 for c in session.custodians()
                             ]
                             self._vault_room_manager.on_access_granted(
-                                session.session_id, custodians, session.required_persons, test_mode
+                                session.session_ref, custodians, session.required_persons, test_mode
                             )
                         except Exception:
                             logger.exception("Could not initialize vault-room session after access grant")
                         logger.info(
-                            "ACCESS_GRANTED session=%s required_persons=%s test_mode=%s",
-                            session_id, session.required_persons, test_mode,
+                            "ACCESS_GRANTED session_ref=%s required_persons=%s test_mode=%s",
+                            session.session_ref, session.required_persons, test_mode,
                         )
                         return self._dual_response(
                             response, session, status="ACCESS_GRANTED", access_granted=True
@@ -201,7 +221,7 @@ class VaultAuthenticationService:
                     logger.info("PERSON_AUTHENTICATED employee=%s", employee_id)
                     session.status = "WAITING_FOR_SECOND_PERSON"
                     logger.info("FIRST_PERSON_AUTHENTICATED employee=%s", employee_id)
-                    logger.info("SECOND_PERSON_WAITING session=%s", session_id)
+                    logger.info("SECOND_PERSON_WAITING session_ref=%s", session.session_ref)
                     session.handoff_until = time.monotonic() + HANDOFF_SECONDS
                     return self._handoff_response(
                         session, HANDOFF_SECONDS, response=response,
@@ -224,17 +244,26 @@ class VaultAuthenticationService:
             )
             if restart_attempt:
                 logger.info(
-                    "FIRST_PERSON_ATTEMPT_RESTARTED session=%s reason=%s",
-                    session_id,
+                    "FIRST_PERSON_ATTEMPT_RESTARTED session_ref=%s reason=%s",
+                    session.session_ref,
                     response.reason,
                 )
                 self._start_person_liveness(session)
+            if response.reason in {"UNKNOWN_EMPLOYEE", "AUTHORIZATION_INACTIVE",
+                    "IDENTITY_ATTEMPTS_EXCEEDED", "DUPLICATE_EMPLOYEE_REJECTED",
+                    "DUPLICATE_PERSON_DIFFERENT_ID"}:
+                self._notify_terminal_auth_failure(session.session_ref, response.reason)
 
             if session.verified:
                 session.status = "WAITING_FOR_SECOND_PERSON"
             else:
                 session.status = "WAITING_FOR_FIRST_PERSON"
             return self._dual_response(response, session, status=session.status)
+
+    def _notify_terminal_auth_failure(self, session_ref: str, reason: str) -> None:
+        callback = getattr(self._vault_room_manager, "on_terminal_auth_failure", None)
+        if callback is not None:
+            callback(session_ref, reason)
 
     def _process_person_frame(self, session_id: str, image: Image) -> VaultAuthenticationResponse:
         liveness = self._liveness.process_frame(session_id, image)

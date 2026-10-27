@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from typing import BinaryIO
+from dataclasses import dataclass
+import secrets
 
 import cv2
 import numpy as np
-from fastapi import Depends, HTTPException, UploadFile, status
+from fastapi import Depends, Header, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -23,6 +25,25 @@ from app.services.face_enrollment import FaceEnrollmentService
 from app.services.vault_authentication import VaultAuthenticationService
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class Operator:
+    id: str
+    label: str
+
+
+def get_operator(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> Operator:
+    """Resolve a caller through the existing shared vault key, failing closed."""
+    expected = settings.VAULT_ROOM_API_KEY
+    if not expected:
+        raise HTTPException(status_code=503, detail=(
+            "Operator authentication is not configured. Set VAULT_ROOM_API_KEY in "
+            "backend/vault-monitoring/.env and restart the API server."
+        ))
+    if x_api_key is None or not secrets.compare_digest(x_api_key, expected):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    return Operator(id="shared_operator_key", label="Shared operator key")
 
 
 def read_upload_bytes(upload: UploadFile, *, limit: int = MAX_UPLOAD_BYTES) -> bytes:

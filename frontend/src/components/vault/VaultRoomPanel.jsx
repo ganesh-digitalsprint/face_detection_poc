@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Bell, CheckCircle2, Clock3, DoorClosed, DoorOpen, Info, LockKeyhole, ShieldCheck, UserRound, UserRoundPlus, CircleAlert, Copy, Wifi, WifiOff } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, DoorClosed, DoorOpen, Info, LockKeyhole, ShieldCheck, UserRound, UserRoundPlus, Wifi, WifiOff } from 'lucide-react';
 import Button from '../common/Button.jsx';
 import ErrorMessage from '../common/ErrorMessage.jsx';
 import { getSessionAlerts, getVaultSessions } from '../../api/vaultRoom.js';
+import VaultAlertsPanel from '../alerts/VaultAlertsPanel.jsx';
 
 const card = 'vault-card p-4 sm:p-5';
 const stateNames = { IDLE:'Idle', ENTRY_BUFFER:'Entering', ACTIVE:'Session active', EXPIRED_OPEN:'Expired', CLOSED:'Closed' };
@@ -135,34 +136,6 @@ function PresenceCard({ roomState }) {
   </section>;
 }
 
-function AlertsCard({ roomState }) {
-  const open = roomState?.open_alerts ?? [];
-  const history = [...(roomState?.alerts ?? [])].sort((a,b) => Date.parse(b.opened_at) - Date.parse(a.opened_at));
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!open.length && !history.some((item) => !item.closed_at)) return undefined;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [open.length, history.some((item) => !item.closed_at)]);
-  const age = (alert) => alert.duration_seconds ?? (alert.opened_at ? Math.max(0, (now - Date.parse(alert.opened_at)) / 1000) : null);
-  const copyLog = async () => {
-    const text = history.map((item) => `${localTime(item.opened_at)}  ${(item.severity || 'info').toUpperCase()}  ${item.type}  ${item.message}  (${durationText(item.duration_seconds ?? age(item))})`).join('\n');
-    try { await navigator.clipboard.writeText(text); } catch { /* Clipboard can be unavailable outside secure contexts. */ }
-  };
-  return <section className={card} aria-labelledby="room-alert-title"><h2 id="room-alert-title" className="vault-heading flex items-center gap-2"><Bell className="h-5 w-5" aria-hidden /> Alerts</h2>
-    <h3 className="mt-4 text-sm font-bold text-[#0F1B3D]">Open alerts</h3>
-    {open.length ? <ul className="mt-2 space-y-2">{open.map((alert) => <li key={alert.id} className={`rounded-lg border p-3 text-sm ${alert.severity === 'critical' ? 'border-red-200 bg-[#FDE9E7] text-[#B3261E]' : 'border-amber-200 bg-[#FFF4DC] text-[#6B4500]'}`}>
-      <p className="flex items-center gap-2 font-bold"><CircleAlert className="h-4 w-4" aria-hidden />{ALERT_NAMES[alert.type]}</p><p className="mt-1">{alert.message}</p>
-      <p className="mt-1 text-xs">since <time title={alert.opened_at}>{localTime(alert.opened_at)}</time> ? {durationText(age(alert))} ? {alert.count_at_open ?? '?'} of {alert.expected ?? '?'}</p>
-    </li>)}</ul> : <p className="mt-2 text-sm text-[#55607A]">No active alerts</p>}
-    <div className="mt-5 flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-bold text-[#0F1B3D]">Alert history (this session)</h3><button type="button" onClick={copyLog} disabled={!history.length} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-[#34479B] hover:bg-[#F4F6FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:text-slate-400"><Copy className="h-4 w-4" aria-hidden />Copy alert log</button></div>
-    {history.length ? <ol className="mt-2 max-h-64 space-y-2 overflow-auto">{history.map((alert) => <li key={alert.id} className="rounded-lg border border-slate-200 p-3 text-sm text-[#0F1B3D]">
-      <p className="font-semibold">{ALERT_NAMES[alert.type] || alert.type} ? {(alert.severity || 'info').toUpperCase()}</p><p className="mt-1 text-[#55607A]">{alert.message}</p>
-      <p className="mt-1 text-xs text-[#55607A]">Opened <time title={alert.opened_at}>{localTime(alert.opened_at)}</time> ? {alert.closed_at ? <>Closed <time title={alert.closed_at}>{localTime(alert.closed_at)}</time></> : 'ongoing'} ? {durationText(age(alert))} ? {alert.count_at_open ?? '?'} of {alert.expected ?? '?'}</p>
-    </li>)}</ol> : <p className="mt-2 text-sm text-[#55607A]">No alerts in this session</p>}
-  </section>;
-}
-
 const labels = { SESSION_GRANTED:'Access granted', SESSION_STARTED:'Session started', SESSION_ENDING_SOON:'1 minute remaining', SESSION_EXPIRED:'Session expired', DOOR_LOCKED:'Door locked', SESSION_CLOSED:'Vault closed',
   PERSONS_PRESENT:'Persons present', ZONE_ENTERED:'Person entered zone', ZONE_LEFT:'Person left zone', ALERT_OPENED:'Alert opened', ALERT_CLOSED:'Alert closed', AUTO_LOCK_COUNTDOWN:'Auto-lock countdown started', AUTO_LOCK_CANCELLED:'Auto-lock cancelled', FEED_LOST:'Camera feed lost', FEED_RESTORED:'Camera feed restored', DETECTOR_UNAVAILABLE:'People-counting detector unavailable' };
 function eventLabel(event) {
@@ -241,7 +214,7 @@ export default function VaultRoomPanel({ room, onRetry }) {
       <PresenceCard roomState={room.roomState} />
       <TimerCard roomState={room.roomState} progress={room.countdownProgress} />
       <CustodiansCard roomState={room.roomState} />
-      <AlertsCard roomState={room.roomState} />
+      <VaultAlertsPanel liveEvents={room.alertEvents} />
       <EventTimeline events={room.events} clearEvents={room.clearEvents} />
       <Summary summary={room.closeSummary} />
       {sessionsError && <ErrorMessage error={sessionsError} />}

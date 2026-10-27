@@ -5,7 +5,7 @@ const enc = encodeURIComponent;
 export const getVaultAuthenticationConfig = () =>
   client.get('/api/v1/vault-authentication/config').then((r) => r.data);
 
-// -> { session_id, challenge, status, required_persons, test_mode, expires_at, remaining_seconds }
+// -> { session_ref, challenge, status, required_persons, test_mode, expires_at, remaining_seconds }
 export const startLivenessSession = (requiredPersons = null) =>
   client.post('/api/v1/vault-authentication/start',
     requiredPersons == null ? undefined : { required_persons: requiredPersons })

@@ -16,7 +16,9 @@ from uuid import uuid4
 from app.core.logging import get_logger
 from app.core.ml_config import get_vault_room_config
 from app.db.database import session_scope
-from app.db.models.vault_room import VaultRoomAlert, VaultRoomEvent, VaultRoomSession
+from app.db.models.vault_room import VaultAuditEvent, VaultRoomAlert, VaultRoomEvent, VaultRoomSession, VaultSession
+from app.services.vault_alert_rules import AlertSnapshot
+from app.services.vault_alert_persistence import PersistentAlertWorker
 from app.services.door_controller import DoorController, SimulatedDoorController
 from app.services.vault_room_rules import (
     ACTIVE, CLOSED, ENTRY_BUFFER, EXPIRED_OPEN, RoomEvent, RoomNow, VaultRoomContext,
@@ -83,6 +85,7 @@ class VaultRoomManager:
         self._last_frame_at: float | None = None
         self._processing_ms: deque[float] = deque(maxlen=10)
         self._latest_tracks: list[dict] = []
+        self._latest_frame = None
         self._latest_image_size = (640, 360)
         self._video_source = "browser"
         self._log_batch_ms: deque[float] = deque(maxlen=30)
@@ -103,6 +106,13 @@ class VaultRoomManager:
         self._stop = threading.Event()
         self._ever_had_session = False
         self._summary: dict | None = None
+        self._alert_worker = PersistentAlertWorker(publisher=self._publish_alert_event)
+        self._phase = "IDLE"
+        self._phase_since: float | None = None
+        self._session_ref: str | None = None
+        self._verified_count = 0
+        self._shortfall_since: float | None = None
+        self._unauthorized_since: float | None = None
         self._warn_if_counting_cannot_stabilize(self._effective_fps_locked())
 
     def _effective_fps_locked(self) -> float:
@@ -169,16 +179,34 @@ class VaultRoomManager:
                 if existing is None: db.add(VaultRoomSession(**data))
                 else:
                     for key, value in data.items(): setattr(existing, key, value)
+                lifecycle = db.get(VaultSession, data.get("session_ref")) if data.get("session_ref") else None
+                if lifecycle is not None:
+                    lifecycle.ended_at = data["ended_at"]
+                    lifecycle.end_reason = data["end_reason"]
+                    db.add(VaultAuditEvent(id=str(uuid4()), action=(
+                        "SESSION_EXPIRED" if data["end_reason"] == "SESSION_EXPIRED" else "SESSION_CLOSED"),
+                        entity_type="session", entity_id=lifecycle.id,
+                        details={"end_reason": data["end_reason"]}))
             elif kind == "alert_open":
-                if db.get(VaultRoomAlert, data["id"]) is None: db.add(VaultRoomAlert(**data))
+                if db.get(VaultRoomAlert, data["id"]) is None:
+                    db.add(VaultRoomAlert(**data))
+                    db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_CREATED", entity_type="alert",
+                        entity_id=data["id"], details={"type": data["type"], "session_id": data["session_id"]}))
             elif kind == "alert_close":
                 row = db.get(VaultRoomAlert, data["id"])
                 if row is not None:
                     row.closed_at = data["closed_at"]
                     row.duration_seconds = data["duration_seconds"]
+                    row.status = "RESOLVED"
+                    row.resolved_at = data["closed_at"]
+                    row.updated_at = data["closed_at"]
+                    db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_RESOLVED", entity_type="alert",
+                        entity_id=row.id, details={"source": "condition_cleared"}))
 
     def start(self):
         self._ensure_threads()
+        self._alert_worker.start()
+        self._ensure_ticker()
         if self._detector is not None:
             threading.Thread(target=self._warm_detector, name="vault-room-detector-warmup", daemon=True).start()
 
@@ -213,11 +241,57 @@ class VaultRoomManager:
             self._last_frame_at = None
             self._ever_had_session = True
             self._summary = None
+            self._phase = "VAULT_SESSION"
+            self._session_ref = dual_control_session_id
+            self._verified_count = len(custodians)
+            self._phase_since = self._clock()
+            self._shortfall_since = self._unauthorized_since = None
             self._door.unlock(self._ctx.session_id)
             self._publish(result.events)
             self._stop.clear()
-            self._ticker = threading.Thread(target=self._ticker_loop, name="vault-room-ticker", daemon=True)
-            self._ticker.start()
+            self._ensure_ticker()
+
+    def on_access_attempt_started(self, session_ref: str, required_persons: int):
+        """Open the monitoring gate; this does not grant access or unlock the door."""
+        with self._lock:
+            self._phase = "ACCESS_ATTEMPT"
+            self._session_ref = session_ref
+            self._ctx = replace(self._ctx, required_persons=required_persons)
+            self._verified_count = 0
+            self._phase_since = self._clock()
+            self._shortfall_since = self._unauthorized_since = None
+            self._tracker.reset(); self._counter.reset(); self._last_frame_at = None
+            self._ensure_ticker()
+
+    def on_auth_progress(self, session_ref: str, verified_count: int):
+        with self._lock:
+            if session_ref == self._session_ref:
+                self._verified_count = max(self._verified_count, verified_count)
+
+    def on_terminal_auth_failure(self, session_ref: str, reason: str):
+        with self._lock:
+            if session_ref != self._session_ref or self._phase != "ACCESS_ATTEMPT":
+                return
+            now = self._clock()
+            count = self._counter.stable_count(now) if self._counter else None
+            snap = AlertSnapshot("ACCESS_ATTEMPT", self._ctx.required_persons, count,
+                self._verified_count, stable=count is not None, no_entry_elapsed=True,
+                shortfall_elapsed=True, terminal_auth_failure=reason)
+            self._alert_worker.submit(snap, session_ref=session_ref, camera_id=self._video_source,
+                event_at=self._utc_datetime(self._last_frame_at) if self._last_frame_at is not None else self._now().utc,
+                event_frame=self._latest_frame,
+                detections=tuple(dict(track_id=t["track_id"],
+                    bbox=[t["x"], t["y"], t["x"]+t["w"], t["y"]+t["h"]],
+                    confidence=t["confidence"]) for t in self._latest_tracks))
+            self._phase = "IDLE"
+            self._phase_since = None
+
+    def _ensure_ticker(self):
+        if self._ticker and self._ticker.is_alive():
+            return
+        self._stop.clear()
+        self._ticker = threading.Thread(target=self._ticker_loop, name="vault-room-ticker", daemon=True)
+        self._ticker.start()
 
     def _ticker_loop(self):
         while not self._stop.wait(1):
@@ -235,11 +309,61 @@ class VaultRoomManager:
             count = self._counter.stable_count(self._clock()) if self._counter else None
             if self._ctx.state == EXPIRED_OPEN and self._ctx.count_at_expiry is None:
                 self._ctx = replace(self._ctx, count_at_expiry=count)
-            counted = evaluate_count(self._ctx, count, self._now(), self._config)
-            self._ctx = counted.ctx
-            if "LOCK_DOOR" in counted.actions:
-                self._finish_counted_lock()
-            self._publish(counted.events)
+            if self._ctx.state != "IDLE":
+                counted = evaluate_count(self._ctx, count, self._now(), self._config)
+                self._ctx = counted.ctx
+                if "LOCK_DOOR" in counted.actions:
+                    self._finish_counted_lock()
+                self._publish(counted.events)
+            self._submit_alert_snapshot_locked(count)
+
+    def _submit_alert_snapshot_locked(self, count):
+        now = self._clock()
+        phase = self._phase
+        required = self._ctx.required_persons
+        stable = count is not None
+        if phase == "ACCESS_ATTEMPT" and stable and required is not None and count < required:
+            self._shortfall_since = self._shortfall_since or now
+        else:
+            self._shortfall_since = None
+        if phase == "VAULT_SESSION" and stable and count > self._verified_count:
+            self._unauthorized_since = self._unauthorized_since or now
+        else:
+            self._unauthorized_since = None
+        cfg = getattr(self._config, "vault_alerts", None)
+        shortfall_grace = getattr(cfg, "count_shortfall_grace_seconds", 20)
+        now_utc = self._now().utc
+        age = (now - self._last_frame_at) if self._last_frame_at is not None else float("inf")
+        feed_lost = age >= self._counting.feed_lost_alert_after_seconds
+        feed_stale = self._last_frame_at is None or age >= self._counting.frame_stale_seconds
+        snapshot = AlertSnapshot(phase=phase, required_persons=required, observed_count=count,
+            verified_count=self._verified_count, stable=stable,
+            no_entry_elapsed=bool(self._phase_since is not None and now-self._phase_since >= self._counting.mismatch_alert_after_seconds),
+            shortfall_elapsed=bool(self._shortfall_since is not None and now-self._shortfall_since >= shortfall_grace),
+            unauthorized_elapsed=bool(self._unauthorized_since is not None and now-self._unauthorized_since >= self._counting.count_stable_seconds),
+            feed_lost=feed_lost, feed_stale=feed_stale,
+            session_expired=self._ctx.state == EXPIRED_OPEN)
+        from app.services.vault_alert_rules import evaluate
+        possible = {transition.alert_type for transition in evaluate(snapshot)}
+        capture_types = {"UNAUTHORIZED_ENTRY", "EXCESS_PERSON", "SESSION_EXPIRED", "COUNT_MISMATCH"}
+        event_frame = self._latest_frame if possible.intersection(capture_types) else None
+        detections = tuple(dict(track_id=t["track_id"],
+            bbox=[t["x"], t["y"], t["x"] + t["w"], t["y"] + t["h"]],
+            confidence=t["confidence"]) for t in self._latest_tracks) if event_frame is not None else ()
+        event_at = self._utc_datetime(self._last_frame_at) if event_frame is not None and self._last_frame_at is not None else now_utc
+        self._alert_worker.submit(snapshot, session_ref=self._session_ref if phase != "IDLE" else None,
+            camera_id=self._video_source or "vault-room", event_at=event_at,
+            event_frame=event_frame, detections=detections)
+
+    def _publish_alert_event(self, event):
+        with self._lock:
+            self._events.append(event)
+            for loop, subscriber in tuple(self._subscribers):
+                loop.call_soon_threadsafe(self._queue_event, subscriber, event)
+
+    def publish_alert_event(self, event):
+        """Publish an already committed alert-channel event through SSE."""
+        self._publish_alert_event(event)
 
     def is_session_active(self) -> bool:
         with self._lock:
@@ -263,7 +387,7 @@ class VaultRoomManager:
             arrival = self._clock()
             with self._lock:
                 allowed_states = (ENTRY_BUFFER, ACTIVE, EXPIRED_OPEN)
-                accepts = self._ctx.state in allowed_states or (
+                accepts = self._phase == "ACCESS_ATTEMPT" or self._ctx.state in allowed_states or (
                     self._ctx.state == "IDLE" and self._counting.idle_monitoring_enabled
                 )
                 if not accepts:
@@ -306,6 +430,7 @@ class VaultRoomManager:
                     "y": t.y1 / frame_bgr.shape[0], "w": (t.x2-t.x1) / frame_bgr.shape[1],
                     "h": (t.y2-t.y1) / frame_bgr.shape[0], "confidence": t.confidence} for t in tracks]
                 self._latest_image_size = (frame_bgr.shape[1], frame_bgr.shape[0])
+                self._latest_frame = frame_bgr.copy()
                 self._record_processing_locked(processing_ms, completed_at)
             height, width = frame_bgr.shape[:2]
             return {"image_width": width, "image_height": height, "raw_count": raw_count,
@@ -322,11 +447,13 @@ class VaultRoomManager:
     def _finish_counted_lock(self):
         ctx = self._ctx
         self._door.lock(ctx.session_id, ctx.end_reason or "AUTO_LOCK")
-        self._stop.set()
         summary = self._build_summary(ctx, ctx)
         self._summary = summary
         self._jobs.put(("summary", self._summary_db_row(summary)))
         self._discard_dual(ctx.dual_control_session_id)
+        self._phase = "IDLE"
+        self._session_ref = None
+        self._phase_since = None
         if self._tracker: self._tracker.reset()
         if self._zone_monitor: self._zone_monitor.reset()
 
@@ -346,22 +473,29 @@ class VaultRoomManager:
             self._zone_monitor.reset()
             self._door.lock(self._ctx.session_id, self._ctx.end_reason)
             self._publish(result.events)
-            self._stop.set()
             self._summary = self._build_summary(before, self._ctx)
             self._jobs.put(("summary", self._summary_db_row(self._summary)))
             self._discard_dual(before.dual_control_session_id)
+            self._phase = "IDLE"
+            self._session_ref = None
+            self._phase_since = None
             return dict(self._summary)
 
     @staticmethod
     def _discard_dual(session_id):
         if not session_id: return
         from app.services.dual_control import get_dual_control_session_manager
-        get_dual_control_session_manager().discard(session_id)
+        manager = get_dual_control_session_manager()
+        discard_ref = getattr(manager, "discard_ref", None)
+        if discard_ref is not None:
+            discard_ref(session_id)
+        else:  # compatibility with injected test/legacy coordinators
+            manager.discard(session_id)
 
     def _build_summary(self, before, ctx):
         elapsed = max(0, int(ctx.ended_at - ctx.granted_at))
         expired = ctx.expired_at is not None
-        return {"session_id": ctx.session_id, "dual_control_session_id": ctx.dual_control_session_id,
+        return {"session_id": ctx.session_id, "session_ref": ctx.dual_control_session_id,
             "state": CLOSED, "required_persons": ctx.required_persons, "test_mode": ctx.test_mode,
             "employees": list(ctx.employees), "granted_at": self._utc_datetime(ctx.granted_at),
             "started_at": self._utc_datetime(ctx.session_started_at), "ended_at": self._utc_datetime(ctx.ended_at),
@@ -380,7 +514,8 @@ class VaultRoomManager:
 
     @staticmethod
     def _summary_db_row(summary):
-        return {"id": summary["session_id"], "dual_control_session_id": summary["dual_control_session_id"],
+        return {"id": summary["session_id"], "dual_control_session_id": None,
+            "session_ref": summary.get("session_ref"),
             "employees": summary["employees"], "required_persons": summary["required_persons"],
             "test_mode": summary["test_mode"], "granted_at": summary["granted_at"],
             "started_at": summary["started_at"], "ended_at": summary["ended_at"],
@@ -398,18 +533,6 @@ class VaultRoomManager:
                 "type": item["type"], "severity": item["severity"], "message": item["message"],
                 "data": {**item["data"], **{k:item[k] for k in ("opened_at","closed_at") if k in item}},
                 "created_at": datetime.now(timezone.utc)}))
-            if item["type"] == "ALERT_OPENED":
-                data = item.get("data", {})
-                self._jobs.put(("alert_open", {"id": data["alert_id"], "session_id": item["session_id"],
-                    "type": data["alert_type"], "severity": item["severity"], "message": item["message"],
-                    "opened_at": datetime.fromisoformat(item["opened_at"]), "closed_at": None,
-                    "count_at_open": data.get("count_at_open"), "expected": data.get("expected"),
-                    "duration_seconds": None}))
-            elif item["type"] == "ALERT_CLOSED":
-                data = item.get("data", {})
-                self._jobs.put(("alert_close", {"id": data["alert_id"],
-                    "closed_at": datetime.fromisoformat(item["closed_at"]),
-                    "duration_seconds": data["duration_seconds"]}))
             for loop, subscriber in tuple(self._subscribers):
                 loop.call_soon_threadsafe(self._queue_event, subscriber, item)
 
@@ -464,6 +587,8 @@ class VaultRoomManager:
                 "LIVE" if now-self._counter.last_feed_at < self._counting.frame_stale_seconds else "STALE")
             latest_tracks = list(self._latest_tracks) if feed == "LIVE" else []
             stable = self._counter.stable_count(now) if self._counter else None
+            expires_at = (self._utc_datetime(c.session_started_at + self._config.session_seconds)
+                          if c.state in (ACTIVE, EXPIRED_OPEN) and c.session_started_at is not None else None)
             rolling_median_ms = statistics.median(self._processing_ms) if self._processing_ms else None
             effective_fps = self._effective_fps_locked() if self._counter else None
             measured_fps = self._measured_fps_locked(now) if self._counter else None
@@ -472,13 +597,16 @@ class VaultRoomManager:
                 countdown = max(0, self._counting.empty_lock_seconds-(now-c.empty_since))
             current_open_alerts = [{k:v for k,v in a.items() if not k.startswith("_")} for a in c.open_alerts]
             current_open_alerts.extend(open_alerts)
-            return {"state":c.state, "session_id":c.session_id, "end_reason":c.end_reason,
+            return {"state":c.state, "phase":self._phase, "session_ref":self._session_ref,
+                "session_id":c.session_id, "end_reason":c.end_reason,
                 "required_persons":c.required_persons,
+                "verified_count":self._verified_count, "expires_at":expires_at,
+                "camera_health":feed,
                 "test_mode":c.test_mode, "entry_buffer_remaining_seconds":entry, "remaining_seconds":remaining,
                 "door":"LOCKED" if self._door.locked else "UNLOCKED", "employees":list(c.employees),
                 "open_alerts":current_open_alerts, "expired_alert_level":c.expired_alert_level,
                 "video_source":self._video_source, "stable_count":stable, "expected_persons":c.required_persons,
-                "feed":feed, "accepts_frames":c.state in (ENTRY_BUFFER, ACTIVE, EXPIRED_OPEN) or
+                "feed":feed, "accepts_frames":self._phase == "ACCESS_ATTEMPT" or c.state in (ENTRY_BUFFER, ACTIVE, EXPIRED_OPEN) or
                     (c.state == "IDLE" and self._counting.idle_monitoring_enabled),
                 "recommended_fps":effective_fps,
                 "rolling_median_ms":rolling_median_ms,
@@ -493,6 +621,7 @@ class VaultRoomManager:
     def stop(self, timeout=5):
         self._stop.set()
         if self._ticker and self._ticker.is_alive(): self._ticker.join(timeout)
+        self._alert_worker.stop(timeout)
         if self._writer_thread.is_alive():
             deadline = time.monotonic() + timeout
             while self._jobs.unfinished_tasks and time.monotonic() < deadline:

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import secrets
 import threading
+from uuid import uuid4
 
 from app.core.config import settings
 from app.core.ml_config import load_ml_config_file
@@ -26,6 +27,7 @@ class VerifiedCustodian:
 @dataclass
 class DualControlSession:
     session_id: str
+    session_ref: str
     started_at: datetime
     expires_at: datetime
     required_persons: int
@@ -56,6 +58,7 @@ class DualControlSessionNotFoundError(LookupError):
 class DualControlSessionManager:
     def __init__(self, config_override=None) -> None:
         self._sessions: dict[str, DualControlSession] = {}
+        self._refs: dict[str, str] = {}
         self._lock = threading.RLock()
         self._config_override = config_override
 
@@ -98,6 +101,7 @@ class DualControlSessionManager:
         )
         session = DualControlSession(
             session_id=secrets.token_urlsafe(32),
+            session_ref=str(uuid4()),
             started_at=now,
             expires_at=now + timedelta(seconds=config.authorization_window_seconds),
             required_persons=effective_required_persons,
@@ -106,7 +110,16 @@ class DualControlSessionManager:
         )
         with self._lock:
             self._sessions[session.session_id] = session
+            self._refs[session.session_ref] = session.session_id
         return session
+
+    def resolve_ref(self, session_ref: str) -> str:
+        """Resolve a public UUID reference to its process-local credential."""
+        with self._lock:
+            token = self._refs.get(session_ref)
+            if token is None or token not in self._sessions:
+                raise DualControlSessionNotFoundError("Dual-control session not found")
+            return token
 
     def get(self, session_id: str) -> DualControlSession:
         with self._lock:
@@ -118,7 +131,15 @@ class DualControlSessionManager:
     def discard(self, session_id: str) -> None:
         """Remove a completed session; missing IDs are intentionally harmless."""
         with self._lock:
-            self._sessions.pop(session_id, None)
+            session = self._sessions.pop(session_id, None)
+            if session is not None:
+                self._refs.pop(session.session_ref, None)
+
+    def discard_ref(self, session_ref: str) -> None:
+        try:
+            self.discard(self.resolve_ref(session_ref))
+        except DualControlSessionNotFoundError:
+            return
 
     def expire_if_needed(self, session: DualControlSession) -> bool:
         if datetime.now(timezone.utc) < session.expires_at:

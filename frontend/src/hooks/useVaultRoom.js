@@ -10,6 +10,7 @@ const INITIAL = { state: 'IDLE', session_id: null, required_persons: null, test_
 export default function useVaultRoom() {
   const [roomState, setRoomState] = useState(null);
   const [events, setEvents] = useState([]);
+  const [alertEvents, setAlertEvents] = useState([]);
   const [criticalAlert, setCriticalAlert] = useState(null);
   const [connection, setConnection] = useState('connecting');
   const [closeSummary, setCloseSummary] = useState(null);
@@ -18,6 +19,7 @@ export default function useVaultRoom() {
   const [reloadToken, setReloadToken] = useState(0);
   const countdownRef = useRef(null);
   const eventIdsRef = useRef(new Set());
+  const alertEventIdsRef = useRef(new Set());
   const initialDurationRef = useRef(null);
   const sessionIdRef = useRef(null);
   const failureCount = useRef(0);
@@ -42,13 +44,25 @@ export default function useVaultRoom() {
     setRoomState({ ...INITIAL, ...next });
   }, []);
 
+  const addAlertEvent = useCallback((event) => {
+    if (event?.channel !== 'alerts') return;
+    const id = event.event_id ?? event.id;
+    if (!id || alertEventIdsRef.current.has(id)) return;
+    alertEventIdsRef.current.add(id);
+    if (alertEventIdsRef.current.size > 500) {
+      alertEventIdsRef.current.delete(alertEventIdsRef.current.values().next().value);
+    }
+    setAlertEvents((current) => [{ ...event, event_id: id }, ...current].slice(0, 200));
+  }, []);
+
   const addEvent = useCallback((event) => {
+    addAlertEvent(event);
     if (!event?.id || eventIdsRef.current.has(event.id)) return;
     eventIdsRef.current.add(event.id);
     if (eventIdsRef.current.size > 500) eventIdsRef.current.delete(eventIdsRef.current.values().next().value);
     if (event.severity === 'critical' && event.type === 'ALERT_OPENED') setCriticalAlert(event);
     setEvents((current) => [event, ...current].slice(0, 200));
-  }, []);
+  }, [addAlertEvent]);
 
   useEffect(() => {
     const watchdog = window.setInterval(() => {
@@ -68,10 +82,13 @@ export default function useVaultRoom() {
         setConnection(failureCount.current ? (failureCount.current >= 3 ? 'offline' : 'reconnecting') : 'connecting');
         try {
           await openVaultEvents(
-            (snapshot) => { applyState(snapshot.state); for (const item of snapshot.events ?? []) eventIdsRef.current.add(item.id);
+            (snapshot) => { applyState(snapshot.state); for (const item of snapshot.events ?? []) {
+              addAlertEvent(item);
+              if (item.id) eventIdsRef.current.add(item.id);
+            }
               setEvents((prev) => {
               const byId = new Map(prev.map((item) => [item.id, item]));
-              for (const item of snapshot.events ?? []) byId.set(item.id, item);
+              for (const item of snapshot.events ?? []) if (item.id) byId.set(item.id, item);
               return [...byId.values()].slice(-200).reverse();
             }); },
             (event) => addEvent(event),
@@ -93,7 +110,7 @@ export default function useVaultRoom() {
     return () => { disposed = true; abortRef.current?.abort(); window.clearTimeout(retryTimer); };
   // Keep the SSE connection for the whole page lifetime. Changes to room state must not reconnect it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadToken, applyState, addEvent]);
+  }, [reloadToken, applyState, addEvent, addAlertEvent]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -128,7 +145,7 @@ export default function useVaultRoom() {
   }, [applyState]);
   const clearEvents = useCallback(() => setEvents([]), []);
   const retry = useCallback(() => { setError(null); setConnection('reconnecting'); setReloadToken((n) => n + 1); }, []);
-  return { roomState, events, criticalAlert, connection, closeSummary, closing, error, closeVault: close, clearEvents, retry, refreshState,
+  return { roomState, events, alertEvents, criticalAlert, connection, closeSummary, closing, error, closeVault: close, clearEvents, retry, refreshState,
     countdownProgress: roomState?.state === 'ACTIVE' && initialDurationRef.current
       ? Math.max(0, Math.min(100, (roomState.remaining_seconds / initialDurationRef.current) * 100)) : 0 };
 }

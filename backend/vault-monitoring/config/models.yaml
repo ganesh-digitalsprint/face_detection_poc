@@ -24,7 +24,7 @@ liveness:
 vault_access:
   dual_control:
     required_persons: 2
-    allow_mode_select: false
+    allow_mode_select: true
     authorization_window_seconds: 180
   enrollment:
     duplicate_check_enabled: true
@@ -69,6 +69,31 @@ vault_room:
       minimum_consecutive_frames: 2
       lost_track_seconds: 3.0
       frame_rate: 1
+
+vault_alerts:
+  count_shortfall_grace_seconds: 20
+  clear_seconds: 10
+  episode_gap_seconds: 30
+  reopen_cooldown_seconds: 60
+  touch_interval_seconds: 5
+  incident:
+    auto_create_min_severity: HIGH
+  evidence:
+    enabled: true
+    capture_unauthorized_entry: true
+    capture_excess_person: true
+    capture_session_expired: true
+    capture_count_mismatch: false
+    realert_seconds: 60
+    max_per_alert: 3
+    max_per_incident: 15
+    min_seconds_between_captures: 10
+    shared_capture_window_seconds: 20
+    jpeg_max_side: 1600
+    jpeg_quality: 85
+    spool_dir: var/evidence-spool
+    spool_max_files: 50
+    spool_max_bytes: 209715200
 
 recognition_models:
   ArcFace:

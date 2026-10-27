@@ -17,6 +17,7 @@ const DEFAULT_CODES = {
 function extractDetail(data) {
   const detail = data?.detail;
   if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object' && typeof detail.message === 'string') return detail.message;
   if (Array.isArray(detail)) {
     return detail.map((d) => d?.msg).filter(Boolean).join('; ') || null;
   }
@@ -34,7 +35,7 @@ export function describeError(error, overrides = {}) {
     };
   }
   const detail = extractDetail(error.response.data);
-  const code = error?.response?.data?.code ?? null;
+  const code = error?.response?.data?.code ?? error?.response?.data?.detail?.code ?? null;
   const message = detail || overrides[status] || DEFAULT_CODES[code] || DEFAULT_MESSAGES[status] || `Request failed (HTTP ${status}).`;
   return { status, message, code };
 }

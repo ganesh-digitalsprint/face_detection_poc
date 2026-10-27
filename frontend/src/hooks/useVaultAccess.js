@@ -288,8 +288,11 @@ export default function useVaultAccess(camera, paused = false, room = {}) {
       const requested = state.config.allow_mode_select ? state.selectedRequiredPersons : null;
       const session = await startLivenessSession(requested);
       if (runId.current !== id) return;
+      if (!session.session_ref) {
+        throw new Error('The server did not return a vault session reference. Restart the backend after applying its database migrations.');
+      }
       dispatch({ type: 'session', session, challenge: session.challenge });
-      loop(id, session.session_id);
+      loop(id, session.session_ref);
     } catch (err) {
       if (runId.current === id && err?.response?.status === 409
           && err?.response?.data?.code === 'VAULT_ROOM_SESSION_ACTIVE') {

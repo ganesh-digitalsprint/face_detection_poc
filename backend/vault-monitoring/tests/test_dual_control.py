@@ -9,7 +9,7 @@ import pytest
 
 from app.core.ml_config import DualControlSettings
 from app.core.liveness_config import LivenessChallenge
-from app.services.dual_control import DualControlSessionManager
+from app.services.dual_control import DualControlSessionManager, DualControlSessionNotFoundError
 from app.services.liveness_service import LivenessResult, LivenessStatus
 from app.services.qdrant_service import EmployeeFaceMatch
 from app.services.vault_authentication import VaultAuthenticationService
@@ -294,6 +294,16 @@ def test_invalid_person_count_is_rejected():
         )
 
 
+def test_public_session_reference_resolves_without_exposing_the_credential():
+    manager = DualControlSessionManager(config_override=DualControlSettings())
+    session = manager.start("live", "TURN_LEFT")
+    assert session.session_ref != session.session_id
+    assert manager.resolve_ref(session.session_ref) == session.session_id
+    manager.discard_ref(session.session_ref)
+    with pytest.raises(DualControlSessionNotFoundError):
+        manager.resolve_ref(session.session_ref)
+
+
 @pytest.mark.parametrize("required_persons", [0, 3])
 def test_invalid_yaml_policy_is_rejected(required_persons):
     with pytest.raises(ValueError, match="required_persons must be 1 or 2"):
@@ -315,11 +325,20 @@ def test_start_api_rejects_invalid_person_count_with_422():
     assert response.status_code == 422
 
 
-def test_start_api_ignores_mode_when_server_disallows_selection():
+def test_start_api_ignores_mode_when_server_disallows_selection(monkeypatch):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
     from fastapi.testclient import TestClient
 
     from app.api.dependencies import get_vault_authentication_service
     from app.main import create_app
+    import app.api.routes.vault_authorization as vault_authorization
+
+    @contextmanager
+    def fake_session_scope():
+        yield SimpleNamespace(add=lambda _row: None)
+
+    monkeypatch.setattr(vault_authorization, "session_scope", fake_session_scope)
 
     service, _, _session = _service(required_persons=2, requested_required_persons=1)
     app = create_app()

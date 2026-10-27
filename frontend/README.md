@@ -17,6 +17,12 @@ npm run build      # production build -> dist/
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
+For local Vault Alerts and Vault Room requests, set `VITE_VAULT_ROOM_API_KEY`
+in `frontend/.env.local` to the same value as `VAULT_ROOM_API_KEY` in
+`backend/vault-monitoring/.env`, then restart both servers. This shared key is
+embedded in the browser bundle and is suitable only for local POC use; use an
+operator login/session provider before exposing these routes to other users.
+
 Start the backend first (from the repository root):
 
 ```bash

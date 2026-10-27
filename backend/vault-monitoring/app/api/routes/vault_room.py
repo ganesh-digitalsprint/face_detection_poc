@@ -227,7 +227,7 @@ def _alert_payload(row):
 
 
 def _session_payload(row):
-    return {"session_id":row.id, "dual_control_session_id":row.dual_control_session_id,
+    return {"session_id":row.id,
         "employees":row.employees, "required_persons":row.required_persons, "test_mode":row.test_mode,
         "granted_at":row.granted_at, "started_at":row.started_at, "ended_at":row.ended_at,
         "end_reason":row.end_reason, "duration_seconds":row.duration_seconds,

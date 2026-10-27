@@ -58,6 +58,17 @@ class Settings(BaseSettings):
     VAULT_ALLOW_MODE_SELECT: bool | None = None
     VAULT_ROOM_API_KEY: str | None = None
 
+    # Cloudinary credentials stay on the server and are never serialized.
+    CLOUDINARY_CLOUD_NAME: str | None = None
+    CLOUDINARY_API_KEY: SecretStr = SecretStr("")
+    CLOUDINARY_API_SECRET: SecretStr = SecretStr("")
+    CLOUDINARY_EVIDENCE_FOLDER: str = "vault-monitoring"
+    EVIDENCE_MAX_UPLOAD_BYTES: int = Field(default=10 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024)
+    EVIDENCE_UPLOAD_TIMEOUT_SECONDS: int = Field(default=20, ge=1, le=120)
+    EVIDENCE_UPLOAD_RETRIES: int = Field(default=2, ge=0, le=5)
+    EVIDENCE_URL_TTL_SECONDS: int = Field(default=300, ge=30, le=900)
+    EVIDENCE_SPOOL_DIR: str = "var/evidence-spool"
+
     # ------------------------------------------------------------------
     # Video / webcam
     # ------------------------------------------------------------------

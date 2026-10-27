@@ -96,6 +96,41 @@ class VaultRoomSettings(BaseModel):
     counting: "VaultRoomCountingSettings" = Field(default_factory=lambda: VaultRoomCountingSettings())
 
 
+class VaultAlertEvidenceSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    capture_unauthorized_entry: bool = True
+    capture_excess_person: bool = True
+    capture_session_expired: bool = True
+    capture_count_mismatch: bool = False
+    realert_seconds: int = Field(default=60, ge=1)
+    max_per_alert: int = Field(default=3, ge=1)
+    max_per_incident: int = Field(default=15, ge=1)
+    min_seconds_between_captures: int = Field(default=10, ge=0)
+    shared_capture_window_seconds: int = Field(default=20, ge=0)
+    jpeg_max_side: int = Field(default=1600, ge=320)
+    jpeg_quality: int = Field(default=85, ge=1, le=100)
+    spool_dir: str = "var/evidence-spool"
+    spool_max_files: int = Field(default=50, ge=1)
+    spool_max_bytes: int = Field(default=209715200, ge=1)
+
+
+class VaultAlertIncidentSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    auto_create_min_severity: Literal["HIGH", "CRITICAL"] = "HIGH"
+
+
+class VaultAlertsSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    count_shortfall_grace_seconds: int = Field(default=20, ge=0)
+    clear_seconds: int = Field(default=10, ge=0)
+    episode_gap_seconds: int = Field(default=30, ge=0)
+    reopen_cooldown_seconds: int = Field(default=60, ge=0)
+    touch_interval_seconds: int = Field(default=5, ge=1)
+    incident: VaultAlertIncidentSettings = Field(default_factory=VaultAlertIncidentSettings)
+    evidence: VaultAlertEvidenceSettings = Field(default_factory=VaultAlertEvidenceSettings)
+
+
 class VaultRoomDetectorSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model: Literal["rfdetr-nano", "rfdetr-small", "rfdetr-medium"] = "rfdetr-small"
@@ -156,6 +191,7 @@ class MLConfigFile(BaseModel):
     liveness_test: dict = Field(default_factory=dict)
     vault_access: VaultAccessSettings = Field(default_factory=VaultAccessSettings)
     vault_room: VaultRoomSettings
+    vault_alerts: VaultAlertsSettings = Field(default_factory=VaultAlertsSettings)
 
 
 class MLRuntimeConfig(BaseModel):

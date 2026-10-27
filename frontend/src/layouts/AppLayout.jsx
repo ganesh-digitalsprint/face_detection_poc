@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
-  Cctv, ChevronsLeft, ChevronsRight, Film, LayoutDashboard, LockKeyhole, Menu, PanelLeftClose, PanelLeftOpen,
+  Bell, Cctv, ChevronsLeft, ChevronsRight, Film, LayoutDashboard, LockKeyhole, Menu, PanelLeftClose, PanelLeftOpen,
   Radio, ScanFace, ScanEye, ShieldCheck, Users, Webcam, X,
 } from 'lucide-react';
 import StatusBadge from '../components/common/StatusBadge.jsx';
@@ -11,6 +11,8 @@ import useSidebar from '../hooks/useSidebar.js';
 const TITLES = [
   ['/registration/authorized', 'Authorized Employee Registration'],
   ['/registration/employees', 'Employee Registration'],
+  ['/vault-alerts/incidents', 'Incident detail'],
+  ['/vault-alerts', 'Alerts'],
   ['/vault-access', 'Vault Access'],
   ['/liveness-test', 'Liveness Test'],
   ['/detection', 'Face Detection'],
@@ -28,6 +30,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1
 const LIVENESS_TEST_MENU_ENABLED = import.meta.env.VITE_LIVENESS_TEST_ENABLED == null
   ? import.meta.env.DEV
   : import.meta.env.VITE_LIVENESS_TEST_ENABLED === 'true';
+const ALERTS_NAV_LABEL = 'Alerts';
 
 const link = ({ isActive }) =>
   `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium ${
@@ -71,6 +74,7 @@ function Sidebar({ onNavigate, collapsed = false }) {
       <Item to="/registration/employees" icon={Users} label="Employee Registration" {...props} />
       <Section label="Vault Access" {...props} />
       <Item to="/vault-access" icon={LockKeyhole} label="Vault Access" {...props} />
+      <Item to="/vault-alerts" icon={Bell} label={ALERTS_NAV_LABEL} {...props} />
       <Section label="Security" {...props} />
       {LIVENESS_TEST_MENU_ENABLED && <Item to="/liveness-test" icon={ScanFace} label="Liveness Test" badge="Dev" {...props} />}
       <Section label="Live &amp; Video" {...props} />

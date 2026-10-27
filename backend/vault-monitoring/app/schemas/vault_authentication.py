@@ -59,7 +59,7 @@ class VaultAuthenticationResponse(BaseModel):
 
 
 class LivenessSessionResponse(BaseModel):
-    session_id: str
+    session_ref: str
     challenge: str
     expires_in_seconds: int
     status: str = "WAITING_FOR_FIRST_PERSON"
