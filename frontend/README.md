@@ -108,3 +108,34 @@ The backend default is `CORS_ALLOW_ORIGINS=["http://localhost:3000"]`, so Vite i
 - Client-side size limits mirror backend defaults: images 10 MB, video 500 MB (`MAX_VIDEO_UPLOAD_MB`). If you change it, update `VIDEO_MAX_BYTES` in `src/components/face/ImageUploader.jsx`.
 - The webcam stream shows the camera attached to the backend machine, not the browser's camera.
 - The build passes, but the flows have not been run end to end against a live backend.
+
+## Branch Exterior Monitoring (second micro-service)
+
+The sidebar has a **Branch Exterior Monitoring** section (below Vault Access) with six pages that talk to the
+`backend/branch-exterior-monitoring` service. It is a separate FastAPI app, so it runs on its own port:
+
+```bash
+cd backend/branch-exterior-monitoring
+uv sync
+uv run uvicorn app.main:app --reload --port 8001
+```
+
+`frontend/.env`:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000                    # Vault Monitoring
+VITE_BRANCH_EXTERIOR_API_BASE_URL=http://localhost:8001    # Branch Exterior Monitoring
+```
+
+| Route | Page |
+|-------|------|
+| `/branch-exterior/live` | Live Monitoring: video dropdown, start/stop, heatmap, AI detections, threat level, alert ticker |
+| `/branch-exterior/regions` | Regions & Zones: draw / edit zones, alert rules, live test |
+| `/branch-exterior/dashboard` | Alerts Dashboard: KPIs, charts, filters, event review, CSV export |
+| `/branch-exterior/brief` | Security Brief: summary, timeline, print / save as PDF |
+| `/branch-exterior/guards` | Guard Roster: enroll guards, retrain recognizer |
+| `/branch-exterior/settings` | Settings: database, thresholds, operating hours, notifications |
+| `/branch-exterior/system-check` | Diagnostics (linked from Settings) |
+
+The header on these pages has a dark / bright switch. Code lives in `src/branch-exterior/`
+(styles in `branchExterior.css`, all classes prefixed `bx-`).

@@ -1,14 +1,24 @@
 import { useEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
-  Bell, Cctv, ChevronsLeft, ChevronsRight, Film, LayoutDashboard, LockKeyhole, Menu, PanelLeftClose, PanelLeftOpen,
-  Radio, ScanFace, ScanEye, ShieldCheck, Users, Webcam, X,
+  Bell, BellRing, Cctv, ChevronsLeft, ChevronsRight, FileText, Film, LayoutDashboard,
+  LockKeyhole, Map as MapIcon, Menu, PanelLeftClose, PanelLeftOpen, Radio, ScanEye, ScanFace,
+  Settings as SettingsIcon, ShieldCheck, Users, Video, Webcam, X,
 } from 'lucide-react';
+import HeaderControls from '../branch-exterior/components/HeaderControls.jsx';
 import StatusBadge from '../components/common/StatusBadge.jsx';
 import useHealth from '../hooks/useHealth.js';
 import useSidebar from '../hooks/useSidebar.js';
 
 const TITLES = [
+  ['/branch-exterior/live', 'Live Monitoring'],
+  ['/branch-exterior/regions', 'Regions & Zones'],
+  ['/branch-exterior/dashboard', 'Alerts Dashboard'],
+  ['/branch-exterior/brief', 'Security Brief'],
+  ['/branch-exterior/guards', 'Guard Roster'],
+  ['/branch-exterior/settings', 'Settings'],
+  ['/branch-exterior/system-check', 'System Check'],
+  ['/branch-exterior', 'Branch Exterior Monitoring'],
   ['/registration/authorized', 'Authorized Employee Registration'],
   ['/registration/employees', 'Employee Registration'],
   ['/vault-alerts/incidents', 'Incident detail'],
@@ -75,6 +85,13 @@ function Sidebar({ onNavigate, collapsed = false }) {
       <Section label="Vault Access" {...props} />
       <Item to="/vault-access" icon={LockKeyhole} label="Vault Access" {...props} />
       <Item to="/vault-alerts" icon={Bell} label={ALERTS_NAV_LABEL} {...props} />
+      <Section label="Branch Exterior Monitoring" {...props} />
+      <Item to="/branch-exterior/live" icon={Video} label="Live Monitoring" {...props} />
+      <Item to="/branch-exterior/regions" icon={MapIcon} label="Regions & Zones" {...props} />
+      <Item to="/branch-exterior/dashboard" icon={BellRing} label="Alerts Dashboard" {...props} />
+      <Item to="/branch-exterior/brief" icon={FileText} label="Security Brief" {...props} />
+      <Item to="/branch-exterior/guards" icon={ShieldCheck} label="Guard Roster" {...props} />
+      <Item to="/branch-exterior/settings" icon={SettingsIcon} label="Settings" {...props} />
       <Section label="Security" {...props} />
       {LIVENESS_TEST_MENU_ENABLED && <Item to="/liveness-test" icon={ScanFace} label="Liveness Test" badge="Dev" {...props} />}
       <Section label="Live &amp; Video" {...props} />
@@ -131,9 +148,10 @@ export default function AppLayout() {
   const { status } = useHealth();
   const drawerRef = useRef(null);
   const toggleRef = useRef(null);
+  const onBranchExterior = pathname.startsWith('/branch-exterior');
   const title = TITLES.find(([p]) => (p === '/' ? pathname === '/' : pathname.startsWith(p)))?.[1] ?? 'Vault Monitoring POC';
 
-  useEffect(() => { document.title = `${title} · Vault Monitoring POC`; }, [title]);
+  useEffect(() => { document.title = `${title} · ${onBranchExterior ? 'Branch Exterior Monitoring' : 'Vault Monitoring POC'}`; }, [title, onBranchExterior]);
   useEffect(() => { closeDrawer(); }, [pathname, closeDrawer]);
   useDrawerFocus(drawerOpen, drawerRef, toggleRef, closeDrawer);
 
@@ -144,7 +162,7 @@ export default function AppLayout() {
     <div className="min-h-screen lg:flex">
       <aside
         id={SIDEBAR_ID}
-        className={`hidden shrink-0 transition-[width] duration-200 motion-reduce:transition-none lg:block ${
+        className={`app-aside hidden shrink-0 transition-[width] duration-200 motion-reduce:transition-none lg:block ${
           collapsed ? 'w-[72px]' : 'w-64'
         }`}
       >
@@ -166,7 +184,7 @@ export default function AppLayout() {
       </aside>
 
       {/* Mobile drawer: kept mounted so it can slide; `inert` removes it from focus and the a11y tree when closed. */}
-      <div className={`fixed inset-0 z-40 lg:hidden ${drawerOpen ? '' : 'pointer-events-none'}`} inert={!drawerOpen}>
+      <div className={`app-drawer fixed inset-0 z-40 lg:hidden ${drawerOpen ? '' : 'pointer-events-none'}`} inert={!drawerOpen}>
         <button
           type="button"
           tabIndex={-1}
@@ -191,11 +209,11 @@ export default function AppLayout() {
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
+        <header className="app-header sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
           <button
             ref={toggleRef}
             type="button"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100"
+            className="app-icon-btn inline-flex h-11 w-11 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100"
             aria-label={toggleLabel}
             aria-expanded={expanded}
             aria-controls={isDesktop ? SIDEBAR_ID : DRAWER_ID}
@@ -204,9 +222,12 @@ export default function AppLayout() {
           >
             <ToggleIcon className="h-5 w-5" aria-hidden />
           </button>
-          <h1 className="text-lg font-semibold text-navy">{title}</h1>
-          <div className="ml-auto flex items-center gap-2 text-xs text-slate-500">
-            API <StatusBadge status={BADGE[status]} />
+          <h1 className="app-title text-lg font-semibold text-navy">{title}</h1>
+          <div className="ml-auto flex items-center gap-3">
+            {onBranchExterior && <HeaderControls />}
+            <div className="app-muted flex items-center gap-2 text-xs text-slate-500">
+              API <StatusBadge status={BADGE[status]} />
+            </div>
           </div>
         </header>
         <main className="flex-1 p-4 sm:p-6"><Outlet /></main>
