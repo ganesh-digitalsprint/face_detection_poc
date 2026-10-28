@@ -27,12 +27,14 @@ class SnapshotJob:
     detections: tuple = ()
 
 class PersistentAlertWorker:
-    def __init__(self, *, max_pending=256, publisher=None, session_factory=session_scope):
+    def __init__(self, *, max_pending=256, publisher=None, session_factory=session_scope,
+                 alert_service_adapter=None):
         self._queue = queue.Queue(maxsize=max_pending)
         self._thread = None
         self._stop = object()
         self._publisher = publisher
         self._session_factory = session_factory
+        self._alert_service_adapter = alert_service_adapter
         self.dropped_transitions = 0
 
     def start(self):
@@ -252,6 +254,8 @@ class PersistentAlertWorker:
             incident.updated_at = now; incident.row_version += 1
         events.append(self._event("alert.created", alert, job, {"alert_type": alert.type,
             "severity": severity, "incident_id": alert.incident_id}))
+        if self._alert_service_adapter is not None and self._alert_service_adapter.enabled:
+            self._alert_service_adapter.enqueue(db, alert)
         if incident and incident_created:
             events.append(self._event("incident.created", incident, job, {"incident_number": incident.incident_number,
                 "severity": incident.severity}))

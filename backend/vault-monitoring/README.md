@@ -47,6 +47,21 @@ environment value takes precedence over `.env`; unset it or use a boolean value.
 
 Swagger UI: http://localhost:8000/docs
 
+### Optional Common Alert Service publication
+
+Set both server-side variables before starting Vault to publish newly created Vault alert episodes:
+
+| Variable | Purpose |
+|----------|---------|
+| ALERT_SERVICE_BASE_URL | Internal Alert Service origin, for example http://127.0.0.1:8012. Unset disables publication. |
+| ALERT_SERVICE_TOKEN | Producer Bearer token configured on Alert Service for use_case vault_monitoring and producer vault-monitoring. Never use the browser POC key. |
+| ALERT_SERVICE_TIMEOUT_SECONDS | Bounded HTTP timeout, 0.1–10 seconds; default 3. |
+| ALERT_SERVICE_POLL_SECONDS | Durable publication retry/recovery scan interval, 0.2–60 seconds; default 2. |
+
+New Vault alert episodes are queued in the existing append-only vault_audit_events table and published to /api/v1/alerts by a background worker. Only allowlisted alert fields are sent; image data, face data, evidence URLs, and Vault incident records are excluded. Transient transport failures and HTTP 408/425/429/5xx responses retry with bounded exponential delay. Other 4xx responses are retained as failed; 401/403 responses receive one recovery attempt after a process restart with the newly loaded credential. Replays use the stable Vault alert UUID and idempotency key. This is one-way ingestion only: Vault remains authoritative for alert lifecycle, incidents, evidence, APIs, and SSE. Alerts created before publication is enabled are not automatically backfilled.
+
+To roll back, unset ALERT_SERVICE_BASE_URL and ALERT_SERVICE_TOKEN, then restart Vault. This disables outbound publication without changing or deleting Vault records. Pending audit-backed publications remain available if the integration is enabled again.
+
 Key `.env` settings:
 
 | Variable | Purpose |

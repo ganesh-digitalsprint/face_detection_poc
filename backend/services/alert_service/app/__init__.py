@@ -1,0 +1,1 @@
+"""Independent shared Alert Service."""

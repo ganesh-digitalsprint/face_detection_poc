@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -57,6 +58,24 @@ class Settings(BaseSettings):
     VAULT_REQUIRED_PERSONS: int | None = Field(default=None, ge=1, le=2)
     VAULT_ALLOW_MODE_SELECT: bool | None = None
     VAULT_ROOM_API_KEY: str | None = None
+
+    # Optional server-to-server publication. These credentials never reach the browser.
+    ALERT_SERVICE_BASE_URL: str | None = None
+    ALERT_SERVICE_TOKEN: SecretStr = SecretStr("")
+    ALERT_SERVICE_TIMEOUT_SECONDS: float = Field(default=3.0, ge=0.1, le=10.0)
+    ALERT_SERVICE_POLL_SECONDS: float = Field(default=2.0, ge=0.2, le=60.0)
+
+    @field_validator("ALERT_SERVICE_BASE_URL")
+    @classmethod
+    def validate_alert_service_base_url(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        parsed = urlsplit(value.strip())
+        if (parsed.scheme not in {"http", "https"} or not parsed.netloc
+                or parsed.username is not None or parsed.password is not None
+                or parsed.query or parsed.fragment or parsed.path not in {"", "/"}):
+            raise ValueError("ALERT_SERVICE_BASE_URL must be an http(s) origin without credentials or path")
+        return value.strip().rstrip("/")
 
     # Cloudinary credentials stay on the server and are never serialized.
     CLOUDINARY_CLOUD_NAME: str | None = None

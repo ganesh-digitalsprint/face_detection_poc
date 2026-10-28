@@ -15,10 +15,12 @@ from uuid import uuid4
 
 from app.core.logging import get_logger
 from app.core.ml_config import get_vault_room_config
+from app.core.config import settings
 from app.db.database import session_scope
 from app.db.models.vault_room import VaultAuditEvent, VaultRoomAlert, VaultRoomEvent, VaultRoomSession, VaultSession
 from app.services.vault_alert_rules import AlertSnapshot
 from app.services.vault_alert_persistence import PersistentAlertWorker
+from app.services.vault_alert_service_adapter import VaultAlertServiceAdapter
 from app.services.door_controller import DoorController, SimulatedDoorController
 from app.services.vault_room_rules import (
     ACTIVE, CLOSED, ENTRY_BUFFER, EXPIRED_OPEN, RoomEvent, RoomNow, VaultRoomContext,
@@ -106,7 +108,16 @@ class VaultRoomManager:
         self._stop = threading.Event()
         self._ever_had_session = False
         self._summary: dict | None = None
-        self._alert_worker = PersistentAlertWorker(publisher=self._publish_alert_event)
+        self._alert_service_adapter = VaultAlertServiceAdapter(
+            settings.ALERT_SERVICE_BASE_URL,
+            settings.ALERT_SERVICE_TOKEN.get_secret_value(),
+            timeout_seconds=settings.ALERT_SERVICE_TIMEOUT_SECONDS,
+            poll_seconds=settings.ALERT_SERVICE_POLL_SECONDS,
+        )
+        self._alert_worker = PersistentAlertWorker(
+            publisher=self._publish_alert_event,
+            alert_service_adapter=self._alert_service_adapter,
+        )
         self._phase = "IDLE"
         self._phase_since: float | None = None
         self._session_ref: str | None = None
@@ -206,6 +217,7 @@ class VaultRoomManager:
     def start(self):
         self._ensure_threads()
         self._alert_worker.start()
+        self._alert_service_adapter.start()
         self._ensure_ticker()
         if self._detector is not None:
             threading.Thread(target=self._warm_detector, name="vault-room-detector-warmup", daemon=True).start()
@@ -622,6 +634,7 @@ class VaultRoomManager:
         self._stop.set()
         if self._ticker and self._ticker.is_alive(): self._ticker.join(timeout)
         self._alert_worker.stop(timeout)
+        self._alert_service_adapter.stop(timeout)
         if self._writer_thread.is_alive():
             deadline = time.monotonic() + timeout
             while self._jobs.unfinished_tasks and time.monotonic() < deadline:
