@@ -10,6 +10,10 @@ wheels/
 # Virtual environments
 .venv
 
+# Local launcher process metadata and logs
+/.launcher/
+/logs/
+
 # Local environment and generated data
 **/.env
 **/.env.*

@@ -158,22 +158,36 @@ class LivenessService:
             require_landmarks=True,
         )
 
-    def start_session(self) -> LivenessSessionStarted:
+    def start_session(
+        self, *, challenge: LivenessChallenge | None = None
+    ) -> LivenessSessionStarted:
         if not self._config.enabled:
             raise RuntimeError("Active liveness is disabled")
         now = time.monotonic()
         with self._lock:
             self._expire_old_sessions(now)
-            challenges = self._random.sample(
-                self._config.available_challenges, self._config.challenge_count
-            )
-            if (
+            if challenge is not None:
+                if challenge not in self._config.available_challenges:
+                    raise ValueError(f"Challenge {challenge.value} is not enabled")
+                remaining = [item for item in self._config.available_challenges if item != challenge]
+                challenges = [challenge]
+                if self._config.challenge_count > 1:
+                    challenges.extend(self._random.sample(
+                        remaining, self._config.challenge_count - 1
+                    ))
+            else:
+                challenges = self._random.sample(
+                    self._config.available_challenges, self._config.challenge_count
+                )
+            if challenge is None and (
                 self._config.prevent_immediate_repeat
                 and len(challenges) > 1
                 and challenges[0] == self._previous_first_challenge
             ):
                 challenges = challenges[1:] + challenges[:1]
             elif (
+                challenge is None
+                and
                 self._config.prevent_immediate_repeat
                 and len(challenges) == 1
                 and len(self._config.available_challenges) > 1

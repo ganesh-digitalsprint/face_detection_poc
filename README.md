@@ -1,51 +1,85 @@
-# PGM Vault
+# Face Recognition POC
 
-PGM Vault contains independently runnable backend services and a React/Vite frontend.
-Each backend microservice keeps its own application code, configuration, environment,
-and Python dependencies.
+## Repository
 
-## Repository layout
+<!-- backend/use_cases/vault_monitoring/ - Vault Monitoring, Python 3.12 -->
+<!-- backend/use_cases/branch_exterior/ - Branch Exterior Monitoring, Python 3.11 -->
+<!-- backend/services/alert_service/ - Alert Service, Python 3.11 or 3.12 -->
+<!-- frontend/ - React/Vite -->
+<!-- Launcher: start-all.ps1 / stop-all.ps1 -->
+<!-- Backend index: [backend/README.md](backend/README.md) -->
+<!-- Vault: [backend/use_cases/vault_monitoring/README.md](backend/use_cases/vault_monitoring/README.md) -->
+<!-- Branch: [backend/use_cases/branch_exterior/README.md](backend/use_cases/branch_exterior/README.md) -->
+<!-- Alert Service: [backend/services/alert_service/README.md](backend/services/alert_service/README.md) -->
+<!-- Frontend: [frontend/README.md](frontend/README.md) -->
 
-```text
-backend/   Backend microservices (each has its own pyproject.toml and README)
-frontend/  React/Vite application and JavaScript dependencies
-```
-
-See [backend/README.md](backend/README.md) for the service index and
-[backend/vault-monitoring/README.md](backend/vault-monitoring/README.md) for the Vault
-Monitoring API, setup, and configuration.
-For frontend-specific setup, see [frontend/README.md](frontend/README.md).
-
-## Requirements
-
-- Python 3.12 and [uv](https://docs.astral.sh/uv/) for the backend
-- Node.js and npm for the frontend
-- PostgreSQL and Qdrant credentials configured for the backend
-
-## Vault Monitoring service
-
-Open a terminal at the repository root and run:
+## Start all applications
 
 ```powershell
-cd backend/vault-monitoring
-uv sync
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-# Configure this service's backend/vault-monitoring/.env
-uv run uvicorn app.main:app --reload --port 8000
+.\start-all.ps1
 ```
 
-The API documentation is at <http://localhost:8000/docs>. Run this service's tests
-from `backend/vault-monitoring/` with `uv run pytest`.
+```cmd
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%CD%\start-all.ps1"
+```
 
-## Frontend
+## Stop all applications
 
-In a second terminal from the repository root, run:
+```powershell
+.\stop-all.ps1
+```
+
+```cmd
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%CD%\stop-all.ps1"
+```
+
+## Vault Monitoring
+
+```powershell
+cd backend\use_cases\vault_monitoring
+if (!(Test-Path .venv)) { uv venv --python 3.12 .venv }
+uv pip install --python .venv\Scripts\python.exe -r requirements.txt
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8010
+```
+
+<!-- Required in backend/use_cases/vault_monitoring/.env: DATABASE_URL, QDRANT_URL, QDRANT_API_KEY -->
+<!-- Health: http://127.0.0.1:8010/api/v1/health -->
+<!-- API docs: http://127.0.0.1:8010/docs -->
+
+## Branch Exterior Monitoring
+
+```powershell
+cd backend\use_cases\branch_exterior
+uv sync --frozen --python 3.11 --no-install-project
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8011
+```
+
+<!-- Optional in backend/use_cases/branch_exterior/.env: API_KEY, ALERT_SERVICE_BASE_URL, ALERT_SERVICE_TOKEN -->
+<!-- Health: http://127.0.0.1:8011/api/health -->
+<!-- API docs: http://127.0.0.1:8011/docs -->
+
+## Alert Service
+
+```powershell
+cd backend\services\alert_service
+if (!(Test-Path .venv\Scripts\python.exe)) { py -3.11 -m venv .venv }
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8012
+```
+
+<!-- Launcher reads backend/services/alert_service/.env; standalone runs use ALERT_DATABASE_URL, ALERT_PRODUCER_CREDENTIALS, ALERT_OPERATOR_CREDENTIALS from the process environment -->
+<!-- Health: http://127.0.0.1:8012/health -->
+<!-- API docs: http://127.0.0.1:8012/docs -->
+
+## React/Vite frontend
 
 ```powershell
 cd frontend
-npm install
-npm run dev
+npm.cmd ci
+npm.cmd run dev -- --host 127.0.0.1
 ```
 
-The frontend uses `VITE_API_BASE_URL` from `frontend/.env` to reach the backend;
-set it to `http://localhost:8000` for local development if needed.
+<!-- Frontend: http://127.0.0.1:3000 -->
+<!-- Settings: VITE_VAULT_API_BASE_URL, VITE_BRANCH_EXTERIOR_API_BASE_URL, ALERT_SERVICE_URL, ALERT_SERVICE_OPERATOR_TOKEN -->

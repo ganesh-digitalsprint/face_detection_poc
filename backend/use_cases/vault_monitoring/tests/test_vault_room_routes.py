@@ -67,17 +67,22 @@ def test_frames_endpoint_maps_busy_rate_limit_and_unavailable(monkeypatch):
     monkeypatch.setattr(vault_room._limiter, "allow", lambda _key: True)
     manager = RaisingManager()
     monkeypatch.setattr(vault_room, "get_vault_room_manager", lambda: manager)
+    headers = ({"X-API-Key": vault_room.settings.VAULT_ROOM_API_KEY}
+               if vault_room.settings.VAULT_ROOM_API_KEY else {})
     test_client = TestClient(__import__("fastapi").FastAPI())
     app = test_client.app
     app.include_router(vault_room.router)
     manager.exception = vault_room.VaultRoomBusyError()
-    busy = test_client.post("/api/v1/vault-room/frames", files={"frame": ("f.jpg", _jpeg(), "image/jpeg")})
+    busy = test_client.post("/api/v1/vault-room/frames", headers=headers,
+        files={"frame": ("f.jpg", _jpeg(), "image/jpeg")})
     assert busy.status_code == 429
     assert busy.headers["retry-after"] == "1"
     manager.exception = vault_room.VaultRoomDetectorUnavailableError()
-    assert test_client.post("/api/v1/vault-room/frames", files={"frame": ("f.jpg", _jpeg(), "image/jpeg")}).status_code == 503
+    assert test_client.post("/api/v1/vault-room/frames", headers=headers,
+        files={"frame": ("f.jpg", _jpeg(), "image/jpeg")}).status_code == 503
     monkeypatch.setattr(vault_room._limiter, "allow", lambda _key: False)
-    limited = test_client.post("/api/v1/vault-room/frames", files={"frame": ("f.jpg", _jpeg(), "image/jpeg")})
+    limited = test_client.post("/api/v1/vault-room/frames", headers=headers,
+        files={"frame": ("f.jpg", _jpeg(), "image/jpeg")})
     assert limited.status_code == 429
     assert limited.headers["retry-after"] == "1"
 

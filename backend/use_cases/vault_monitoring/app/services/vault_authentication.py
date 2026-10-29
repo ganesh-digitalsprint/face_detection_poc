@@ -248,7 +248,13 @@ class VaultAuthenticationService:
                     session.session_ref,
                     response.reason,
                 )
-                self._start_person_liveness(session)
+                # Keep the prompt stable across a retry. A new random direction
+                # here made the instruction appear to change as frames arrived,
+                # even though the custodian had not changed.
+                self._start_person_liveness(
+                    session,
+                    challenge=response.liveness.challenge,
+                )
             if response.reason in {"UNKNOWN_EMPLOYEE", "AUTHORIZATION_INACTIVE",
                     "IDENTITY_ATTEMPTS_EXCEEDED", "DUPLICATE_EMPLOYEE_REJECTED",
                     "DUPLICATE_PERSON_DIFFERENT_ID"}:
@@ -454,8 +460,21 @@ class VaultAuthenticationService:
             for custodian in session.custodians()
         ]
 
-    def _start_person_liveness(self, session: DualControlSession) -> None:
-        started = self._liveness.start_session()
+    def _start_person_liveness(
+        self,
+        session: DualControlSession,
+        *,
+        challenge=None,
+    ) -> None:
+        if challenge is None:
+            started = self._liveness.start_session()
+        else:
+            try:
+                started = self._liveness.start_session(challenge=challenge)
+            except TypeError:
+                # Preserve compatibility with injected lightweight liveness
+                # adapters that implement the older no-argument interface.
+                started = self._liveness.start_session()
         session.liveness_session_id = started.session_id
         session.liveness_challenge = started.challenge.value
 
