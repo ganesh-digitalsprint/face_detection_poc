@@ -1,19 +1,16 @@
 import { useEffect, useRef } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import {
-  Bell, BellRing, Cctv, ChevronsLeft, ChevronsRight, FileText, Film, LayoutDashboard,
-  LockKeyhole, Map as MapIcon, Menu, PanelLeftClose, PanelLeftOpen, Radio, ScanEye, ScanFace,
-  Settings as SettingsIcon, ShieldCheck, Users, Video, Webcam, X,
-} from 'lucide-react';
+import { Outlet, useLocation } from 'react-router-dom';
+import { ChevronsLeft, ChevronsRight, Menu, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import HeaderControls from '../use-cases/branch-exterior/components/HeaderControls.jsx';
 import StatusBadge from '../components/common/StatusBadge.jsx';
 import useHealth from '../hooks/useHealth.js';
 import useSidebar from '../hooks/useSidebar.js';
+import Sidebar from './Sidebar.jsx';
+import { showsBranchChrome } from './routes.js';
 
 const TITLES = [
   ['/branch-exterior/live', 'Live Monitoring'],
   ['/branch-exterior/regions', 'Regions & Zones'],
-  ['/branch-exterior/dashboard', 'Alerts Dashboard'],
   ['/branch-exterior/brief', 'Security Brief'],
   ['/branch-exterior/guards', 'Guard Roster'],
   ['/branch-exterior/settings', 'Settings'],
@@ -22,8 +19,7 @@ const TITLES = [
   ['/registration/authorized', 'Authorized Employee Registration'],
   ['/registration/employees', 'Employee Registration'],
   ['/vault-alerts/incidents', 'Incident detail'],
-  ['/vault-alerts', 'Alerts'],
-  ['/alert-center', 'Alert Center'],
+  ['/alerts', 'Alerts'],
   ['/vault-access', 'Vault Access'],
   ['/liveness-test', 'Liveness Test'],
   ['/detection', 'Face Detection'],
@@ -41,69 +37,9 @@ const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1
 const LIVENESS_TEST_MENU_ENABLED = import.meta.env.VITE_LIVENESS_TEST_ENABLED == null
   ? import.meta.env.DEV
   : import.meta.env.VITE_LIVENESS_TEST_ENABLED === 'true';
-const ALERTS_NAV_LABEL = 'Alerts';
-
-const link = ({ isActive }) =>
-  `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium ${
-    isActive ? 'bg-white/15 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'
-  }`;
-const subLink = ({ isActive }) => `${link({ isActive })} ml-6 py-1.5`;
-
-/** Collapsed: icon only, label kept for screen readers and shown as a tooltip. */
-function Item({ to, end, icon: Icon, label, badge, sub = false, collapsed }) {
-  const base = sub ? subLink : link;
-  const className = (state) => (collapsed ? `${link(state)} min-h-11 justify-center px-0` : base(state));
-  return (
-    <NavLink to={to} end={end} className={className} title={collapsed ? label : undefined}>
-      <Icon className="h-4 w-4 shrink-0" aria-hidden />
-      <span className={collapsed ? 'sr-only' : undefined}>{label}</span>
-      {badge && !collapsed && <span className="ml-auto rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-300">{badge}</span>}
-    </NavLink>
-  );
-}
-
-function Section({ label, collapsed }) {
-  return collapsed
-    ? <hr className="mx-2 my-2 border-white/10" aria-hidden />
-    : <p className="mt-3 px-3 text-xs uppercase tracking-wide text-slate-400">{label}</p>;
-}
-
-function Sidebar({ onNavigate, collapsed = false }) {
-  const props = { collapsed };
-  return (
-    <nav
-      aria-label="Main"
-      className={`flex h-full flex-col gap-1 overflow-y-auto bg-navy ${collapsed ? 'p-3' : 'p-4'}`}
-      onClick={onNavigate}
-    >
-      <div className={`mb-4 flex items-center gap-2 text-white ${collapsed ? 'justify-center' : 'px-3'}`}>
-        <ScanEye className="h-6 w-6 shrink-0 text-accent" aria-hidden />
-        <span className={collapsed ? 'sr-only' : 'text-lg font-semibold'}>Vault Monitoring POC</span>
-      </div>
-      <Item to="/" end icon={LayoutDashboard} label="Dashboard" {...props} />
-      <Section label="Registration" {...props} />
-      <Item to="/registration/employees" icon={Users} label="Employee Registration" {...props} />
-      <Section label="Vault Access" {...props} />
-      <Item to="/vault-access" icon={LockKeyhole} label="Vault Access" {...props} />
-      <Item to="/vault-alerts" icon={Bell} label={ALERTS_NAV_LABEL} {...props} />
-      <Item to="/alert-center" icon={Bell} label="Alert Center" {...props} />
-      <Section label="Branch Exterior Monitoring" {...props} />
-      <Item to="/branch-exterior/live" icon={Video} label="Live Monitoring" {...props} />
-      <Item to="/branch-exterior/regions" icon={MapIcon} label="Regions & Zones" {...props} />
-      <Item to="/branch-exterior/dashboard" icon={BellRing} label="Alerts Dashboard" {...props} />
-      <Item to="/branch-exterior/brief" icon={FileText} label="Security Brief" {...props} />
-      <Item to="/branch-exterior/guards" icon={ShieldCheck} label="Guard Roster" {...props} />
-      <Item to="/branch-exterior/settings" icon={SettingsIcon} label="Settings" {...props} />
-      <Section label="Security" {...props} />
-      {LIVENESS_TEST_MENU_ENABLED && <Item to="/liveness-test" icon={ScanFace} label="Liveness Test" badge="Dev" {...props} />}
-      <Section label="Live &amp; Video" {...props} />
-      <Item to="/live" end icon={Radio} label="Live Monitoring" {...props} />
-      <Item to="/live/webcam" icon={Webcam} label="Webcam" sub {...props} />
-      <Item to="/live/cctv" icon={Cctv} label="CCTV" sub {...props} />
-      <Item to="/video" icon={Film} label="Video Recognition" {...props} />
-    </nav>
-  );
-}
+const PRODUCT_NAME = 'Fedbank Vision';
+// TODO: pass { alerts: <open count> } as `badges` to <Sidebar> once a lightweight shared alerts-count source exists
+// (useServiceAlerts is a full list+poll hook; mounting it here would add a second poller).
 
 /** Keeps Tab inside the open drawer, closes on Escape, and returns focus to the toggle. */
 function useDrawerFocus(open, panelRef, returnFocusRef, onClose) {
@@ -150,10 +86,10 @@ export default function AppLayout() {
   const { status } = useHealth();
   const drawerRef = useRef(null);
   const toggleRef = useRef(null);
-  const onBranchExterior = pathname.startsWith('/branch-exterior');
-  const title = TITLES.find(([p]) => (p === '/' ? pathname === '/' : pathname.startsWith(p)))?.[1] ?? 'Vault Monitoring POC';
+  const onBranchChrome = showsBranchChrome(pathname);
+  const title = TITLES.find(([p]) => (p === '/' ? pathname === '/' : pathname.startsWith(p)))?.[1] ?? PRODUCT_NAME;
 
-  useEffect(() => { document.title = `${title} · ${onBranchExterior ? 'Branch Exterior Monitoring' : 'Vault Monitoring POC'}`; }, [title, onBranchExterior]);
+  useEffect(() => { document.title = `${title} · ${PRODUCT_NAME}`; }, [title]);
   useEffect(() => { closeDrawer(); }, [pathname, closeDrawer]);
   useDrawerFocus(drawerOpen, drawerRef, toggleRef, closeDrawer);
 
@@ -169,7 +105,7 @@ export default function AppLayout() {
         }`}
       >
         <div className="sticky top-0 flex h-screen flex-col bg-navy">
-          <div className="min-h-0 flex-1"><Sidebar collapsed={collapsed} /></div>
+          <div className="min-h-0 flex-1"><Sidebar collapsed={collapsed} devEnabled={LIVENESS_TEST_MENU_ENABLED} onExpand={toggleCollapsed} /></div>
           <button
             type="button"
             onClick={toggleCollapsed}
@@ -206,7 +142,7 @@ export default function AppLayout() {
             drawerOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
-          <Sidebar onNavigate={closeDrawer} />
+          <Sidebar devEnabled={LIVENESS_TEST_MENU_ENABLED} onNavigate={closeDrawer} />
         </div>
       </div>
 
@@ -226,7 +162,7 @@ export default function AppLayout() {
           </button>
           <h1 className="app-title text-lg font-semibold text-navy">{title}</h1>
           <div className="ml-auto flex items-center gap-3">
-            {onBranchExterior && <HeaderControls />}
+            {onBranchChrome && <HeaderControls />}
             <div className="app-muted flex items-center gap-2 text-xs text-slate-500">
               API <StatusBadge status={BADGE[status]} />
             </div>

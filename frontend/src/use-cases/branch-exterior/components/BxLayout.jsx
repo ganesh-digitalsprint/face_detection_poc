@@ -2,6 +2,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Loading from '../../../components/common/Loading.jsx';
 import { api } from '../api/index.js';
+import { bxPageKey } from '../../../layouts/routes.js';
 import { useFeedConnection } from '../feed.js';
 import { useBxTheme } from '../theme.js';
 import Toasts from './Toasts.jsx';
@@ -17,18 +18,12 @@ export const BX_PAGES = {
   'system-check': ['System check', 'Open this page when something does not work'],
 };
 
-/** Route layout for every /branch-exterior/* page: theme, shared websocket, toasts and the status chips. */
+/** Route layout for every /branch-exterior/* page and the /alerts/branch tab: theme, shared websocket, toasts and the status chips. */
 export default function BxLayout() {
   const theme = useBxTheme();
   const { pathname } = useLocation();
   const [stats, setStats] = useState(null);
   useFeedConnection();
-
-  // Dark / bright applies only while a Branch Exterior page is open; the rest of the app stays as it was.
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    return () => { delete document.documentElement.dataset.theme; };
-  }, [theme]);
 
   const refreshStats = useCallback(async () => {
     try { setStats(await api.get('/dashboard/summary')); } catch { /* backend still starting up */ }
@@ -39,11 +34,12 @@ export default function BxLayout() {
     return () => clearInterval(id);
   }, [refreshStats]);
 
-  const key = pathname.split('/')[2] || 'live';
+  const key = bxPageKey(pathname);
   const sub = BX_PAGES[key]?.[1] || '';
 
+  // Dark / bright is scoped to this container; the app shell and other pages never change.
   return (
-    <div className="bx-page">
+    <div className="bx-page" data-theme={theme}>
       <div className="bx-subbar">
         <p className="sub" style={{ margin: 0, maxWidth: 760 }}>{sub}</p>
         <div className="bx-chips bx-no-print">

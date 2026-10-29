@@ -77,7 +77,7 @@ export default function VaultAlerts() {
   const noFilters = !severity && !alertType && !cameraId && !sessionRef && !dateFrom && !dateTo;
   return <div className="mx-auto max-w-[1600px] space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-4">
-      <div><h2 className="text-2xl font-bold text-[#152449]">Alerts</h2><p className="mt-1 text-sm text-slate-500">Vault Monitoring alerts. Alerts from every use case are in the <Link to="/alert-center" className="font-semibold text-[#34479B] underline">Alert Center</Link>.</p></div>
+      <div><h2 className="text-2xl font-bold text-[#152449]">Alerts</h2><p className="mt-1 text-sm text-slate-500">Vault Monitoring alerts. Alerts from every use case are in the <Link to="/alerts/all" className="font-semibold text-[#34479B] underline">Alert Center</Link>.</p></div>
       <div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => { feed.refresh(); refreshSummary(); }} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><RefreshCw className="h-4 w-4" aria-hidden/>Refresh</button><select aria-label="Sort alerts" value={sort} onChange={(e) => setFilter('sort', e.target.value)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></div>
     </header>
     {(summaryError || metaError) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="status">{summaryError || metaError}</div>}

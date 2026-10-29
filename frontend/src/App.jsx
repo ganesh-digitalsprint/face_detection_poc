@@ -1,7 +1,9 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Loading from './components/common/Loading.jsx';
 import AppLayout from './layouts/AppLayout.jsx';
+import { LEGACY_REDIRECTS } from './layouts/routes.js';
+import AlertsLayout from './pages/alerts/AlertsLayout.jsx';
 import AlertCenter from './pages/AlertCenter.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Detection from './pages/Detection.jsx';
@@ -30,6 +32,12 @@ const BxSettings = lazy(() => import('./use-cases/branch-exterior/pages/Settings
 const BxSystemCheck = lazy(() => import('./use-cases/branch-exterior/pages/SystemCheckPage.jsx'));
 const bxFallback = <Loading message="Loading Branch Exterior Monitoring…" />;
 
+/** Old URL -> new URL, keeping the query string and hash (a bare <Navigate to> would drop them). */
+function LegacyRedirect({ to }) {
+  const { search, hash } = useLocation();
+  return <Navigate to={{ pathname: to, search, hash }} replace />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -41,8 +49,17 @@ export default function App() {
         <Route path="registration/authorized/:employeeId" element={<AuthorizedEmployeeRegistration />} />
         <Route path="registration/authorized/:employeeId/face" element={<FaceEnrollment />} />
         <Route path="vault-access" element={<VaultAccess />} />
-        <Route path="alert-center" element={<AlertCenter />} />
-        <Route path="vault-alerts" element={<VaultAlerts />} />
+        <Route path="alerts" element={<AlertsLayout />}>
+          <Route index element={<Navigate to="vault" replace />} />
+          <Route path="vault" element={<VaultAlerts />} />
+          <Route path="all" element={<AlertCenter />} />
+          <Route path="branch" element={<Suspense fallback={bxFallback}><BxLayout /></Suspense>}>
+            <Route index element={<BxDashboard />} />
+          </Route>
+        </Route>
+        {LEGACY_REDIRECTS.map(([from, to]) => (
+          <Route key={from} path={from.slice(1)} element={<LegacyRedirect to={to} />} />
+        ))}
         <Route path="vault-alerts/incidents/:incidentId" element={<VaultIncident />} />
         <Route
           path="liveness-test"
@@ -56,7 +73,6 @@ export default function App() {
           <Route index element={<Navigate to="live" replace />} />
           <Route path="live" element={<BxLive />} />
           <Route path="regions" element={<BxRegions />} />
-          <Route path="dashboard" element={<BxDashboard />} />
           <Route path="brief" element={<BxBrief />} />
           <Route path="guards" element={<BxGuards />} />
           <Route path="settings" element={<BxSettings />} />

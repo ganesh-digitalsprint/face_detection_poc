@@ -39,7 +39,7 @@
   --bx-stage: #0b1220;
 }
 
-:root[data-theme="dark"] {
+.bx-page[data-theme="dark"] {
   color-scheme: dark;
   --bx-bg: #0f1a33;
   --bx-card: #1c2b4d;
@@ -76,13 +76,8 @@
   --bx-stage: #060b16;
 }
 
-/* ---- app shell (dark mode applies to the shared layout only on Branch Exterior routes) ---- */
-html[data-theme="dark"] body { background: var(--bx-bg); color: var(--bx-text); }
-html[data-theme="dark"] .app-header { background: var(--bx-card); border-color: var(--bx-border-soft); }
-html[data-theme="dark"] .app-title { color: var(--bx-title); }
-html[data-theme="dark"] .app-icon-btn { color: var(--bx-mute); }
-html[data-theme="dark"] .app-icon-btn:hover { background: var(--bx-hover); }
-html[data-theme="dark"] .app-muted { color: var(--bx-mute); }
+/* ---- dark mode is scoped to the Branch container (.bx-page[data-theme="dark"]); the app shell never changes ---- */
+.bx-page[data-theme="dark"] { background: var(--bx-bg); border-radius: 12px; padding: 16px; }
 
 /* ---- layout ---- */
 .bx-page { color: var(--bx-text); font-size: 14px; line-height: 1.45; }
@@ -254,7 +249,8 @@ html[data-theme="dark"] .app-muted { color: var(--bx-mute); }
 
 /* ---- print (Security Brief -> Save as PDF) ---- */
 @media print {
-  :root, :root[data-theme="dark"] { --bx-bg:#fff; --bx-card:#fff; --bx-inset:#f8fafc; --bx-text:#000; --bx-title:#000; --bx-mute:#475569; --bx-border-soft:#cbd5e1; --bx-hair:#e2e8f0; --bx-shadow:none; }
+  :root, .bx-page[data-theme="dark"] { --bx-bg:#fff; --bx-card:#fff; --bx-inset:#f8fafc; --bx-text:#000; --bx-title:#000; --bx-mute:#475569; --bx-border-soft:#cbd5e1; --bx-hair:#e2e8f0; --bx-shadow:none; }
+  .bx-page[data-theme="dark"] { background: transparent; padding: 0; }
   .app-aside, .app-header, .app-drawer, .bx-no-print, .bx-toast-root { display: none !important; }
   body { background: #fff !important; color: #000 !important; }
 }

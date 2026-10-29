@@ -26,7 +26,7 @@ export default function Toasts({ onEvent }) {
           key={id}
           className="bx-toast"
           style={{ borderLeftColor: `var(--bx-sev-${event.severity || 'medium'})` }}
-          onClick={() => { remove(id); navigate(`/branch-exterior/dashboard?event=${event.id}`); }}
+          onClick={() => { remove(id); navigate(`/alerts/branch?event=${event.id}`); }}
         >
           <div className="t-title">
             <span>{event.camera_name || 'Camera'}</span>

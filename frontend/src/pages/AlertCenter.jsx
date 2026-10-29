@@ -17,7 +17,7 @@ const STATUS_STYLE = {
   OPEN: 'bg-red-50 text-red-700', ACKNOWLEDGED: 'bg-amber-50 text-amber-800',
   RESOLVED: 'bg-emerald-50 text-emerald-700', DISMISSED: 'bg-slate-100 text-slate-600',
 };
-const SOURCE_LINK = { vault_monitoring: '/vault-alerts', branch_exterior: '/branch-exterior/dashboard' };
+const SOURCE_LINK = { vault_monitoring: '/alerts/vault', branch_exterior: '/alerts/branch' };
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—');
 
 function Pill({ className, children }) {
