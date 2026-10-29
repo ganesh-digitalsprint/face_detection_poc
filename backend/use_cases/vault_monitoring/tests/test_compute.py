@@ -86,21 +86,32 @@ def test_explicit_gpu_selects_gpu_when_probe_succeeds():
     assert result.gpu_available is True
 
 
-def test_explicit_gpu_without_gpu_fails_clearly():
+def test_explicit_gpu_without_gpu_fails_clearly_when_fallback_disabled():
     with pytest.raises(
         compute_module.ComputeConfigurationError,
-        match="GPU was explicitly requested, but no usable GPU is available",
+        match="explicitly requested but is unavailable",
     ):
         compute_module.resolve_compute_device(
-            "gpu", framework="tensorflow", gpu_probe=lambda _: (False, None)
+            "gpu", framework="tensorflow", gpu_probe=lambda _: (False, None),
+            fallback_to_cpu=False,
         )
+
+
+def test_explicit_gpu_without_gpu_falls_back_to_cpu_when_allowed():
+    result = compute_module.resolve_compute_device(
+        "cuda", framework="tensorflow", gpu_probe=lambda _: (False, None),
+        fallback_to_cpu=True,
+    )
+    assert result.resolved_device == "cpu"
+    assert result.gpu_available is False
+    assert "fell back to CPU" in result.fallback_reason
 
 
 def test_invalid_compute_device_is_rejected():
     with pytest.raises(ValidationError):
-        Settings(_env_file=None, COMPUTE_DEVICE="cuda")
+        Settings(_env_file=None, COMPUTE_DEVICE="tpu")
     with pytest.raises(ValidationError):
-        ComputeSettings(device="cuda")
+        ComputeSettings(device="tpu")
 
 
 def test_yaml_and_existing_model_profile_configuration_load():
@@ -108,8 +119,9 @@ def test_yaml_and_existing_model_profile_configuration_load():
     assert ml_config.recognition_model == "ArcFace"
     assert ml_config.performance_profile == "balanced"
     assert ml_config.detector_backend == "opencv"
+    # Device now comes from the central config/inference.yaml, not models.yaml.
     assert get_compute_device_setting() == "auto"
-    assert load_ml_config_file().compute.device == "auto"
+    assert load_ml_config_file().compute.device is None
     assert get_face_model_config().embedding_dimension == 512
 
 

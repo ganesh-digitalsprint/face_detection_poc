@@ -5,7 +5,7 @@ import {
   LockKeyhole, Map as MapIcon, Menu, PanelLeftClose, PanelLeftOpen, Radio, ScanEye, ScanFace,
   Settings as SettingsIcon, ShieldCheck, Users, Video, Webcam, X,
 } from 'lucide-react';
-import HeaderControls from '../branch-exterior/components/HeaderControls.jsx';
+import HeaderControls from '../use-cases/branch-exterior/components/HeaderControls.jsx';
 import StatusBadge from '../components/common/StatusBadge.jsx';
 import useHealth from '../hooks/useHealth.js';
 import useSidebar from '../hooks/useSidebar.js';

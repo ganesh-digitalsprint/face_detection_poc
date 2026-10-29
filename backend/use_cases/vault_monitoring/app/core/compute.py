@@ -1,4 +1,9 @@
-"""Resolve the compute device used by DeepFace's selected ML backend."""
+"""Resolve the compute device used by DeepFace's selected ML backend.
+
+Device selection rules (auto/cpu/cuda, fallback policy, CUDA index) live in the shared
+``fedbank_core.inference`` module and the central ``config/inference.yaml``. This module only adds the
+DeepFace-specific parts: which framework DeepFace runs on, and how CPU is forced before it loads.
+"""
 
 from __future__ import annotations
 
@@ -9,14 +14,21 @@ from functools import lru_cache
 from typing import Callable, Literal
 
 from app.core.config import ComputeDevice
+from app.core.inference import (
+    InferenceConfigurationError,
+    InferenceSettings,
+    get_inference_settings,
+    resolve_device,
+)
 from app.core.logging import get_logger
 from app.core.ml_config import get_compute_device_setting
+from fedbank_core.inference import CudaProbe
 
 logger = get_logger(__name__)
 Framework = Literal["tensorflow", "pytorch"]
 
 
-class ComputeConfigurationError(RuntimeError):
+class ComputeConfigurationError(InferenceConfigurationError):
     """The requested compute device cannot be used by DeepFace's backend."""
 
 
@@ -27,6 +39,7 @@ class ComputeConfig:
     resolved_device: Literal["cpu", "gpu"]
     framework: Framework
     gpu_name: str | None = None
+    fallback_reason: str | None = None
 
 
 def _deepface_framework() -> Framework:
@@ -120,50 +133,65 @@ def resolve_compute_device(
     *,
     framework: Framework | None = None,
     gpu_probe: Callable[[Framework], tuple[bool, str | None]] | None = None,
+    fallback_to_cpu: bool | None = None,
+    cuda_device_index: int | None = None,
 ) -> ComputeConfig:
-    """Resolve ``auto``/``cpu``/``gpu`` against the selected ML runtime."""
+    """Resolve ``auto``/``cpu``/``gpu`` (``cuda`` accepted) against DeepFace's selected ML runtime.
+
+    ``fallback_to_cpu`` and ``cuda_device_index`` default to the central inference settings.
+    """
     selected_framework = prepare_deepface_runtime(framework)
     probe = gpu_probe or _probe_gpu
+    central = get_inference_settings()
+    mode = "cuda" if configured_device == "gpu" else configured_device
+    settings = InferenceSettings(
+        device=mode,  # type: ignore[arg-type]
+        cuda_device_index=central.cuda_device_index if cuda_device_index is None else cuda_device_index,
+        fallback_to_cpu=central.fallback_to_cpu if fallback_to_cpu is None else fallback_to_cpu,
+    )
 
-    if configured_device == "cpu":
+    if mode == "cpu":
         _force_cpu(selected_framework)
-        return ComputeConfig(configured_device, None, "cpu", selected_framework)
 
-    gpu_available, gpu_name = probe(selected_framework)
-    if configured_device == "gpu" and not gpu_available:
-        raise ComputeConfigurationError(
-            "GPU was explicitly requested, but no usable GPU is available "
-            f"for DeepFace's {selected_framework} backend."
+    def _probe(fw: str, _index: int) -> CudaProbe:
+        ok, name = probe(selected_framework)
+        return CudaProbe(ok, name, None if ok else "no usable GPU for the DeepFace runtime")
+
+    try:
+        decision = resolve_device(
+            "face_recognition", settings,
+            framework="torch" if selected_framework == "pytorch" else "tensorflow",
+            probe=_probe,
         )
-    if gpu_available:
-        return ComputeConfig(configured_device, True, "gpu", selected_framework, gpu_name)
-
-    # A failed runtime probe means the framework cannot use a GPU; it will
-    # naturally execute supported work on CPU. Avoid reconfiguring a runtime
-    # that the probe may already have initialized.
-    return ComputeConfig(configured_device, False, "cpu", selected_framework)
+    except ComputeConfigurationError:
+        raise
+    except InferenceConfigurationError as exc:
+        raise ComputeConfigurationError(str(exc)) from exc
+    return ComputeConfig(
+        configured_device=configured_device,
+        gpu_available=None if mode == "cpu" else decision.selected == "cuda",
+        resolved_device="gpu" if decision.selected == "cuda" else "cpu",
+        framework=selected_framework,
+        gpu_name=decision.gpu_name,
+        fallback_reason=decision.fallback_reason,
+    )
 
 
 @lru_cache(maxsize=1)
 def get_compute_config() -> ComputeConfig:
     """Resolve the configured device once during application startup."""
     configured_device = get_compute_device_setting()
-    logger.info("Configured compute device: %s", configured_device)
-    try:
-        config = resolve_compute_device(configured_device)
-    except ComputeConfigurationError as exc:
-        if (
-            configured_device == "gpu"
-            and "GPU was explicitly requested" in str(exc)
-        ):
-            logger.info("GPU available: False")
-        raise
+    logger.info("Requested device for face recognition: %s", configured_device)
+    config = resolve_compute_device(configured_device)
     if config.gpu_available is not None:
-        logger.info("GPU available: %s", config.gpu_available)
+        logger.info("CUDA usable by DeepFace: %s", config.gpu_available)
     else:
-        logger.info("GPU availability probe skipped because CPU was explicitly configured")
-    logger.info("Using compute device: %s", config.resolved_device.upper())
+        logger.info("CUDA probe skipped because CPU was explicitly configured")
+    logger.info("Selected device for face recognition: %s", config.resolved_device.upper())
     logger.info("DeepFace ML framework: %s", config.framework)
+    if config.fallback_reason:
+        log_reason = logger.warning if configured_device in ("gpu", "cuda") else logger.info
+        log_reason("Face recognition runs on CPU: %s", config.fallback_reason)
     if config.gpu_name:
         logger.info("GPU device: %s", config.gpu_name)
     return config

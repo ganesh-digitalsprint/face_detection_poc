@@ -23,6 +23,7 @@ import threading
 import numpy as np
 
 from app.core.config import get_settings
+from app.core.inference import get_inference_settings, resolve_device
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +41,10 @@ class PoseEstimator:
         try:
             from rtmlib import RTMPose
 
-            device = "cpu"
-            try:
-                import torch
-
-                if s.rfdetr_device in ("auto", "cuda") and torch.cuda.is_available():
-                    device = "cuda"
-            except Exception:
-                pass
+            # onnxruntime decides: CUDA needs the onnxruntime-gpu package, not a CUDA build of torch.
+            decision = resolve_device("pose_estimation", get_inference_settings())
+            decision.log(logger)
+            device = decision.device_name
             logger.info("Loading RTMPose (%s) on %s - first run downloads the ONNX model...", s.pose_model, device)
             self._model = RTMPose(
                 onnx_model=s.pose_model,
@@ -57,7 +54,12 @@ class PoseEstimator:
                 device=device,
             )
             self.available = True
-            logger.info("RTMPose ready.")
+            try:
+                providers = self._model.session.get_providers()
+            except Exception:
+                providers = None
+            logger.info("RTMPose ready; requested device %s; onnxruntime providers in use: %s", device,
+                        providers or "not exposed by rtmlib")
         except Exception as exc:
             self.error = f"{type(exc).__name__}: {exc}"
             logger.exception(

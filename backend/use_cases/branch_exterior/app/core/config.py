@@ -55,7 +55,9 @@ class Settings(BaseSettings):
     # (.env), not from the Settings page, and needs a restart to change.
     person_detector_backend: DetectorBackend = "rfdetr"
     rfdetr_model_size: Literal["auto", "nano", "small", "medium", "large", "base"] = "auto"  # auto: medium on GPU, nano on CPU
-    rfdetr_device: Literal["auto", "cpu", "cuda"] = "auto"
+    # Deprecated per-model override for person/weapon detection. Leave unset: the device is configured
+    # centrally in <repo>/config/inference.yaml (INFERENCE_DEVICE overrides it).
+    rfdetr_device: Literal["auto", "cpu", "cuda"] | None = None
     rfdetr_threshold: float = 0.40       # confidence needed to START a person/vehicle track
     rfdetr_low_threshold: float = 0.20   # lower-confidence boxes still extend existing tracks (ByteTrack)
     # Tiled detection for tiny/far people (wide street shots): the frame is also cut into

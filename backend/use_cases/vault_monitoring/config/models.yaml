@@ -2,8 +2,8 @@
 # Thresholds must be calibrated on this project's data.
 active_recognition_model: ArcFace
 
-compute:
-  device: auto
+# Device selection (auto/cpu/cuda, fallback, CUDA index, per-model overrides) is configured centrally in
+# <repo>/config/inference.yaml. `compute.device` / `detector.device` here are deprecated overrides.
 
 liveness:
   enabled: true
@@ -61,7 +61,6 @@ vault_room:
       confidence: 0.5
       min_box_area_ratio: 0.01
       weights_path: null
-      device: cpu
       cpu_threads: 4
     tracker:
       track_activation_threshold: 0.4

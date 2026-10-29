@@ -1,3 +1,7 @@
-# Configuration migration
+# Configuration
 
-The approved structure reserves root configuration files. Stage 2 does not add placeholder YAML: the existing model configuration remains under `backend/vault-monitoring/config/models.yaml`, and no canonical root inputs were identified for alerts, evidence, branches, or shared app settings. Copy and split existing values only in a later reviewed migration step.
+- `inference.yaml` — authoritative CPU/GPU inference configuration for Vault Monitoring and Branch Exterior
+  Monitoring (read through `backend/shared/fedbank_core/inference.py`). See
+  `docs/stage-9a-inference-device-report.md`.
+- Other service configuration stays with each service (`backend/use_cases/vault_monitoring/config/models.yaml`,
+  each service's `.env`).

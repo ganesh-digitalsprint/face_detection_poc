@@ -14,7 +14,7 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-ComputeDevice = Literal["auto", "cpu", "gpu"]
+ComputeDevice = Literal["auto", "cpu", "gpu", "cuda"]  # "gpu" is the legacy spelling of "cuda"
 
 
 class Settings(BaseSettings):
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # Optional selectors overriding config/models.yaml.
     RECOGNITION_MODEL: str | None = None
     PERFORMANCE_PROFILE: str | None = None
-    COMPUTE_DEVICE: ComputeDevice | None = None
+    COMPUTE_DEVICE: ComputeDevice | None = None  # legacy; prefer INFERENCE_DEVICE / config/inference.yaml
     VAULT_REQUIRED_PERSONS: int | None = Field(default=None, ge=1, le=2)
     VAULT_ALLOW_MODE_SELECT: bool | None = None
     VAULT_ROOM_API_KEY: str | None = None

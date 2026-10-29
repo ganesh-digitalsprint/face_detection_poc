@@ -7,27 +7,27 @@ import Dashboard from './pages/Dashboard.jsx';
 import Detection from './pages/Detection.jsx';
 import Identification from './pages/Identification.jsx';
 import LiveMonitoring from './pages/LiveMonitoring.jsx';
-import Registration from './pages/Registration.jsx';
-import VaultAccess from './pages/VaultAccess.jsx';
-import VaultAlerts from './pages/VaultAlerts.jsx';
-import VaultIncident from './pages/VaultIncident.jsx';
-import AuthorizedEmployeeRegistration from './pages/registration/AuthorizedEmployeeRegistration.jsx';
-import EmployeeRegistration from './pages/registration/EmployeeRegistration.jsx';
-import FaceEnrollment from './pages/registration/FaceEnrollment.jsx';
+import Registration from './use-cases/vault-monitoring/pages/Registration.jsx';
+import VaultAccess from './use-cases/vault-monitoring/pages/VaultAccess.jsx';
+import VaultAlerts from './use-cases/vault-monitoring/pages/VaultAlerts.jsx';
+import VaultIncident from './use-cases/vault-monitoring/pages/VaultIncident.jsx';
+import AuthorizedEmployeeRegistration from './use-cases/vault-monitoring/pages/registration/AuthorizedEmployeeRegistration.jsx';
+import EmployeeRegistration from './use-cases/vault-monitoring/pages/registration/EmployeeRegistration.jsx';
+import FaceEnrollment from './use-cases/vault-monitoring/pages/registration/FaceEnrollment.jsx';
 import Verification from './pages/Verification.jsx';
 import VideoRecognition from './pages/VideoRecognition.jsx';
 
-const LivenessTestPage = lazy(() => import('./pages/LivenessTestPage.jsx'));
+const LivenessTestPage = lazy(() => import('./use-cases/vault-monitoring/pages/LivenessTestPage.jsx'));
 
 // Branch Exterior Monitoring (separate micro-service backend) - loaded on demand.
-const BxLayout = lazy(() => import('./branch-exterior/components/BxLayout.jsx'));
-const BxLive = lazy(() => import('./branch-exterior/pages/LiveMonitoringPage.jsx'));
-const BxRegions = lazy(() => import('./branch-exterior/pages/RegionsZonesPage.jsx'));
-const BxDashboard = lazy(() => import('./branch-exterior/pages/AlertsDashboardPage.jsx'));
-const BxBrief = lazy(() => import('./branch-exterior/pages/SecurityBriefPage.jsx'));
-const BxGuards = lazy(() => import('./branch-exterior/pages/GuardRosterPage.jsx'));
-const BxSettings = lazy(() => import('./branch-exterior/pages/SettingsPage.jsx'));
-const BxSystemCheck = lazy(() => import('./branch-exterior/pages/SystemCheckPage.jsx'));
+const BxLayout = lazy(() => import('./use-cases/branch-exterior/components/BxLayout.jsx'));
+const BxLive = lazy(() => import('./use-cases/branch-exterior/pages/LiveMonitoringPage.jsx'));
+const BxRegions = lazy(() => import('./use-cases/branch-exterior/pages/RegionsZonesPage.jsx'));
+const BxDashboard = lazy(() => import('./use-cases/branch-exterior/pages/AlertsDashboardPage.jsx'));
+const BxBrief = lazy(() => import('./use-cases/branch-exterior/pages/SecurityBriefPage.jsx'));
+const BxGuards = lazy(() => import('./use-cases/branch-exterior/pages/GuardRosterPage.jsx'));
+const BxSettings = lazy(() => import('./use-cases/branch-exterior/pages/SettingsPage.jsx'));
+const BxSystemCheck = lazy(() => import('./use-cases/branch-exterior/pages/SystemCheckPage.jsx'));
 const bxFallback = <Loading message="Loading Branch Exterior Monitoring…" />;
 
 export default function App() {

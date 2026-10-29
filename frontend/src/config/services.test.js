@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 // Under `node --test` there is no import.meta.env, so these assert the built-in local development defaults.
 const config = await import('./services.js');
-const branch = await import('../branch-exterior/api.js');
+const branch = await import('../use-cases/branch-exterior/api/index.js');
 const streams = await import('../api/streams.js');
 
 test('service URLs default to the documented local ports', () => {

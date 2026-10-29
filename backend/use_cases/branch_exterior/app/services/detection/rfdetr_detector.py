@@ -29,6 +29,7 @@ import cv2
 import numpy as np
 
 from app.core.config import get_settings
+from app.core.inference import actual_torch_device, get_inference_settings, resolve_device
 from app.services.detection.base import Detection, PersonDetectorBase
 
 logger = logging.getLogger(__name__)
@@ -45,19 +46,13 @@ _SIZE_TO_CLASS = {"nano": "RFDETRNano", "small": "RFDETRSmall", "medium": "RFDET
                   "large": "RFDETRLarge", "base": "RFDETRBase"}
 
 
-def _resolve_device_and_size(size: str, device: str) -> tuple[str, str]:
-    cuda = False
-    try:
-        import torch
-
-        cuda = bool(torch.cuda.is_available())
-    except Exception:
-        pass
-    if device == "auto":
-        device = "cuda" if cuda else "cpu"
+def _resolve_device_and_size(size: str, override: str | None) -> tuple[str, str]:
+    """Resolve the torch device via the central inference config; ``override`` is the legacy RFDETR_DEVICE."""
+    decision = resolve_device("person_detection", get_inference_settings(), override=override)
+    decision.log(logger)
     if size == "auto":
-        size = "medium" if device == "cuda" else "nano"
-    return size, device
+        size = "medium" if decision.selected == "cuda" else "nano"
+    return size, decision.torch_device
 
 
 def _class_name_table(model, fallback_names: list[str] | None = None) -> dict[int, str]:
@@ -165,7 +160,10 @@ class RfDetrDetector(PersonDetectorBase):
         try:
             self._model = cls(device=device)
         except TypeError:  # older rfdetr releases have no `device` kwarg
+            logger.warning("This rfdetr release has no `device` argument; its own default device is used")
             self._model = cls()
+        logger.info("Person detector requested device %s; actual model device: %s", device,
+                    actual_torch_device(self._model) or "not exposed by rfdetr")
         # Warm-up so the first real frame isn't slow.
         self._predict(np.zeros((384, 384, 3), np.uint8), 0.5)
         logger.info("%s ready.", self.model_desc)
@@ -179,7 +177,14 @@ class RfDetrDetector(PersonDetectorBase):
             return
         try:
             cls = getattr(rfdetr, _SIZE_TO_CLASS.get(self._weapon_model_size, "RFDETRNano"), None) or getattr(rfdetr, "RFDETRBase")
-            self._weapon_model = cls(pretrain_weights=path)
+            wdecision = resolve_device("weapon_detection", get_inference_settings(), override=get_settings().rfdetr_device)
+            wdecision.log(logger)
+            try:
+                self._weapon_model = cls(pretrain_weights=path, device=wdecision.torch_device)
+            except TypeError:  # older rfdetr releases have no `device` kwarg
+                self._weapon_model = cls(pretrain_weights=path)
+            logger.info("Weapon model requested device %s; actual model device: %s", wdecision.torch_device,
+                        actual_torch_device(self._weapon_model) or "not exposed by rfdetr")
             fallback = [n.strip() for n in names_csv.split(",") if n.strip()]
             self._weapon_names = _class_name_table(self._weapon_model, fallback)
             logger.info("Custom weapon model loaded from %s with classes %s", path, self._weapon_names)

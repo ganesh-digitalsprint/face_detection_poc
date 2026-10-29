@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, field_validator
 
 from app.core.config import ComputeDevice, settings
+from app.core.inference import get_inference_settings
 
 DistanceMetric = Literal["cosine", "euclidean", "euclidean_l2"]
 _CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "models.yaml"
@@ -50,7 +51,8 @@ class PerformanceProfile(BaseModel):
 class ComputeSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    device: ComputeDevice = "auto"
+    # Deprecated: the device is configured centrally in config/inference.yaml. Only honoured when set.
+    device: ComputeDevice | None = None
 
 
 class DualControlSettings(BaseModel):
@@ -137,7 +139,8 @@ class VaultRoomDetectorSettings(BaseModel):
     confidence: float = Field(ge=0, le=1)
     min_box_area_ratio: float = Field(ge=0, le=1)
     weights_path: str | None = None
-    device: Literal["cpu"] = "cpu"
+    # Deprecated: configure inference.models.person_detection in config/inference.yaml. Only honoured when set.
+    device: Literal["auto", "cpu", "cuda"] | None = None
     cpu_threads: int = Field(default=4, ge=1)
 
 
@@ -224,9 +227,11 @@ def load_ml_config_file() -> MLConfigFile:
 
 
 def get_compute_device_setting() -> ComputeDevice:
-    """Return the environment override or YAML compute-device selector."""
-    config = load_ml_config_file()
-    return settings.COMPUTE_DEVICE or config.compute.device
+    """Device for DeepFace: legacy COMPUTE_DEVICE env, legacy models.yaml value, else central inference.yaml."""
+    legacy = settings.COMPUTE_DEVICE or load_ml_config_file().compute.device
+    if legacy:
+        return legacy
+    return get_inference_settings().device
 
 
 def get_vault_room_config() -> VaultRoomSettings:

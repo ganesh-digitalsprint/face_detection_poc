@@ -1,0 +1,30 @@
+# Authoritative inference-device configuration for Vault Monitoring and Branch Exterior Monitoring.
+# Both services read this one file (via backend/shared/fedbank_core/inference.py).
+# Override the file location with INFERENCE_CONFIG_PATH; override single values with
+# INFERENCE_DEVICE, INFERENCE_CUDA_DEVICE_INDEX, INFERENCE_FALLBACK_TO_CPU.
+# Machine-specific settings belong in environment variables, not in this committed file.
+inference:
+  # auto: use CUDA only when the model's own framework confirms it can run on it, else CPU.
+  # cpu:  force CPU.
+  # cuda: request CUDA; if unavailable see fallback_to_cpu.
+  device: auto
+
+  # CUDA device ordinal for PyTorch models (person/weapon detection). Pose estimation (rtmlib) and
+  # DeepFace cannot select an index: a non-zero value with those models resolving to CUDA is an error;
+  # use CUDA_VISIBLE_DEVICES to choose the GPU for them.
+  cuda_device_index: 0
+
+  # When CUDA is explicitly requested but unavailable:
+  #   true  -> log the reason and run on CPU
+  #   false -> fail at initialization with a clear error
+  # (auto mode always falls back to CPU, logging why.)
+  fallback_to_cpu: true
+
+  # Optional per-model overrides (null = use the global device). Only models whose runtime supports
+  # independent devices are accepted; anything else is rejected at startup.
+  models:
+    person_detection: null   # RF-DETR person/vehicle detector (PyTorch)
+    weapon_detection: null   # RF-DETR custom weapon checkpoint (PyTorch)
+    pose_estimation: null    # RTMPose through onnxruntime (needs onnxruntime-gpu for CUDA)
+    # face_recognition cannot be overridden: DeepFace's TF/PyTorch backend is process-wide.
+    # HOG, motion, ByteTrack, supervision tracker, OpenCV Haar/LBPH and MediaPipe have no device setting (CPU).

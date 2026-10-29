@@ -23,6 +23,7 @@ from typing import Protocol
 import cv2
 import numpy as np
 
+from app.core.inference import actual_torch_device, get_inference_settings, resolve_device
 from app.core.ml_config import VaultRoomCountingSettings
 
 log = logging.getLogger(__name__)
@@ -103,7 +104,11 @@ class RfDetrPersonDetector:
                 classes = {"rfdetr-nano": "RFDETRNano", "rfdetr-small": "RFDETRSmall",
                            "rfdetr-medium": "RFDETRMedium"}
                 model_type = getattr(rfdetr, classes[self._config.detector.model])
-                kwargs = {"device": "cpu"}
+                decision = resolve_device(
+                    "person_detection", get_inference_settings(),
+                    override=self._config.detector.device)  # legacy per-model override, normally None
+                decision.log(log)
+                kwargs = {"device": decision.torch_device}
                 if self._config.detector.weights_path:
                     weights = Path(self._config.detector.weights_path)
                     if not weights.is_file():
@@ -111,8 +116,10 @@ class RfDetrPersonDetector:
                     kwargs["pretrain_weights"] = str(weights)
                 self._model = model_type(**kwargs)
                 self._failed_at = None
-                log.info("Vault-room RF-DETR %s loaded (input %s)", self._config.detector.model,
-                         self._inference_shape() or "model default")
+                log.info("Vault-room RF-DETR %s loaded (input %s); requested device %s, actual model device: %s",
+                         self._config.detector.model, self._inference_shape() or "model default",
+                         decision.torch_device,
+                         actual_torch_device(self._model) or "not exposed by rfdetr")
                 return self._model
             except Exception as exc:
                 self._status, self._reason = "unavailable", type(exc).__name__
