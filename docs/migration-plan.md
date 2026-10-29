@@ -292,3 +292,26 @@ All targets below are proposed additive copies under the approved structure. `CO
 6. Start implementation with additive health-only copies in approved paths. Do not remove legacy files without a separate cleanup approval.
 
 **Audit limits:** Static review only. No live DB, Qdrant, Cloudinary, camera, model, migration, app startup or browser behavior was verified. Branch `TESTING_NOTES.md` describes prior checks and unverified integrations. No credential values are present here.
+
+## 11. Frontend route consolidation (after Stage 9)
+
+Status: implemented in `frontend/src`. Frontend only; no backend, API client or database change.
+
+| Old URL | Now | Notes |
+|---|---|---|
+| `/vault-alerts` | `/alerts/vault` | redirect, query string kept (`?scope=`) |
+| `/alert-center` | `/alerts/all` | redirect, query string kept (`?status=`) |
+| `/branch-exterior/dashboard` | `/alerts/branch` | redirect, query string kept (`?event=`) |
+| `/branch-exterior/regions` | `/regions` | redirect, query string kept (`?camera=`) |
+| `/branch-exterior/guards` | `/guards` | redirect |
+| `/branch-exterior/settings` | `/settings` | redirect, query string kept (`?tab=`) |
+| `/vault-alerts/incidents/:id` | unchanged | incident detail is not redirected |
+| `/branch-exterior`, `/branch-exterior/{live,brief,system-check}` | unchanged | `/branch-exterior` still redirects to `/live` |
+
+- **Alerts** is one sidebar entry and one page with three tabs, each its own route: Vault alerts (Vault API), All alerts (Alert Service) and Branch events (Branch API). The tabs share a shell, not a data model: the three backends are still separate and the tabs keep separate filters.
+- **Regions & Zones, Guard Roster and Settings** are Branch-only pages (they talk only to the Branch API). They moved to top-level URLs but still render inside `BxLayout`, shared with `/branch-exterior/*`. Settings has General, Policies and Integrations tabs (`?tab=`). There is no "Users & roles" tab and no roles or permissions.
+- **Redirects** come from one table (`LEGACY_REDIRECTS` in `src/layouts/routes.js`) and keep query string and hash. The catch-all route still renders the Dashboard, so a missing redirect would show the Dashboard rather than an error.
+- **Dark mode** is scoped to the Branch container (`.bx-page[data-theme="dark"]`). The app header, sidebar and non-Branch pages never change.
+- **Header controls** (clock, LIVE FEED chip, theme toggle) show only where `BxLayout` is mounted: `/branch-exterior/*`, `/regions`, `/guards`, `/settings` and `/alerts/branch`.
+- **Branch toasts and sounds** (high and critical events beep) run only while a Branch page is mounted, because `BxLayout` opens the Branch websocket. On Vault pages and on the Vault alerts and All alerts tabs there are none. Moving between Branch pages keeps one socket; switching between `/alerts/branch` and the other Branch pages reconnects it.
+- **Verification:** `npm test` (40 pass), `npm run build`, and a Chrome-driven check of redirects, rendering, tabs, dark mode, sidebar and mobile drawer (see `docs/stage-9-frontend-integration-report.md`, "Route consolidation update"). Not verified: live Vault, Alert Service, cameras and real Branch alert events.

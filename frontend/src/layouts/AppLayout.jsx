@@ -10,10 +10,10 @@ import { showsBranchChrome } from './routes.js';
 
 const TITLES = [
   ['/branch-exterior/live', 'Live Monitoring'],
-  ['/branch-exterior/regions', 'Regions & Zones'],
+  ['/regions', 'Regions & Zones'],
+  ['/guards', 'Guard Roster'],
+  ['/settings', 'Settings'],
   ['/branch-exterior/brief', 'Security Brief'],
-  ['/branch-exterior/guards', 'Guard Roster'],
-  ['/branch-exterior/settings', 'Settings'],
   ['/branch-exterior/system-check', 'System Check'],
   ['/branch-exterior', 'Branch Exterior Monitoring'],
   ['/registration/authorized', 'Authorized Employee Registration'],

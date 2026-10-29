@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { ALERT_TABS } from '../../layouts/routes.js';
 
 const tabClass = ({ isActive }) =>
-  `-mb-px inline-flex min-h-11 items-center border-b-2 px-4 text-sm font-semibold ${
+  `inline-flex min-h-11 shrink-0 items-center border-b-2 px-4 text-sm font-semibold ${
     isActive ? 'border-accent text-navy' : 'border-transparent text-slate-500 hover:text-navy'
   }`;
 

@@ -34,3 +34,7 @@ Alert events use `{event_id, type, occurred_at, entity, entity_version, session_
 - `docs/vault-alerts-api.md` lists the exposed routes, request examples, event envelope, and error codes. OpenAPI loads successfully with 53 paths.
 
 Do not begin frontend mapping until the remaining evidence spool/cap requirements and PostgreSQL migration verification are complete.
+
+## Frontend route note (added after the frontend route consolidation)
+
+Frontend only; this report's backend scope, API paths and events are unchanged (the alerts API is still under `/api/v1/...` and events on `/api/v1/vault-room/events`). The Vault alert feed page moved from `/vault-alerts` to `/alerts/vault` (the first of three Alerts tabs); `/vault-alerts` redirects with its query string. The incident page stays at `/vault-alerts/incidents/:id`. The page still reads Vault's own alerts API, not the Alert Service. See `docs/migration-plan.md` section 11.

@@ -20,8 +20,8 @@ function Label({ children, collapsed }) {
 
 function Tag({ children, pink = false }) {
   return (
-    <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-      pink ? 'bg-accent text-white' : 'border border-white/20 uppercase tracking-wide text-slate-400'
+    <span className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+      pink ? 'bg-accent text-white' : 'border border-white/20 text-[9px] uppercase text-slate-400'
     }`}
     >
       {children}
@@ -159,7 +159,7 @@ export default function Sidebar({ collapsed = false, devEnabled = false, badges 
   };
 
   return (
-    <nav aria-label="Main" className={`flex h-full flex-col gap-0.5 overflow-y-auto bg-navy ${collapsed ? 'p-3' : 'p-4'}`}>
+    <nav aria-label="Main" className={`flex h-full flex-col gap-0.5 overflow-y-auto bg-navy [scrollbar-color:rgba(255,255,255,.25)_transparent] [scrollbar-width:thin] ${collapsed ? 'p-3' : 'p-4'}`}>
       <Brand collapsed={collapsed} />
       {sections.map((section) => (
         <div key={section.label ?? 'top'} className="flex flex-col gap-0.5">

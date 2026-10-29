@@ -178,7 +178,7 @@ export default function SettingsPage() {
             {DAYS.map(([key, label]) => {
               const h = hours[key]; if (!h) return null;
               return (
-                <div key={key} className="bx-field-row" style={{ alignItems: 'end', gridTemplateColumns: '90px 1fr 1fr auto' }}>
+                <div key={key} className="bx-field-row bx-hours-row">
                   <div style={{ fontWeight: 500, paddingBottom: 9 }}>{label}</div>
                   <label className="bx-field">Open <input className="bx-input" type="time" value={h.open} disabled={h.closed} onChange={(e) => setHour(key, { open: e.target.value })} /></label>
                   <label className="bx-field">Close <input className="bx-input" type="time" value={h.close} disabled={h.closed} onChange={(e) => setHour(key, { close: e.target.value })} /></label>

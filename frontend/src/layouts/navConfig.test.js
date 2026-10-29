@@ -24,8 +24,8 @@ test('every pre-redesign menu URL is still reachable', () => {
   const targets = linkTargets(NAV_SECTIONS);
   for (const url of [
     '/', '/registration/employees', '/vault-access', '/alerts',
-    '/branch-exterior/live', '/branch-exterior/regions', '/branch-exterior/brief',
-    '/branch-exterior/guards', '/branch-exterior/settings', '/branch-exterior/system-check',
+    '/branch-exterior/live', '/regions', '/branch-exterior/brief',
+    '/guards', '/settings', '/branch-exterior/system-check',
     '/liveness-test', '/live', '/live/webcam', '/live/cctv', '/video',
   ]) assert.ok(targets.includes(url), url);
 });

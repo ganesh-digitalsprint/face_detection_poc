@@ -1,5 +1,7 @@
 # Stage 9C: Frontend Use-Case Migration Report
 
+> **Route update (after Stage 9C):** some URLs below were later changed. Alerts are now `/alerts/{vault,all,branch}`; Branch `regions`, `guards` and `settings` are `/regions`, `/guards` and `/settings`; `/branch-exterior/dashboard` is `/alerts/branch`. Old URLs redirect. See `docs/stage-9-frontend-integration-report.md` ("Route consolidation update").
+
 ## Starting state
 The prompt said `frontend/src/use-cases/` already existed with empty `api/`, `pages/`, `components/`. It did not: the
 directory was absent. Vault code lived in `src/{api,pages,components,hooks,utils}`, Branch Exterior in `src/branch-exterior/`.
@@ -61,6 +63,6 @@ Legacy directories `src/branch-exterior`, `components/{vault,alerts,registration
 
 ## Manual verification (live)
 1. Start Vault backend (:8010) and Branch backend (:8011), then `npm run dev`.
-2. Vault: `/vault-access` (liveness, dual control, camera selection, webcam/RTSP), `/vault-alerts` (ack/resolve, incident page), `/registration` flows, `/liveness-test`.
-3. Branch: `/branch-exterior/{live,regions,dashboard,brief,guards,settings,system-check}`; check MJPEG feeds, WebSocket alerts, camera add/failure states.
+2. Vault: `/vault-access` (liveness, dual control, camera selection, webcam/RTSP), `/alerts/vault` (ack/resolve; the incident page stays at `/vault-alerts/incidents/:id`; `/vault-alerts` redirects), `/registration` flows, `/liveness-test`.
+3. Branch: `/branch-exterior/{live,brief,system-check}`, `/regions`, `/guards`, `/settings` and `/alerts/branch` (the old `/branch-exterior/{regions,dashboard,guards,settings}` redirect); check MJPEG feeds, WebSocket alerts, camera add/failure states.
 4. Browser refresh on each deep link; switch cameras and confirm in DevTools Network no leaked streams/SSE connections.

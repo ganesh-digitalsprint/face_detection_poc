@@ -3,7 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useNewEvents } from '../feed.js';
 import { eventBeep } from '../sound.js';
 
-/** Site-wide (all Branch Exterior pages) toast + beep for every new alert. */
+/**
+ * Toast + beep for every new Branch alert. It listens to the Branch websocket, which BxLayout opens, so it only runs
+ * while a Branch page is mounted (Branch pages, the moved /regions /guards /settings, and /alerts/branch).
+ * On Vault pages, Alerts > Vault/All alerts, Employees, etc. there are no Branch toasts or sounds.
+ */
 export default function Toasts({ onEvent }) {
   const [items, setItems] = useState([]);
   const nextId = useRef(1);

@@ -1,5 +1,7 @@
 # Stage 9 — Frontend Integration Report
 
+> **Route update (after Stage 9):** the pages below were later consolidated. `/alert-center` is now `/alerts/all`, `/vault-alerts` is `/alerts/vault`, and Branch pages `/branch-exterior/{dashboard,regions,guards,settings}` moved (see "Route consolidation update" at the end). The old URLs still work as redirects. The text below describes the state at the end of Stage 9.
+
 ## Summary
 
 The existing React frontend was connected to the migrated backends with small, targeted changes; it was not redesigned or rewritten. Service URLs are now read in one place, the Branch and Vault pages point at the migrated ports, and a new Alert Center page shows the Alert Service's canonical alerts for Vault and Branch. No backend code was changed, no API gateway was added, no Docker.
@@ -132,7 +134,7 @@ ALERT_SERVICE_OPERATOR_TOKEN=<operator-token>
 VITE_VAULT_ROOM_API_KEY=<same value as VAULT_ROOM_API_KEY in the Vault .env>
 ```
 
-Open http://localhost:3000. The Alert Center is `/alert-center`; the Vault feed is `/vault-alerts`; Branch pages are under `/branch-exterior/...`. Any backend can be omitted: its pages show a "cannot reach" message and the others keep working.
+Open http://localhost:3000. Alerts are at `/alerts` (tabs: `/alerts/vault` Vault feed, `/alerts/all` Alert Center, `/alerts/branch` Branch events); Branch pages are `/branch-exterior/{live,brief,system-check}`, `/regions`, `/guards` and `/settings`. The old URLs redirect. Any backend can be omitted: its pages show a "cannot reach" message and the others keep working.
 
 ## Known limitations
 
@@ -142,3 +144,28 @@ Open http://localhost:3000. The Alert Center is `/alert-center`; the Vault feed 
 4. The shared Vault operator key remains in the public bundle (pre-existing POC limitation).
 5. No linter, type checker or component test runner exists; none was added.
 6. Vault's alert page does not auto-refresh; use Refresh.
+
+## Route consolidation update
+
+Frontend only. Old URL to new URL, with redirects that keep the query string and hash:
+
+| Old URL | Now | Notes |
+|---|---|---|
+| `/vault-alerts` | `/alerts/vault` | redirect, query string kept (`?scope=`) |
+| `/alert-center` | `/alerts/all` | redirect, query string kept (`?status=`) |
+| `/branch-exterior/dashboard` | `/alerts/branch` | redirect, query string kept (`?event=`) |
+| `/branch-exterior/regions` | `/regions` | redirect, query string kept (`?camera=`) |
+| `/branch-exterior/guards` | `/guards` | redirect |
+| `/branch-exterior/settings` | `/settings` | redirect, query string kept (`?tab=`) |
+| `/vault-alerts/incidents/:id` | unchanged | incident detail is not redirected |
+| `/branch-exterior`, `/branch-exterior/{live,brief,system-check}` | unchanged | `/branch-exterior` still redirects to `/live` |
+
+**Changes:** one Alerts page with three route-based tabs; Settings split into General, Policies and Integrations tabs (`?tab=`); dark mode scoped to the Branch container instead of `<html>`; header controls driven by route (`showsBranchChrome`) instead of URL prefix; one shared `BxLayout` for all Branch pages. Details: `docs/migration-plan.md` section 11.
+
+**Automated:** `npm test` 40 passed (navigation config, route/redirect table, Settings tab fallback, App route registration); `npm run build` succeeded.
+
+**Browser (Chrome headless, Vite dev server, scripted over the DevTools protocol): 94 of 94 checks passed.** Covered: 9 redirects (query strings kept); header, document title, Branch container and header controls on 12 routes; Alerts and Settings tab switching and `aria-current`; unknown `?tab=` fallback; dark mode (panel dark, header light, `<html>` untouched, persists across Branch pages, absent on Vault pages); sidebar links, group toggle and collapsed rail; mobile drawer (group toggle keeps it open, a link closes it); no horizontal overflow at 390 px on Settings (all tabs), Regions, Guards and the three Alerts tabs; Branch websocket not reopened when moving between Branch pages; no uncaught exceptions. Screenshots were reviewed by eye.
+
+**Issues found and fixed during the browser check:** stray scroll widget on the Alerts tab bar; "Face Concealment" truncated when the sidebar showed its scrollbar; Settings overflowed to about 490 px on phones (operating-hours row and single-column grid could not shrink; this predates the route work).
+
+**Not verified:** live Vault, Alert Service and Branch behavior with real cameras and alert events (the Vault API was offline; a Branch backend with 0 cameras, 0 guards and 0 events was running); the Branch toast and beep on a real event; Firefox and Safari; a production build served by a real reverse proxy; keyboard-only and screen-reader use of the new menu. Non-GET calls to the backends were blocked in the browser harness; the Guard Roster page POSTs `/guards/retrain` on every load (existing behavior), and 8 such calls were blocked in the final run. Earlier runs, before that block was added, let a few of those calls through to the local Branch backend (no guards enrolled, so nothing to retrain).

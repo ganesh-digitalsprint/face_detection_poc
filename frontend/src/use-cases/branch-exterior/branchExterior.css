@@ -95,7 +95,7 @@
 .bx-grid-3 { grid-template-columns: repeat(3, 1fr); }
 .bx-grid-4 { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 1100px) { .bx-grid-4 { grid-template-columns: repeat(2, 1fr); } .bx-grid-3 { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 760px) { .bx-grid-2, .bx-grid-3, .bx-grid-4 { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .bx-grid-2, .bx-grid-3, .bx-grid-4 { grid-template-columns: minmax(0, 1fr); } }
 .bx-two-col { display: grid; grid-template-columns: 1fr 340px; gap: 18px; align-items: start; }
 @media (max-width: 1150px) { .bx-two-col { grid-template-columns: 1fr; } }
 .bx-row { display: flex; align-items: center; }
@@ -156,6 +156,9 @@
 .bx-input-auto { width: auto !important; }
 .bx-field { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--bx-text); font-weight: 500; margin-bottom: 12px; }
 .bx-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* Settings > operating hours: day label, open, close, closed. Stacks on phones so the card never overflows. */
+.bx-hours-row { align-items: end; grid-template-columns: 90px 1fr 1fr auto; }
+@media (max-width: 760px) { .bx-hours-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .bx-hours-row > :first-child, .bx-hours-row > :last-child { grid-column: 1 / -1; padding-bottom: 0 !important; } }
 .bx-check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--bx-text); margin: 6px 0; }
 .bx-page input[type="checkbox"] { accent-color: var(--bx-primary); width: 16px; height: 16px; }
 .bx-page input[type="range"] { accent-color: var(--bx-primary); }

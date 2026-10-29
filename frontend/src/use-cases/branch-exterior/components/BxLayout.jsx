@@ -18,7 +18,7 @@ export const BX_PAGES = {
   'system-check': ['System check', 'Open this page when something does not work'],
 };
 
-/** Route layout for every /branch-exterior/* page and the /alerts/branch tab: theme, shared websocket, toasts and the status chips. */
+/** Route layout for every /branch-exterior/* page, the /alerts/branch tab and the moved /regions, /guards, /settings pages: theme, shared websocket, toasts and the status chips. */
 export default function BxLayout() {
   const theme = useBxTheme();
   const { pathname } = useLocation();

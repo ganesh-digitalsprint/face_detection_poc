@@ -59,9 +59,9 @@ export const NAV_SECTIONS = [
     label: 'Configuration',
     items: [
       { id: 'employees', label: 'Employees', icon: Users, to: '/registration/employees', match: ['/registration/authorized'] },
-      { id: 'regions', label: 'Regions & Zones', icon: MapIcon, to: '/branch-exterior/regions' },
-      { id: 'guards', label: 'Guard Roster', icon: ShieldCheck, to: '/branch-exterior/guards' },
-      { id: 'settings', label: 'Settings', icon: SettingsIcon, to: '/branch-exterior/settings' },
+      { id: 'regions', label: 'Regions & Zones', icon: MapIcon, to: '/regions' },
+      { id: 'guards', label: 'Guard Roster', icon: ShieldCheck, to: '/guards' },
+      { id: 'settings', label: 'Settings', icon: SettingsIcon, to: '/settings' },
       { id: 'system-check', label: 'System Check', icon: Activity, to: '/branch-exterior/system-check' },
     ],
   },

@@ -204,7 +204,7 @@ export default function LiveMonitoringPage() {
               {running && <button type="button" className={`bx-btn bx-btn-sm${st.debug_overlay ? ' bx-btn-primary' : ''}`} title="Draw every raw AI detection with its class and confidence - shows what the model really sees" onClick={() => toggleOverlay('debug-overlay', st.debug_overlay)}>AI detections</button>}
               {running && <button type="button" className="bx-btn bx-btn-sm" onClick={() => setShowProcessed((v) => !v)}>{showProcessed ? 'Show original' : 'Show processed'}</button>}
               {cam && <button type="button" className={`bx-btn bx-btn-sm${running ? '' : ' bx-btn-primary'}`} onClick={toggleRun}>{running ? 'Stop' : 'Start'}</button>}
-              {cam && <button type="button" className="bx-btn bx-btn-sm" onClick={() => navigate(`/branch-exterior/regions?camera=${cam.id}`)}>Regions</button>}
+              {cam && <button type="button" className="bx-btn bx-btn-sm" onClick={() => navigate(`/regions?camera=${cam.id}`)}>Regions</button>}
               {cam && <button type="button" className="bx-btn bx-btn-sm bx-btn-ghost" onClick={deleteCamera}>Delete</button>}
             </div>
           </div>
