@@ -1,0 +1,146 @@
+# Recognition model settings and independent runtime/performance tuning.
+# Thresholds must be calibrated on this project's data.
+active_recognition_model: ArcFace
+
+compute:
+  device: auto
+
+liveness:
+  enabled: true
+  method: active
+  challenge_count: 1
+  available_challenges:
+    - TURN_LEFT
+    - TURN_RIGHT
+    - LOOK_UP
+    - LOOK_DOWN
+  detection_max_side: 480
+  challenge_timeout_seconds: 25
+  max_attempts: 2
+  session_timeout_seconds: 75
+  identity_window_seconds: 60
+  prevent_immediate_repeat: true
+
+vault_access:
+  dual_control:
+    required_persons: 2
+    allow_mode_select: true
+    authorization_window_seconds: 180
+  enrollment:
+    duplicate_check_enabled: true
+    duplicate_distance_threshold: null
+    same_person_check_enabled: true
+    same_person_distance_threshold: null
+    reveal_conflicting_employee: false
+    ambiguity_margin: 0.05
+
+vault_room:
+  entry_buffer_seconds: 30
+  session_seconds: 360
+  warn_before_expiry_seconds: 60
+  expired_repeat_seconds: 60
+  expired_open_max_seconds: null
+  counting:
+    enabled: true
+    idle_monitoring_enabled: false
+    recommended_fps: 5
+    min_fps: 0.5
+    max_frame_bytes: 1048576
+    rate_limit_per_second: 5
+    count_stable_seconds: 4
+    stable_min_samples: 3
+    stable_majority_ratio: 0.7
+    mismatch_alert_after_seconds: 10
+    frame_stale_seconds: 6
+    feed_lost_alert_after_seconds: 10
+    empty_lock_enabled: true
+    empty_lock_seconds: 60
+    lock_countdown_seconds: 15
+    detector:
+      model: rfdetr-nano
+      confidence: 0.5
+      min_box_area_ratio: 0.01
+      weights_path: null
+      device: cpu
+      cpu_threads: 4
+    tracker:
+      track_activation_threshold: 0.4
+      minimum_matching_threshold: 0.7
+      minimum_consecutive_frames: 2
+      lost_track_seconds: 3.0
+      frame_rate: 1
+
+vault_alerts:
+  count_shortfall_grace_seconds: 20
+  clear_seconds: 10
+  episode_gap_seconds: 30
+  reopen_cooldown_seconds: 60
+  touch_interval_seconds: 5
+  incident:
+    auto_create_min_severity: HIGH
+  evidence:
+    enabled: true
+    capture_unauthorized_entry: true
+    capture_excess_person: true
+    capture_session_expired: true
+    capture_count_mismatch: false
+    realert_seconds: 60
+    max_per_alert: 3
+    max_per_incident: 15
+    min_seconds_between_captures: 10
+    shared_capture_window_seconds: 20
+    jpeg_max_side: 1600
+    jpeg_quality: 85
+    spool_dir: var/evidence-spool
+    spool_max_files: 50
+    spool_max_bytes: 209715200
+
+recognition_models:
+  ArcFace:
+    embedding_dimension: 512
+    distance_metric: cosine
+    threshold: 0.68
+  Facenet:
+    embedding_dimension: 128
+    distance_metric: cosine
+    threshold: 0.40
+  VGG-Face:
+    embedding_dimension: 4096
+    distance_metric: cosine
+    threshold: 0.68
+
+active_performance_profile: balanced
+
+performance_profiles:
+  accurate:
+    detector_backend: retinaface
+    detector_fallback_backends: [opencv]
+    recognition_interval_frames: 15
+    process_interval_frames: 3
+    max_frame_size: 1280
+    max_faces: 20
+    iou_threshold: 0.3
+    max_missed_frames: 15
+    identity_change_confirmations: 2
+
+  balanced:
+    detector_backend: opencv
+    detector_fallback_backends: [retinaface]
+    recognition_interval_frames: 30
+    process_interval_frames: 5
+    max_frame_size: 960
+    max_faces: 20
+    iou_threshold: 0.3
+    max_missed_frames: 15
+    identity_change_confirmations: 2
+
+  fast:
+    detector_backend: opencv
+    detector_fallback_backends: [retinaface]
+    recognition_interval_frames: 45
+    process_interval_frames: 8
+    max_frame_size: 720
+    max_faces: 20
+    iou_threshold: 0.3
+    max_missed_frames: 15
+    identity_change_confirmations: 2
