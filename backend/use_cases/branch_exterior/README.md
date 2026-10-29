@@ -4,32 +4,67 @@ Camera-based exterior monitoring for bank branches: RF-DETR person/bag/weapon de
 
 Migrated from `backend/branch-exterior-monitoring` (kept in place as the rollback copy). See `docs/stage-7-branch-migration-report.md`.
 
-## Setup (Python 3.11 only: `>=3.11,<3.12`)
+## How to run the application
 
-Keep this environment separate from Vault Monitoring (Python 3.12).
+### 1. Prerequisites
+
+- Windows PowerShell (commands below), Python **3.11** (`>=3.11,<3.12`; not 3.12), and [`uv`](https://docs.astral.sh/uv/).
+- Keep this environment separate from Vault Monitoring (Python 3.12). Do not install into Vault's venv.
+- No database server is needed: the default is SQLite (`storage/app.db`).
+- Internet access on first install (large packages incl. torch) and on first run (RF-DETR weights download).
+
+### 2. Install dependencies (once)
 
 ```powershell
 cd backend\use_cases\branch_exterior
 uv sync --frozen --python 3.11 --no-install-project
-copy .env.example .env     # optional; defaults work (SQLite, local storage)
 ```
 
-`uv sync` uses `pyproject.toml` and `uv.lock` and disables the regular OpenCV wheels so only `opencv-contrib-python-headless` is installed (two cv2 builds overwrite each other). `requirements.txt` mirrors the dependency list for reference.
+This creates `.venv\` from `pyproject.toml` and `uv.lock`. It disables the regular OpenCV wheels so only `opencv-contrib-python-headless` is installed (two cv2 builds overwrite each other). Do not use `pip install -r requirements.txt` unless you also remove any other OpenCV wheels. The file is a reference list.
 
-## Run
+### 3. Configure (optional)
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8011
+copy .env.example .env
 ```
 
-(Legacy default was port 8001; the approved target port is 8011.)
+Defaults work without a `.env`. Edit `.env` only to change the database engine, storage paths, detector/rule tuning or `NOTIFY_WEBHOOK_URL`. Never commit `.env`.
+
+### 4. (Optional) Add sample videos
+
+Put `.mp4` files in `storage\sample_videos\`. On startup the app registers each one as a camera and starts processing it. Without videos the API still starts with no cameras.
+
+### 5. Start the server
+
+```powershell
+cd backend\use_cases\branch_exterior
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8011
+```
+
+Add `--reload` for development. Run from this directory so `app.main` resolves. Paths for `storage/` and `config/` are resolved from the code location, not the working directory.
+
+(Legacy default port was 8001; the approved target port is 8011.)
+
+### 6. Check it is running
 
 - Health: http://localhost:8011/api/health
-- Docs: http://localhost:8011/docs
-- Alert WebSocket: `ws://localhost:8011/api/ws/alerts`
-- Saved snapshots/clips: `/storage/...`
+- Interactive docs: http://localhost:8011/docs
+- Alert feed: `ws://localhost:8011/api/ws/alerts`
 
-Paths are rooted at this directory (`storage/`, `config/`), independent of the working directory. On startup the app creates the storage folders, initialises the configured database, syncs `storage/sample_videos`, and starts workers for enabled cameras. Put sample videos in `storage/sample_videos/`. They are not committed.
+```powershell
+curl http://localhost:8011/api/health
+```
+
+### 7. Stop
+
+Press `Ctrl+C` in the terminal. Shutdown stops the camera workers and closes the database connection.
+
+### Notes
+
+- Saved snapshots and clips are served under `/storage/...`.
+- On startup the app creates the storage folders, initialises the configured database, syncs `storage/sample_videos`, and starts workers for enabled cameras.
+- Tests: see [Tests](#tests) below.
+- The full `uv sync` environment has not yet been built and launched end to end in the migration environment (see `docs/stage-7-branch-migration-report.md`). If startup fails, check the first traceback line.
 
 The legacy app served a sibling `frontend/` folder at `/`. In this location that folder does not exist, so the UI is not mounted. Frontend integration is a later stage.
 
