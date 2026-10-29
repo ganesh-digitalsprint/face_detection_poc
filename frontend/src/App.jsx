@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import Loading from './components/common/Loading.jsx';
 import AppLayout from './layouts/AppLayout.jsx';
+import AlertCenter from './pages/AlertCenter.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Detection from './pages/Detection.jsx';
 import Identification from './pages/Identification.jsx';
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="registration/authorized/:employeeId" element={<AuthorizedEmployeeRegistration />} />
         <Route path="registration/authorized/:employeeId/face" element={<FaceEnrollment />} />
         <Route path="vault-access" element={<VaultAccess />} />
+        <Route path="alert-center" element={<AlertCenter />} />
         <Route path="vault-alerts" element={<VaultAlerts />} />
         <Route path="vault-alerts/incidents/:incidentId" element={<VaultIncident />} />
         <Route

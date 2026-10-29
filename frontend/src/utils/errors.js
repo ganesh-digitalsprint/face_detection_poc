@@ -1,5 +1,7 @@
 const DEFAULT_MESSAGES = {
   400: 'Invalid image or request.',
+  401: 'Authentication failed. Check the configured operator key (VITE_VAULT_ROOM_API_KEY) and that the session has not expired.',
+  403: 'You are not authorized to perform this action.',
   404: 'Requested employee, person, session or stream was not found.',
   405: 'This feature is not available on the connected backend.',
   409: 'Conflict with existing data (duplicate record or no enrolled face).',
@@ -31,7 +33,7 @@ export function describeError(error, overrides = {}) {
   if (!status) {
     return {
       status: null,
-      message: 'Cannot reach the API. Check that the backend is running and VITE_API_BASE_URL is correct.',
+      message: 'Cannot reach the API. Check that the backend is running and VITE_VAULT_API_BASE_URL is correct.',
     };
   }
   const detail = extractDetail(error.response.data);

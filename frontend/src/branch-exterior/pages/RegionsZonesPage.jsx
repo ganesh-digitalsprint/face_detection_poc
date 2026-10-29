@@ -203,7 +203,7 @@ export default function RegionsZonesPage() {
       } else setBuildWarning(null);
     } catch {
       setBuildInfo(`page build ${PAGE_BUILD} · server not reachable`);
-      setBuildWarning(<><b>Cannot reach the server.</b> Is it running? (<code>uv run uvicorn app.main:app --reload --port 8001</code> in backend/branch-exterior-monitoring)</>);
+      setBuildWarning(<><b>Cannot reach the server.</b> Is it running? (<code>python -m uvicorn app.main:app --port 8011</code> in backend/use_cases/branch_exterior)</>);
     }
   }, []);
 

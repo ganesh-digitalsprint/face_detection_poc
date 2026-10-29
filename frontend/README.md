@@ -1,33 +1,47 @@
 # Face AI POC: Frontend
 
-React + Vite + Tailwind CSS (v4) UI for the FastAPI backend in the parent folder. Backend setup and the full API reference are in the [root README](../README.md).
+React + Vite + Tailwind CSS (v4) UI for the Vault Monitoring, Branch Exterior Monitoring and Alert Service backends. Backend startup is in [`backend/README.md`](../backend/README.md); the integration details are in [`docs/stage-9-frontend-integration-report.md`](../docs/stage-9-frontend-integration-report.md).
 
-## Setup
+## Backends and ports
 
-```bash
+| Backend | Directory | Port | Frontend setting |
+|---|---|---|---|
+| Vault Monitoring (Python 3.12) | `backend/use_cases/vault_monitoring` | 8010 | `VITE_VAULT_API_BASE_URL` |
+| Branch Exterior Monitoring (Python 3.11) | `backend/use_cases/branch_exterior` | 8011 | `VITE_BRANCH_EXTERIOR_API_BASE_URL` |
+| Alert Service | `backend/services/alert_service` | 8012 | proxied at `/alert-service` (see below) |
+| Frontend (Vite) | `frontend` | 3000 | |
+
+All service URLs are read in one place, `src/config/services.js`. Defaults are the ports above, so no `.env` is needed for local development. Copy `.env.example` to `.env` only to change them. An existing `.env` that still points at ports 8000/8001 targets the legacy apps: update it.
+
+## Setup and run
+
+```powershell
 cd frontend
 npm install
-npm run dev        # http://localhost:3000
-npm run build      # production build -> dist/
+Copy-Item .env.example .env            # optional; edit values as needed
+npm run dev                            # http://localhost:3000
+npm run build                          # production build -> dist/
+npm test                               # unit tests (node --test)
 ```
 
-`.env` (see `.env.example`):
+Start the backends you need first, each in its own terminal (commands in `backend/README.md`). Pages degrade gracefully when a backend is down: the Vault, Branch and Alert Center pages each show their own "cannot reach" message.
+
+### Alert Center and the Alert Service token
+
+`/alert-center` lists alerts the Alert Service holds for Vault and Branch (filter, history, detail and timeline, refreshed every 10 s while the tab is visible). The Alert Service needs an operator bearer token, which must not be placed in the browser bundle. The browser therefore calls the same-origin path `/alert-service/*`, and the Vite dev/preview server forwards it to the Alert Service with the token added on the server side. Provide them without the `VITE_` prefix, for example in `frontend/.env.local` (git-ignored):
 
 ```env
-VITE_API_BASE_URL=http://localhost:8000
+ALERT_SERVICE_URL=http://127.0.0.1:8012
+ALERT_SERVICE_OPERATOR_TOKEN=<an operator token from the Alert Service ALERT_OPERATOR_CREDENTIALS>
 ```
 
-For local Vault Alerts and Vault Room requests, set `VITE_VAULT_ROOM_API_KEY`
-in `frontend/.env.local` to the same value as `VAULT_ROOM_API_KEY` in
-`backend/vault-monitoring/.env`, then restart both servers. This shared key is
-embedded in the browser bundle and is suitable only for local POC use; use an
-operator login/session provider before exposing these routes to other users.
+Restart `npm run dev` after changing them. Anyone who can reach the dev server can use that token, so keep it on localhost. A static production build needs a reverse proxy that does the same.
 
-Start the backend first (from the repository root):
+Acknowledge / resolve / dismiss on Alert Service alerts are hidden by default (`VITE_ALERT_SERVICE_ACTIONS_ENABLED=true` enables them). During shadow ingestion Vault and Branch stay the lifecycle authority for their own alerts, and a second writer would make the two stores diverge. Vault alerts keep their own page (`/vault-alerts`) and APIs for evidence, incidents and lifecycle.
 
-```bash
-uvicorn app.main:app --reload --port 8000
-```
+### Vault operator key
+
+For Vault Alerts and Vault Room requests, set `VITE_VAULT_ROOM_API_KEY` in `frontend/.env.local` to the same value as `VAULT_ROOM_API_KEY` in the Vault `.env` (`backend/use_cases/vault_monitoring/.env`), then restart both servers. Vault allows the browser origin `http://localhost:3000` by default (`CORS_ALLOW_ORIGINS`). `VITE_*` values are embedded in the public bundle, so this shared key is suitable only for local POC use.
 
 ## Architecture
 
@@ -63,6 +77,8 @@ src/
 | `/live/webcam` | Live Monitoring: Webcam | Starts the backend's webcam stream, shows the MJPEG feed with a LIVE badge and session id, and a Stop button. |
 | `/live/cctv` | Live Monitoring: CCTV | Pick a camera index and start its stream. Only the index is sent; RTSP URLs and credentials stay on the server. |
 | `/video` | Video Recognition | Upload a video, wait for processing, then play and download the annotated mp4. |
+| `/vault-alerts` | Vault Alerts | Vault's own alert feed (active/history, lifecycle, evidence, incidents) from the Vault API. |
+| `/alert-center` | Alert Center | Alerts published to the Alert Service by Vault and Branch: source, status and severity filters, summary, detail and timeline. Lifecycle actions are off by default (see above). |
 
 Similarity and distance are shown as raw scores, never as probabilities or percentages.
 
@@ -93,38 +109,38 @@ Each function lives in `src/api/` and wraps one backend route.
 | 409 | Duplicate person code (register) or person without an enrolled face (verify) |
 | 413 | File too large |
 | 422 | Video could not be processed |
+| 401 / 403 | Operator key rejected / not authorized (Vault); in the Alert Center, the proxy token is missing or wrong |
 | 500 / 503 | Server error / camera or CCTV stream could not be started |
-| none | API unreachable; the message points to the backend and `VITE_API_BASE_URL` |
+| none | API unreachable; the message points to the backend and `VITE_VAULT_API_BASE_URL` |
 
 Errors from binary endpoints (JSON inside a Blob) are decoded before display. After any error the page stays usable.
 
 ## CORS
 
-The backend default is `CORS_ALLOW_ORIGINS=["http://localhost:3000"]`, so Vite is pinned to port **3000** (`strictPort`). To use another origin, for example 5173, set `CORS_ALLOW_ORIGINS='["http://localhost:5173"]'` in the backend `.env`.
+Vault's default is `CORS_ALLOW_ORIGINS=["http://localhost:3000"]`, so Vite is pinned to port **3000** (`strictPort`). Branch allows any origin by default (`CORS_ORIGINS=*`; restrict outside development). The Alert Service needs no CORS: the browser reaches it through the Vite proxy. To use another origin, for example 5173, set `CORS_ALLOW_ORIGINS='["http://localhost:5173"]'` in the backend `.env`.
 
 ## Known limitations
 
 - No endpoint lists configured CCTV cameras, so the CCTV page offers `stream_index` 0 to 7. The backend returns 404 for an index with no configured URL.
 - Client-side size limits mirror backend defaults: images 10 MB, video 500 MB (`MAX_VIDEO_UPLOAD_MB`). If you change it, update `VIDEO_MAX_BYTES` in `src/components/face/ImageUploader.jsx`.
 - The webcam stream shows the camera attached to the backend machine, not the browser's camera.
-- The build passes, but the flows have not been run end to end against a live backend.
+- The build and unit tests pass, and the Alert Service proxy and Branch endpoints were exercised over HTTP, but the pages were not driven in a browser here, and Vault flows (registration, face recognition, liveness, camera streams) were not run against a live Vault backend.
 
 ## Branch Exterior Monitoring (second micro-service)
 
-The sidebar has a **Branch Exterior Monitoring** section (below Vault Access) with six pages that talk to the
-`backend/branch-exterior-monitoring` service. It is a separate FastAPI app, so it runs on its own port:
+The sidebar has a **Branch Exterior Monitoring** section (below Vault Access) with pages that talk to the
+Branch service in `backend/use_cases/branch_exterior`. It is a separate FastAPI app (Python 3.11) on its own port:
 
-```bash
-cd backend/branch-exterior-monitoring
-uv sync
-uv run uvicorn app.main:app --reload --port 8001
+```powershell
+cd backend\use_cases\branch_exterior
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8011
 ```
 
-`frontend/.env`:
+`frontend/.env` (defaults shown; see `.env.example`):
 
 ```env
-VITE_API_BASE_URL=http://localhost:8000                    # Vault Monitoring
-VITE_BRANCH_EXTERIOR_API_BASE_URL=http://localhost:8001    # Branch Exterior Monitoring
+VITE_VAULT_API_BASE_URL=http://localhost:8010              # Vault Monitoring
+VITE_BRANCH_EXTERIOR_API_BASE_URL=http://localhost:8011    # Branch Exterior Monitoring
 ```
 
 | Route | Page |

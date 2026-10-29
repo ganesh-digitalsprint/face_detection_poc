@@ -1,6 +1,8 @@
 // Client for the Branch Exterior Monitoring backend (runs as its own micro-service).
-// Base URL comes from VITE_BRANCH_EXTERIOR_API_BASE_URL (default http://localhost:8001).
-export const BX_BASE = (import.meta.env.VITE_BRANCH_EXTERIOR_API_BASE_URL || 'http://localhost:8001').replace(/\/+$/, '');
+// Base URL comes from VITE_BRANCH_EXTERIOR_API_BASE_URL via src/config/services.js (default http://localhost:8011).
+import { BRANCH_BASE_URL } from '../config/services.js';
+
+export const BX_BASE = BRANCH_BASE_URL;
 
 /** Absolute URL on the branch-exterior server for any path (e.g. "/storage/x.mp4"). */
 export const bxUrl = (path) => `${BX_BASE}${path}`;
@@ -40,7 +42,7 @@ async function apiRequest(method, path, body, isForm) {
   try {
     res = await fetch(bxApiUrl(path), opts);
   } catch {
-    throw new Error(`Cannot reach the Branch Exterior server at ${BX_BASE}. Is it running? (uv run uvicorn app.main:app --reload --port 8001)`);
+    throw new Error(`Cannot reach the Branch Exterior server at ${BX_BASE}. Is it running? (python -m uvicorn app.main:app --port 8011 in backend/use_cases/branch_exterior)`);
   }
   if (!res.ok) {
     let detail = res.statusText;

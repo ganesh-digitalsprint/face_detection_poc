@@ -23,6 +23,7 @@ const TITLES = [
   ['/registration/employees', 'Employee Registration'],
   ['/vault-alerts/incidents', 'Incident detail'],
   ['/vault-alerts', 'Alerts'],
+  ['/alert-center', 'Alert Center'],
   ['/vault-access', 'Vault Access'],
   ['/liveness-test', 'Liveness Test'],
   ['/detection', 'Face Detection'],
@@ -85,6 +86,7 @@ function Sidebar({ onNavigate, collapsed = false }) {
       <Section label="Vault Access" {...props} />
       <Item to="/vault-access" icon={LockKeyhole} label="Vault Access" {...props} />
       <Item to="/vault-alerts" icon={Bell} label={ALERTS_NAV_LABEL} {...props} />
+      <Item to="/alert-center" icon={Bell} label="Alert Center" {...props} />
       <Section label="Branch Exterior Monitoring" {...props} />
       <Item to="/branch-exterior/live" icon={Video} label="Live Monitoring" {...props} />
       <Item to="/branch-exterior/regions" icon={MapIcon} label="Regions & Zones" {...props} />

@@ -16,7 +16,7 @@ export default function SystemCheckPage() {
       const done = () => alive && setRows([...out]);
       let h = null;
       try { h = await api.get('/health'); } catch (e) {
-        add('bad', 'Server not reachable', <>Is it running? Start it with <Code>uv run uvicorn app.main:app --reload --port 8001</Code> in the branch-exterior-monitoring backend folder. ({e.message})</>);
+        add('bad', 'Server not reachable', <>Is it running? Start it with <Code>python -m uvicorn app.main:app --port 8011</Code> in backend/use_cases/branch_exterior. ({e.message})</>);
         done(); return;
       }
       add('ok', 'Server is running', <>database: <Code>{h.db_engine}</Code> · address: <Code>{BX_BASE}</Code></>);
