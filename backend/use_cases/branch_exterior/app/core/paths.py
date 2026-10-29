@@ -18,6 +18,7 @@ CLIP_DIR = STORAGE_DIR / "clips"
 UPLOAD_DIR = STORAGE_DIR / "uploads"
 SAMPLE_VIDEO_DIR = STORAGE_DIR / "sample_videos"
 GUARD_FACE_DIR = STORAGE_DIR / "guard_faces"
+ALERT_OUTBOX_DIR = STORAGE_DIR / "alert_outbox"
 
 DB_CONFIG_FILE = CONFIG_DIR / "db_config.json"
 RUNTIME_CONFIG_FILE = CONFIG_DIR / "runtime_config.json"
@@ -33,5 +34,6 @@ def ensure_directories() -> None:
         UPLOAD_DIR,
         SAMPLE_VIDEO_DIR,
         GUARD_FACE_DIR,
+        ALERT_OUTBOX_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)

@@ -83,6 +83,12 @@ All optional; see `.env.example` for the full list with defaults.
 | `ZONE_*`, `BAG_*`, `UNATTENDED_BAG_SECONDS`, `WEAPON_*`, `POSE_*`, `FIGHT_*`, `RUN_*` | Rule and model tuning |
 | `FACE_RECOGNITION_ENABLED` | Guard face recognition |
 | `NOTIFY_WEBHOOK_URL` | Optional: every alert is also POSTed here as JSON |
+| `ALERT_SERVICE_BASE_URL`, `ALERT_SERVICE_TOKEN` | Optional Alert Service publication (disabled unless both are set); token is the Alert Service producer token for `branch_exterior` |
+| `ALERT_SERVICE_TIMEOUT_SECONDS`, `ALERT_SERVICE_POLL_SECONDS` | Publication tuning (defaults 3.0 / 2.0) |
+
+### Alert Service publication
+
+New events are queued in `storage/alert_outbox/pending/` and delivered to `POST {ALERT_SERVICE_BASE_URL}/api/v1/alerts` (Contract v1) with `Authorization: Bearer <token>` and `Idempotency-Key: branch-event:<event id>`. Outages and 5xx/429 are retried with backoff and survive restarts. A 401/403 moves the alert to `storage/alert_outbox/failed/` and is retried once at the next start; other 4xx rejections stay in `failed/` for inspection. Branch's own events, review status, WebSocket feed and `NOTIFY_WEBHOOK_URL` webhook are unchanged. Only new events are published; later updates to an event are not. Do not set the Alert Service's `ALERT_NOTIFICATION_WEBHOOK_URL` as well as `NOTIFY_WEBHOOK_URL`, or alerts are announced twice.
 
 Runtime settings changed from the UI are written to `config/db_config.json` and `config/runtime_config.json` (git-ignored; may contain credentials).
 

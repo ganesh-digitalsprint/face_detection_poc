@@ -17,6 +17,7 @@ from app.core.logging_config import configure_logging
 from app.core.paths import BACKEND_ROOT, STORAGE_DIR, ensure_directories
 from app.db import init_db
 from app.db.init_db import get_db
+from app.services.alert_publisher import get_alert_publisher
 from app.services.camera_manager import manager as camera_manager
 from app.services.storage_manager import retention_loop
 from app.services.video_folder_sync import sync_sample_videos
@@ -51,12 +52,14 @@ async def lifespan(app: FastAPI):
     await camera_manager.start_all_enabled()
     sync_task = asyncio.create_task(_folder_sync_loop())
     storage_task = asyncio.create_task(retention_loop())
+    get_alert_publisher().start()  # no-op unless ALERT_SERVICE_BASE_URL and ALERT_SERVICE_TOKEN are set
     logger.info("Application startup complete.")
     yield
     logger.info("Shutting down camera workers and database connection...")
     sync_task.cancel()
     storage_task.cancel()
     camera_manager.stop_all()
+    await get_alert_publisher().stop()
     await init_db.shutdown()
 
 

@@ -115,6 +115,14 @@ class Settings(BaseSettings):
     # Notifications ----------------------------------------------------------
     notify_webhook_url: str = ""
 
+    # Alert Service publication (optional, one-way, disabled unless URL and token are both set) ------
+    # Branch stays the source of truth for its events; new events are published to Alert Service
+    # Contract v1 through a durable file outbox so a down/rejecting service never loses an alert.
+    alert_service_base_url: str = ""
+    alert_service_token: str = ""
+    alert_service_timeout_seconds: float = 3.0
+    alert_service_poll_seconds: float = 2.0
+
     @property
     def cors_origin_list(self) -> list[str]:
         if self.cors_origins.strip() == "*":

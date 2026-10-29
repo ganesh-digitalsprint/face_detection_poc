@@ -23,6 +23,7 @@ from app.db.repositories.interfaces import Repositories
 from app.schemas.camera import Camera
 from app.schemas.event import Event, EventCreate
 from app.schemas.settings import ThresholdConfig
+from app.services.alert_publisher import get_alert_publisher
 from app.services.analytics.signals import ScenarioSignal
 from app.services.evidence_policy import EvidenceBudget, is_suspicious, rank
 from app.services.evidence_service import RollingClipBuffer, evidence_size_mb, save_clip, save_snapshot
@@ -167,6 +168,11 @@ async def handle_signal(
         await notify(event, webhook_url)
     except Exception:
         logger.warning("notify() failed", exc_info=True)
+
+    try:  # one-way, durable Alert Service publication; never blocks or fails the detection pipeline
+        await get_alert_publisher().enqueue(event)
+    except Exception:
+        logger.warning("Alert Service enqueue failed for event %s", event.id, exc_info=True)
 
     await ws_manager.broadcast({"type": "new_event", "event": event.model_dump(mode="json")})
     return event, True

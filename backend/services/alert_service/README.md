@@ -28,7 +28,7 @@ Producer credentials are a JSON object keyed by bearer token, each value contain
 - Operator delivery status: `GET /api/v1/notifications/{delivery_id}`
 - OpenAPI: `/openapi.json`
 
-`incidents.py` from the target tree is deliberately deferred: the approved v1 contract keeps Vault incidents and their comments/legal holds in Vault. This avoids introducing a false shared incident model. No Vault or Branch integration adapter is included in this implementation.
+`incidents.py` from the target tree is deliberately deferred: the approved v1 contract keeps Vault incidents and their comments/legal holds in Vault. This avoids introducing a false shared incident model. The Alert Service has no Vault or Branch code. Producers live in their own services: Vault's adapter (`use_cases/vault_monitoring/app/services/vault_alert_service_adapter.py`) and Branch's publisher (`use_cases/branch_exterior/app/services/alert_publisher.py`) call `POST /api/v1/alerts` with a producer token. See `docs/stage-8-service-integration-report.md`.
 
 ## Validation
 

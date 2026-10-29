@@ -43,6 +43,10 @@ Startup runs `init_db` (creates the target PostgreSQL database and missing table
 | `WEBCAM_INDEX`, `RTSP_URLS`, `RTSP_ALLOWED_HOSTS` | Camera sources |
 | `VAULT_FACE_LANDMARKER_MODEL` | Path to `face_landmarker.task` |
 
+## Alert Service publication
+
+Optional and one-way. When `ALERT_SERVICE_BASE_URL` and `ALERT_SERVICE_TOKEN` (the Alert Service producer token for `vault_monitoring`) are set, new Vault alerts are published to `POST /api/v1/alerts` through a durable outbox kept in Vault's audit table, with `Idempotency-Key: vault-alert:<alert id>`. Vault keeps owning alerts, incidents, evidence and its SSE stream, and starts normally if the Alert Service is down.
+
 ## Tests
 
 ```powershell
