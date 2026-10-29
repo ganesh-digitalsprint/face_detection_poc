@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime
+from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, Query
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field

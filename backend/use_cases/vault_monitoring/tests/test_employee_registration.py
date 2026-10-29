@@ -13,6 +13,23 @@ from app.api.errors import install_error_handlers
 from app.api.routes.employees import employee_router
 
 
+class _FakeQdrant:
+    """Registration only needs to clear stale embeddings; never touch a real collection."""
+
+    def delete_employee_enrollments(self, *args, **kwargs):
+        return 0
+
+
+@pytest.fixture(autouse=True)
+def fake_qdrant(monkeypatch):
+    from app.services import authorization_registration, employee_registration
+
+    fake = _FakeQdrant()
+    monkeypatch.setattr(employee_registration, "get_qdrant_service", lambda: fake)
+    monkeypatch.setattr(authorization_registration, "get_qdrant_service", lambda: fake)
+    return fake
+
+
 @pytest.fixture
 def client():
     test_app = FastAPI()
