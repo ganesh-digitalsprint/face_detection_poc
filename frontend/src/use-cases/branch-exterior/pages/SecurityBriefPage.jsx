@@ -88,16 +88,20 @@ export default function SecurityBriefPage() {
             <div className="bx-card-title">Most serious incidents</div>
             <div className="bx-scroll-x">
               <table className="bx-table">
-                <thead><tr><th>Time</th><th>Severity</th><th>Type</th><th>Camera / zone</th><th>What the AI saw</th><th /></tr></thead>
+                <thead><tr><th>Time</th><th>Severity</th><th>Type</th><th>Camera / zone</th><th>AI observation</th><th /></tr></thead>
                 <tbody>
                   {b.top_incidents.length === 0 && <tr><td colSpan={6} className="bx-muted">No incidents in this period.</td></tr>}
                   {b.top_incidents.map((i) => (
                     <tr key={i.id}>
                       <td>{new Date(i.time).toLocaleString()}</td>
                       <td><span style={{ color: SEV_COLOR[i.severity] || '#888', fontWeight: 700 }}>{i.severity.toUpperCase()}</span></td>
-                      <td>{i.label}</td>
+                      <td>{i.title || i.label}</td>
                       <td>{i.camera}{i.zone ? ` / ${i.zone}` : ''}</td>
-                      <td style={{ maxWidth: 380 }}>{i.message}</td>
+                      <td style={{ maxWidth: 420 }}>
+                        {i.observation || i.message}
+                        {i.caution ? <div className="bx-muted" style={{ marginTop: 4 }}>{i.caution}</div> : null}
+                        {i.verification ? <div className="bx-muted" style={{ marginTop: 4, fontSize: 12 }}>Status: {i.verification}</div> : null}
+                      </td>
                       <td className="bx-no-print"><a className="bx-btn bx-btn-sm" href={bxApiUrl(`/events/${i.id}/report`)} target="_blank" rel="noreferrer">Report</a></td>
                     </tr>
                   ))}

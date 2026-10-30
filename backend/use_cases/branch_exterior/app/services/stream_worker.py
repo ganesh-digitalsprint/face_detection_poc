@@ -34,7 +34,7 @@ from app.schemas.zone import Point, Zone
 from app.services import alert_service
 from app.services.analytics.after_hours import AfterHoursEngine
 from app.services.analytics.behavior import BehaviorConfig, BehaviorEngine
-from app.services.analytics.fusion import apply_weapon_override, build_anomaly_signals
+from app.services.analytics.fusion import STRONG_WEAPON_CONFIDENCE, apply_weapon_override, build_anomaly_signals
 from app.services.analytics.gathering import GatheringEngine
 from app.services.analytics.loitering import LoiteringEngine
 from app.services.analytics.movement import MovementEngine
@@ -473,7 +473,7 @@ class CameraWorker(threading.Thread):
 
         # ---- Task 5: anomaly signals + severity fusion ---------------------------------------------
         signals += build_anomaly_signals(person_visible, zone_vis, thresholds)
-        weapon_ids = {tid for tid, t in person_visible.items() if t.weapon_flag}
+        weapon_ids = {tid for tid, t in person_visible.items() if t.weapon_flag and t.weapon_confidence >= STRONG_WEAPON_CONFIDENCE}
         signals = [apply_weapon_override(sg, weapon_ids, thresholds) for sg in signals]
 
         # ---- zone context: suspicious things AT a zone (and everything else linked to the zone it happens in) ----

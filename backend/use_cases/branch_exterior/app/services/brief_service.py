@@ -7,6 +7,8 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
+from app.services.event_explainer import get_explanation, verification_label
+
 SEV_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
 KIND_LABEL = {
@@ -35,6 +37,16 @@ def _label(kind: str) -> str:
 
 def _iso(dt: datetime) -> str:
     return _utc(dt).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _incident_row(e) -> dict:
+    """One Security Brief table row. `message` is the raw technical text, kept for API compatibility;
+    the UI shows `observation` (plain language, same text the incident report uses)."""
+    x = get_explanation(e)
+    return {"id": e.id, "time": _iso(e.created_at), "camera": e.camera_name, "zone": e.zone_name, "kind": _kind(e),
+            "label": _label(_kind(e)), "severity": e.severity, "message": e.message, "has_media": bool(e.snapshot_path or e.clip_path),
+            "title": x["title"], "observation": x["observation"], "caution": x["caution"], "reliability": x["reliability"],
+            "status": e.status, "verification": verification_label(e.status)}
 
 
 def build_brief(events: list, hours: int, now: datetime | None = None) -> dict:
@@ -73,8 +85,7 @@ def build_brief(events: list, hours: int, now: datetime | None = None) -> dict:
             buckets[idx]["high_critical"] += 1 if high(e) else 0
 
     top = sorted(evs, key=lambda e: (-SEV_RANK.get(e.severity, 0), -_utc(e.created_at).timestamp()))[:10]
-    top_l = [{"id": e.id, "time": _iso(e.created_at), "camera": e.camera_name, "zone": e.zone_name, "kind": _kind(e), "label": _label(_kind(e)),
-              "severity": e.severity, "message": e.message, "has_media": bool(e.snapshot_path or e.clip_path)} for e in top]
+    top_l = [_incident_row(e) for e in top]
 
     evidence = sum(1 for e in evs if e.snapshot_path or e.clip_path)
     totals = {

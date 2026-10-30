@@ -51,6 +51,8 @@ class MovementEngine:
             hist.append((now_ts, zone.id if zone else None))
 
             reasons: list[str] = []
+            patterns: list[str] = []
+            approach_count = 0
             confidence = 0.0
 
             # --- Pacing / circling -------------------------------------------------
@@ -66,6 +68,7 @@ class MovementEngine:
                 tortuosity = path_len / max(1.0, displacement)
                 if tortuosity >= thresholds.movement_tortuosity_threshold and radius <= 120:
                     reasons.append(f"pacing/circling in a small area (path-to-displacement ratio {tortuosity:.1f})")
+                    patterns.append("pacing")
                     confidence = max(confidence, min(0.9, 0.4 + tortuosity / 15))
 
             # --- Repeated approach to the same zone ---------------------------------
@@ -78,11 +81,15 @@ class MovementEngine:
                     prev = z
                 if approaches >= 2:
                     reasons.append(f"approached '{zone.name}' {approaches} times in the last {window * 4}s")
+                    patterns.append("repeated_approach")
+                    approach_count = approaches
                     confidence = max(confidence, min(0.92, 0.35 + approaches * 0.15))
 
             if reasons and (now_ts - self._last_signal_ts.get(tid, 0)) > 15:
                 self._last_signal_ts[tid] = now_ts
-                severity = "high" if confidence >= 0.7 else "medium"
+                # Pacing alone is ambiguous (someone waiting), so it stays MEDIUM; repeated returns to a
+                # sensitive zone with good confidence earn HIGH.
+                severity = "high" if confidence >= 0.7 and "repeated_approach" in patterns else "medium"
                 signals.append(
                     ScenarioSignal(
                         scenario="movement",
@@ -91,7 +98,7 @@ class MovementEngine:
                         confidence=round(confidence, 2),
                         severity_hint=severity,
                         message=f"Unusual movement for track #{tid}: " + "; ".join(reasons) + ".",
-                        meta={"reasons": reasons},
+                        meta={"reasons": reasons, "patterns": patterns, "approaches": approach_count, "window_s": int(window * 4)},
                         dedupe_key=f"movement:{tid}",
                     )
                 )
