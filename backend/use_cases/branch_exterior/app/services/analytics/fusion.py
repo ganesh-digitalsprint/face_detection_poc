@@ -14,6 +14,18 @@ from app.services.analytics.zone_engine import Zone
 from app.services.detection.tracker import Track
 
 
+# A weapon-like detection only counts as CRITICAL (and only then overrides other signals) when the detector is
+# reasonably sure; weaker hits still raise an alert, but at a level that asks for a person to look.
+STRONG_WEAPON_CONFIDENCE = 0.7
+_WEAPON_HIGH_CONFIDENCE = 0.5
+
+
+def weapon_severity(confidence: float) -> str:
+    if confidence >= STRONG_WEAPON_CONFIDENCE:
+        return "critical"
+    return "high" if confidence >= _WEAPON_HIGH_CONFIDENCE else "medium"
+
+
 def build_anomaly_signals(
     tracks: dict[int, Track],
     zone_of_track: dict[int, Zone | None],
@@ -30,7 +42,7 @@ def build_anomaly_signals(
                     track_ids=[tid],
                     zone=zone,
                     confidence=trk.weapon_confidence,
-                    severity_hint="critical",
+                    severity_hint=weapon_severity(trk.weapon_confidence),
                     message=(
                         f"Track #{tid} appears to be holding a weapon-like object "
                         f"({trk.weapon_label or 'unclassified'}, {trk.weapon_method or 'detector'} "

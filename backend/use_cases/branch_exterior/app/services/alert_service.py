@@ -25,6 +25,7 @@ from app.schemas.event import Event, EventCreate
 from app.schemas.settings import ThresholdConfig
 from app.services.alert_publisher import get_alert_publisher
 from app.services.analytics.signals import ScenarioSignal
+from app.services.event_explainer import explain_event
 from app.services.evidence_policy import EvidenceBudget, is_suspicious, rank
 from app.services.evidence_service import RollingClipBuffer, evidence_size_mb, save_clip, save_snapshot
 from app.services.notification_service import notify
@@ -60,6 +61,16 @@ def _rate_limited(camera_id: str) -> bool:
 
 def _kind(signal: ScenarioSignal) -> str:
     return str(signal.meta.get("kind", ""))
+
+
+def _with_explanation(meta: dict, **event_fields) -> dict:
+    """Returns `meta` plus the plain-language explanation. Pure string work; a failure just leaves the
+    explanation out (readers regenerate it), so it can never block event storage."""
+    try:
+        return {**meta, "explanation": explain_event({**event_fields, "meta": meta})}
+    except Exception:
+        logger.warning("Could not build event explanation", exc_info=True)
+        return meta
 
 
 async def _evidence_decision(camera: Camera, signal: ScenarioSignal, severity: str, th: ThresholdConfig) -> tuple[bool, str]:
@@ -123,6 +134,11 @@ async def handle_signal(
                     _spawn(
                         _attach_clip_later(repos, existing.id, camera.id, clip_buffer, thresholds.evidence_post_roll_seconds)
                     )
+        fields["meta"] = _with_explanation(
+            fields["meta"],
+            scenario=existing.scenario, severity=fields.get("severity", existing.severity), confidence=fields["confidence"],
+            camera_name=existing.camera_name, zone_name=existing.zone_name, track_ids=fields["track_ids"],
+        )
         updated = await repos.events.touch(existing.id, **fields)
         return updated or existing, False
 
@@ -141,6 +157,12 @@ async def handle_signal(
         _budget.record(camera.id, signal.scenario, _kind(signal))
 
     meta = {**signal.meta, "evidence": "saved" if allowed else f"not_saved:{reason}"}
+    if signal.zone is not None:
+        meta.setdefault("zone_type", signal.zone.zone_type)
+    meta = _with_explanation(
+        meta, scenario=signal.scenario, severity=signal.severity_hint, confidence=signal.confidence,
+        camera_name=camera.name, zone_name=signal.zone.name if signal.zone else "", track_ids=signal.track_ids,
+    )
     data = EventCreate(
         camera_id=camera.id,
         camera_name=camera.name,
