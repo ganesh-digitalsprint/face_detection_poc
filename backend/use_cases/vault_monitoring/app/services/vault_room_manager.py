@@ -90,6 +90,7 @@ class VaultRoomManager:
         self._latest_frame = None
         self._latest_image_size = (640, 360)
         self._video_source = "browser"
+        self._pose_preview = None
         self._log_batch_ms: deque[float] = deque(maxlen=30)
         self._completed_frames: deque[float] = deque()
         self._frames_since_log = 0
@@ -391,7 +392,7 @@ class VaultRoomManager:
             remaining = max(0, int(self._config.session_seconds - (now - ctx.session_started_at))) if ctx.state == ACTIVE else (0 if ctx.state == EXPIRED_OPEN else None)
             return ActiveSessionInfo(ctx.state, remaining, entry_remaining, ctx.session_id)
 
-    def process_frame(self, frame_bgr, *, source="browser"):
+    def process_frame(self, frame_bgr, *, source="browser", include_pose=False):
         """Run one browser-uploaded frame; never retains the image after this call."""
         if not self._inference_slot.acquire(blocking=False):
             raise VaultRoomBusyError("Vault-room detector is busy")
@@ -404,14 +405,24 @@ class VaultRoomManager:
                 )
                 if not accepts:
                     self._video_source = source
-                    return {"accepts_frames": False}
-                if not self._counting.enabled or self._detector is None:
-                    raise VaultRoomDetectorUnavailableError("People counting is disabled")
-                if self._last_frame_at is not None and arrival - self._last_frame_at > self._counting.frame_stale_seconds:
+                elif self._last_frame_at is not None and arrival - self._last_frame_at > self._counting.frame_stale_seconds:
                     self._tracker.reset()
                     self._counter.reset()
                     self._zone_monitor.reset()
+            if not accepts:
+                result = {"accepts_frames": False}
+                if include_pose:
+                    result["pose_preview"] = self._run_pose_preview(frame_bgr)
+                return result
+            if not self._counting.enabled or self._detector is None:
+                if include_pose:
+                    return {"accepts_frames": True, "detector_status": "unavailable",
+                            "pose_preview": self._run_pose_preview(frame_bgr)}
+                raise VaultRoomDetectorUnavailableError("People counting is disabled")
             if self._detector.status.get("status") == "unavailable":
+                if include_pose:
+                    return {"accepts_frames": True, "detector_status": "unavailable",
+                            "pose_preview": self._run_pose_preview(frame_bgr)}
                 raise VaultRoomDetectorUnavailableError("Person detector unavailable")
             started = time.perf_counter()
             try:
@@ -420,6 +431,9 @@ class VaultRoomManager:
                 if self._detector.status.get("status") == "unavailable":
                     raise VaultRoomDetectorUnavailableError("Person detector unavailable") from exc
                 raise VaultRoomDetectorUnavailableError("Person detector failed") from exc
+            pose_result = self._run_pose_preview(frame_bgr) if include_pose else {
+                "poses": [], "pose_count": 0, "status": "disabled"
+            }
             with self._lock:
                 tracks = self._tracker.update(detections)
                 raw_count = len(tracks)
@@ -452,9 +466,27 @@ class VaultRoomManager:
                     for t in tracks],
                 "zones": zone_snapshot,
                 "processing_ms": round(processing_ms, 1),
-                "detector_status": self._detector.status.get("status", "ready")}
+                "detector_status": self._detector.status.get("status", "ready"),
+                "pose_preview": pose_result}
         finally:
             self._inference_slot.release()
+
+    def _run_pose_preview(self, frame_bgr):
+        try:
+            if self._pose_preview is None:
+                from app.services.pose_preview import PosePreviewService
+                self._pose_preview = PosePreviewService()
+            return self._pose_preview.process(frame_bgr)
+        except Exception as exc:
+            logger.warning("Vault Room pose preview unavailable: %s", type(exc).__name__)
+            status = self._pose_preview.status if self._pose_preview else {"status": "unavailable"}
+            return {
+                "poses": [], "pose_count": 0,
+                "status": status.get("status", "unavailable"),
+                "model_status": status.get("status", "unavailable"),
+                "error": status.get("error") or type(exc).__name__,
+                "initialization_ms": status.get("initialization_ms"),
+            }
 
     def _finish_counted_lock(self):
         ctx = self._ctx
@@ -635,12 +667,21 @@ class VaultRoomManager:
         if self._ticker and self._ticker.is_alive(): self._ticker.join(timeout)
         self._alert_worker.stop(timeout)
         self._alert_service_adapter.stop(timeout)
+        if self._pose_preview is not None:
+            self._pose_preview.close()
+            self._pose_preview = None
         if self._writer_thread.is_alive():
             deadline = time.monotonic() + timeout
             while self._jobs.unfinished_tasks and time.monotonic() < deadline:
                 threading.Event().wait(min(0.05, max(0, deadline-time.monotonic())))
             self._jobs.put(self._writer_stop)
             self._writer_thread.join(timeout)
+
+    def close_pose_preview(self) -> None:
+        """Release the opt-in pose task when its camera preview is stopped."""
+        if self._pose_preview is not None:
+            self._pose_preview.close()
+            self._pose_preview = None
 
     @staticmethod
     def list_sessions(limit=20):

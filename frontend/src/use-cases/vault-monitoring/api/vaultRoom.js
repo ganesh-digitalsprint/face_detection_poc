@@ -6,16 +6,18 @@ const headers = key ? { 'X-API-Key': key } : {};
 export const getVaultRoomState = () => client.get('/api/v1/vault-room/state', { headers }).then((r) => r.data);
 export const closeVault = () => client.post('/api/v1/vault-room/close', undefined, { headers }).then((r) => r.data);
 export const getVaultSessions = (limit = 20) => client.get('/api/v1/vault-room/sessions', { params: { limit }, headers }).then((r) => r.data);
-export const analyzeVaultFrame = (blob, signal) => {
+export const analyzeVaultFrame = (blob, signal, posePreview = false) => {
   const body = new FormData();
   body.append('frame', blob, 'vault-room.jpg');
-  return client.post('/api/v1/vault-room/frames', body, { headers, signal, timeout: 10000 }).then((r) => r.data);
+  return client.post('/api/v1/vault-room/frames', body, { headers, signal, timeout: posePreview ? 30000 : 10000,
+    params: posePreview ? { pose_preview: true } : undefined }).then((r) => r.data);
 };
+export const stopPosePreview = () => client.post('/api/v1/vault-room/pose-preview/stop', undefined, { headers }).then((r) => r.data);
 export const getSessionAlerts = (sessionId) => client.get(`/api/v1/vault-room/sessions/${encodeURIComponent(sessionId)}/alerts`, { headers }).then((r) => r.data);
-export const startRoomRtspCamera = (name, rtspUrl) => client.post('/api/v1/vault-room/camera-sessions',
-  { source_type: 'rtsp', name, rtsp_url: rtspUrl }, { headers }).then((r) => r.data);
-export const startRoomWebcam = (name, cameraIndex) => client.post('/api/v1/vault-room/camera-sessions',
-  { source_type: 'webcam', name, ...(cameraIndex == null ? {} : { camera_index: cameraIndex }) }, { headers }).then((r) => r.data);
+export const startRoomRtspCamera = (name, rtspUrl, posePreview = false) => client.post('/api/v1/vault-room/camera-sessions',
+  { source_type: 'rtsp', name, rtsp_url: rtspUrl, pose_preview: posePreview }, { headers }).then((r) => r.data);
+export const startRoomWebcam = (name, cameraIndex, posePreview = false) => client.post('/api/v1/vault-room/camera-sessions',
+  { source_type: 'webcam', name, pose_preview: posePreview, ...(cameraIndex == null ? {} : { camera_index: cameraIndex }) }, { headers }).then((r) => r.data);
 export const getRoomCameraSession = (sessionId) => client.get(`/api/v1/vault-room/camera-sessions/${encodeURIComponent(sessionId)}`, { headers }).then((r) => r.data);
 export const stopRoomCameraSession = (sessionId) => client.delete(`/api/v1/vault-room/camera-sessions/${encodeURIComponent(sessionId)}`, { headers }).then((r) => r.data);
 

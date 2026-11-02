@@ -36,6 +36,13 @@ vault_access:
 
 vault_room:
   entry_buffer_seconds: 30
+  pose_preview:
+    model_path: app/models/pose_landmarker_lite.task
+    max_poses: 4
+    processing_interval_ms: 200
+    min_pose_detection_confidence: 0.5
+    min_pose_presence_confidence: 0.5
+    min_tracking_confidence: 0.5
   session_seconds: 360
   warn_before_expiry_seconds: 60
   expired_repeat_seconds: 60

@@ -29,7 +29,7 @@ export default function VaultAccess() {
   const room = useVaultRoom();
   const roomCamera = useVaultRoomCamera();
   const roomCounting = useVaultCounting(roomCamera.videoRef, room.roomState, cameraView === 'room' && roomCamera.kind === 'webcam',
-    roomCamera.status === 'ready', room.refreshState);
+    roomCamera.status === 'ready', room.refreshState, roomCamera.posePreview);
   const vault = useVaultAccess(camera, cameraView === 'room', room);
   const view = deriveVaultView(vault);
   const slot = activeSlot(vault, view);
@@ -64,6 +64,7 @@ export default function VaultAccess() {
               <CameraPreview camera={roomCamera} variant="room" errorHint="Check browser camera permission or the RTSP URL and network reachability.">
                 <VaultRoomVideoOverlay roomState={room.roomState} connection={room.connection}
                   counting={roomCamera.kind === 'webcam' ? roomCounting : { tracks: [] }}
+                  poses={roomCamera.kind === 'webcam' ? roomCounting.poses : []}
                   mirrored={roomCamera.kind === 'webcam'} />
               </CameraPreview>
               <VaultRoomCameraControls camera={roomCamera} counting={roomCounting} />
@@ -73,6 +74,12 @@ export default function VaultAccess() {
             {cameraView === 'room' && (roomCamera.status === 'streaming' || roomCounting.status === 'running') && <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#55607A]" aria-live="off">
               <span>Vault Room tracking · processing {room.roomState?.rolling_median_ms == null ? '—' : `${Math.round(room.roomState.rolling_median_ms)} ms median`} · measured {room.roomState?.measured_fps == null ? '—' : `${room.roomState.measured_fps.toFixed(1)} fps`} / target {room.roomState?.recommended_fps == null ? '—' : `${room.roomState.recommended_fps} fps`} · detector {room.roomState?.detector_status ?? 'loading'}</span>
             </div>}
+            {cameraView === 'room' && roomCamera.posePreview && (() => {
+              const metrics = roomCamera.kind === 'webcam' ? roomCounting.poseMetrics : roomCamera.poseMetrics;
+              return <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950" aria-live="polite">
+                Pose model {metrics?.model_status ?? metrics?.status ?? 'loading'} · {metrics?.pose_count ?? 0} pose(s) · inference {metrics?.inference_ms == null ? '—' : `${metrics.inference_ms} ms`} · avg {metrics?.average_inference_ms == null ? '—' : `${metrics.average_inference_ms} ms`} · {metrics?.processing_fps == null ? '—' : `${metrics.processing_fps} fps`}{metrics?.initialization_ms != null ? ` · init ${Math.round(metrics.initialization_ms)} ms` : ''}{metrics?.error ? ` · ${metrics.error}` : ''}
+              </div>;
+            })()}
             {cameraView === 'entrance' && <VaultCameraControls camera={camera} vault={vault} sessionActive={running} sessionStarted={view !== VAULT_VIEW.IDLE} onRestart={vault.start} onStop={handleStop} />}
             {cameraView === 'room' && <VaultRoomCloseAction room={room} />}
           </section>

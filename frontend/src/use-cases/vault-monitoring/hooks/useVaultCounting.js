@@ -3,7 +3,8 @@ import { analyzeVaultFrame } from '../api/vaultRoom.js';
 import { describeError } from '../../../utils/errors.js';
 
 const INITIAL = { tracks: [], rawCount: 0, latency: null, medianRequestMs: null, measuredFps: null,
-  processingMs: null, lastFrameAt: null, imageWidth: 640, imageHeight: 360, status: 'idle', error: null };
+  processingMs: null, lastFrameAt: null, imageWidth: 640, imageHeight: 360, poses: [], poseMetrics: null,
+  status: 'idle', error: null };
 
 function wait(ms, timers) {
   return new Promise((resolve) => {
@@ -34,7 +35,7 @@ const targetFps = (value) => {
 };
 
 /** Sequentially uploads the already-mounted shared video only while the room view can count. */
-export default function useVaultCounting(videoRef, roomState, enabled, cameraReady, refreshRoomState) {
+export default function useVaultCounting(videoRef, roomState, enabled, cameraReady, refreshRoomState, posePreview = false) {
   const [result, setResult] = useState(INITIAL);
   const [activity, setActivity] = useState(0);
   const [retryToken, setRetryToken] = useState(0);
@@ -63,8 +64,9 @@ export default function useVaultCounting(videoRef, roomState, enabled, cameraRea
 
   useEffect(() => {
     const id = ++runId.current;
-    const active = enabled && cameraReady && roomState?.accepts_frames === true
+    const countActive = roomState?.accepts_frames === true
       && roomState?.state !== 'CLOSED' && roomState?.detector_status === 'ready';
+    const active = enabled && cameraReady && (countActive || posePreview);
     const cancel = () => {
       runId.current += 1;
       request.current?.abort();
@@ -131,7 +133,7 @@ export default function useVaultCounting(videoRef, roomState, enabled, cameraRea
         const requestStarted = performance.now();
         setResult((current) => ({ ...current, status: 'busy', error: null }));
         try {
-          const frame = await analyzeVaultFrame(blob, controller.signal);
+          const frame = await analyzeVaultFrame(blob, controller.signal, posePreview);
           const completedAt = performance.now();
           if (runId.current !== id) return;
           failures = 0;
@@ -142,8 +144,10 @@ export default function useVaultCounting(videoRef, roomState, enabled, cameraRea
           while (completions.length && completedAt - completions[0] > 10000) completions.shift();
           const metrics = recordRequest(completedAt, frame.processing_ms ?? null);
           setResult({ tracks: frame.tracks ?? [], rawCount: frame.raw_count ?? 0,
+            poses: frame.pose_preview?.poses ?? [], poseMetrics: frame.pose_preview ?? null,
             latency: frame.processing_ms ?? null, ...metrics, imageWidth: frame.image_width ?? 640,
-            imageHeight: frame.image_height ?? 360, lastFrameAt: Date.now(), status: 'running', error: null });
+            imageHeight: frame.image_height ?? 360, lastFrameAt: Date.now(),
+            status: frame.accepts_frames === false ? 'pose_preview' : 'running', error: null });
         } catch (error) {
           if (runId.current !== id || controller.signal.aborted) return;
           const completedAt = performance.now();
@@ -191,7 +195,7 @@ export default function useVaultCounting(videoRef, roomState, enabled, cameraRea
     loop();
     return cancel;
   }, [enabled, cameraReady, roomState?.accepts_frames, roomState?.state,
-    roomState?.detector_status, videoRef, activity, retryToken, refreshRoomState]);
+    roomState?.detector_status, videoRef, activity, retryToken, refreshRoomState, posePreview]);
 
   const retry = useCallback(() => {
     setResult(INITIAL);

@@ -11,6 +11,7 @@ class VaultRoomCameraStartRequest(BaseModel):
     name: str = Field(default="Vault Room Camera", min_length=1, max_length=80)
     camera_index: int | None = Field(default=None, ge=0)
     rtsp_url: SecretStr | None = None
+    pose_preview: bool = False
 
 
 class VaultRoomCameraSessionResponse(BaseModel):
@@ -21,4 +22,6 @@ class VaultRoomCameraSessionResponse(BaseModel):
     status: Literal["connecting", "connected", "streaming", "reconnecting", "failed", "stopped"]
     error: str | None = None
     last_frame_at: float | None = None
+    pose_preview: bool = False
+    pose_metrics: dict | None = None
     stream_url: str

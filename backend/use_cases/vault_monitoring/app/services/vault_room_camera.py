@@ -69,6 +69,8 @@ class VaultRoomCameraSession:
     url: str = field(repr=False)
     source_type: str = "rtsp"
     camera_index: int | None = None
+    pose_preview: bool = False
+    pose_metrics: dict | None = None
     status: str = "connecting"
     error: str | None = None
     created_at: float = field(default_factory=time.monotonic)
@@ -94,22 +96,23 @@ class VaultRoomCameraManager:
         self._session: VaultRoomCameraSession | None = None
         self._stopped_ids: deque[str] = deque(maxlen=128)
 
-    def start_rtsp(self, name: str, url: str) -> VaultRoomCameraSession:
+    def start_rtsp(self, name: str, url: str, *, pose_preview: bool = False) -> VaultRoomCameraSession:
         url = validate_rtsp_url(url)
-        return self._start("rtsp", name, url)
+        return self._start("rtsp", name, url, pose_preview=pose_preview)
 
-    def start_webcam(self, name: str, camera_index: int | None = None) -> VaultRoomCameraSession:
+    def start_webcam(self, name: str, camera_index: int | None = None, *, pose_preview: bool = False) -> VaultRoomCameraSession:
         index = settings.WEBCAM_INDEX if camera_index is None else camera_index
         if index < 0:
             raise ValueError("Camera index must be zero or greater.")
-        return self._start("webcam", name, "", camera_index=int(index))
+        return self._start("webcam", name, "", camera_index=int(index), pose_preview=pose_preview)
 
-    def _start(self, source_type: str, name: str, url: str, *, camera_index: int | None = None) -> VaultRoomCameraSession:
+    def _start(self, source_type: str, name: str, url: str, *, camera_index: int | None = None,
+               pose_preview: bool = False) -> VaultRoomCameraSession:
         with self._lock:
             if self._session and self._session.status not in {"failed", "stopped"}:
                 raise RuntimeError("A Vault Room camera is already connected. Disconnect it before starting another.")
             session = VaultRoomCameraSession(uuid.uuid4().hex, name.strip()[:80] or "Vault Room Camera", url,
-                source_type=source_type, camera_index=camera_index)
+                source_type=source_type, camera_index=camera_index, pose_preview=pose_preview)
             self._session = session
             session.thread = threading.Thread(target=self._run, args=(session,),
                 name=f"vault-room-camera-{session.session_id[:8]}", daemon=True)
@@ -156,7 +159,8 @@ class VaultRoomCameraManager:
         return {"session_id": session.session_id, "name": session.name, "source_type": session.source_type,
                 "camera_index": session.camera_index,
                 "status": session.status, "error": session.error,
-                "last_frame_at": session.last_frame_at}
+                "last_frame_at": session.last_frame_at, "pose_preview": session.pose_preview,
+                "pose_metrics": session.pose_metrics}
 
     def stream(self, session_id: str):
         session = self.get(session_id)
@@ -201,6 +205,7 @@ class VaultRoomCameraManager:
             last_process = -process_interval
             last_output = 0.0
             latest_tracks: list[dict] = []
+            latest_poses: list[list[dict]] = []
             while not session.stop_event.is_set() or not session.raw_frames.empty():
                 if time.monotonic() - session.last_client_seen > 30:
                     session.status = "stopped"
@@ -220,7 +225,12 @@ class VaultRoomCameraManager:
                 now = time.monotonic()
                 if now - last_process >= process_interval:
                     try:
-                        result = manager.process_frame(frame, source=session.source_type)
+                        if session.pose_preview:
+                            result = manager.process_frame(
+                                frame, source=session.source_type, include_pose=True
+                            )
+                        else:
+                            result = manager.process_frame(frame, source=session.source_type)
                     except VaultRoomBusyError:
                         pass  # Drop this count sample; capture continues with only the newest frame.
                     except VaultRoomDetectorUnavailableError as exc:
@@ -236,11 +246,29 @@ class VaultRoomCameraManager:
                         last_process = time.monotonic()
                         if result.get("accepts_frames", True):
                             latest_tracks = result.get("tracks", [])
+                            pose = result.get("pose_preview") or {}
+                            latest_poses = pose.get("poses", [])
+                            session.pose_metrics = {
+                                key: pose.get(key) for key in (
+                                    "status", "model_status", "error", "pose_count", "inference_ms",
+                                    "average_inference_ms", "processing_fps", "initialization_ms",
+                                ) if key in pose
+                            }
                             session.status = "streaming"
                             session.error = None
                         else:
                             latest_tracks = []
-                            if session.status not in {"reconnecting", "failed", "stopped"}:
+                            pose = result.get("pose_preview") or {}
+                            latest_poses = pose.get("poses", [])
+                            session.pose_metrics = {
+                                key: pose.get(key) for key in (
+                                    "status", "model_status", "error", "pose_count", "inference_ms",
+                                    "average_inference_ms", "processing_fps", "initialization_ms",
+                                ) if key in pose
+                            } if session.pose_preview else None
+                            if session.pose_preview:
+                                session.status = "streaming"
+                            elif session.status not in {"reconnecting", "failed", "stopped"}:
                                 session.status = "connected"
                     # Inference may take longer than one preview tick; discard its stale input.
                     try:
@@ -249,7 +277,7 @@ class VaultRoomCameraManager:
                             frame = newest
                     except queue.Empty:
                         pass
-                frame = self._annotate(frame, latest_tracks)
+                frame = self._annotate(frame, latest_tracks, latest_poses)
                 height, width = frame.shape[:2]
                 if width > 960:
                     preview_height = max(1, round(height * 960 / width))
@@ -275,6 +303,11 @@ class VaultRoomCameraManager:
                     capture.release()
                 session.capture_thread.join(timeout=max(settings.RTSP_READ_TIMEOUT_MS / 1000 + 2, 5))
             self._offer_latest(session, None)
+            if session.pose_preview:
+                manager = self._room_manager or __import__(
+                    "app.services.vault_room_manager", fromlist=["get_vault_room_manager"]
+                ).get_vault_room_manager()
+                manager.close_pose_preview()
 
     def _capture_latest(self, session: VaultRoomCameraSession) -> None:
         capture = None
@@ -341,7 +374,7 @@ class VaultRoomCameraManager:
         ])
 
     @staticmethod
-    def _annotate(frame, tracks):
+    def _annotate(frame, tracks, poses=None):
         height, width = frame.shape[:2]
         for track in tracks:
             x1 = int(track["x"] * width)
@@ -351,6 +384,9 @@ class VaultRoomCameraManager:
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 190, 0), 2)
             cv2.putText(frame, f"Person {track['track_id']}", (x1, max(y1 - 8, 18)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 190, 0), 2)
+        if poses:
+            from app.services.pose_preview import annotate_pose
+            frame = annotate_pose(frame, poses)
         return frame
 
 
