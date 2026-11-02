@@ -1,0 +1,6 @@
+# Model artifacts, runtime data and local environments are never committed.
+.venv/
+.env
+app/models/*.task
+uploads/
+var/

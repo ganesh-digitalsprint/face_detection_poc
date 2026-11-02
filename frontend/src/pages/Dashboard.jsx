@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Film, Radio, ScanFace, ScanSearch, ShieldCheck, UserPlus } from 'lucide-react';
+import { Film, Radio, ScanFace, ScanSearch, ShieldCheck, UserPlus, Video } from 'lucide-react';
 import StatusBadge from '../components/common/StatusBadge.jsx';
 import useHealth from '../hooks/useHealth.js';
 
@@ -10,6 +10,7 @@ const FEATURES = [
   { to: '/verification', icon: ShieldCheck, title: 'Face Verification', text: 'Verify a specific person' },
   { to: '/live', icon: Radio, title: 'Live Monitoring', text: 'Webcam / CCTV' },
   { to: '/video', icon: Film, title: 'Video Recognition', text: 'Process recorded video' },
+  { to: '/branch-exterior/live', icon: Video, title: 'Branch Exterior Monitoring', text: 'Live analysis, zones, alerts & security brief' },
 ];
 
 const BADGE = { ok: 'CONNECTED', degraded: 'DEGRADED', offline: 'OFFLINE', checking: 'CHECKING' };
@@ -20,7 +21,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div>
-          <h2 className="text-lg font-semibold text-navy">Face AI POC</h2>
+          <h2 className="text-lg font-semibold text-navy">Vault Monitoring POC</h2>
           <p className="text-sm text-slate-500">Face detection &amp; recognition proof of concept.</p>
         </div>
         <div className="ml-auto text-right text-sm">

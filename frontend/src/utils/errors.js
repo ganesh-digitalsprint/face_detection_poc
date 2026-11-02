@@ -1,18 +1,25 @@
 const DEFAULT_MESSAGES = {
   400: 'Invalid image or request.',
-  404: 'Requested person or stream was not found.',
+  401: 'Authentication failed. Check the configured operator key (VITE_VAULT_ROOM_API_KEY) and that the session has not expired.',
+  403: 'You are not authorized to perform this action.',
+  404: 'Requested employee, person, session or stream was not found.',
   405: 'This feature is not available on the connected backend.',
-  409: 'Conflict with existing data (duplicate person or no enrolled face).',
+  409: 'Conflict with existing data (duplicate record or no enrolled face).',
   413: 'Uploaded file exceeds the allowed size.',
   422: 'The request could not be processed.',
   500: 'Server encountered an unexpected error.',
   503: 'Camera/CCTV stream could not be started.',
 };
 
+const DEFAULT_CODES = {
+  VAULT_ROOM_SESSION_ACTIVE: 'A vault room session is active. Start a new vault access after it ends.',
+};
+
 /** Extract the backend `detail` (string or FastAPI validation list) when safe. */
 function extractDetail(data) {
   const detail = data?.detail;
   if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object' && typeof detail.message === 'string') return detail.message;
   if (Array.isArray(detail)) {
     return detail.map((d) => d?.msg).filter(Boolean).join('; ') || null;
   }
@@ -26,12 +33,13 @@ export function describeError(error, overrides = {}) {
   if (!status) {
     return {
       status: null,
-      message: 'Cannot reach the API. Check that the backend is running and VITE_API_BASE_URL is correct.',
+      message: 'Cannot reach the API. Check that the backend is running and VITE_VAULT_API_BASE_URL is correct.',
     };
   }
   const detail = extractDetail(error.response.data);
-  const message = detail || overrides[status] || DEFAULT_MESSAGES[status] || `Request failed (HTTP ${status}).`;
-  return { status, message };
+  const code = error?.response?.data?.code ?? error?.response?.data?.detail?.code ?? null;
+  const message = detail || overrides[status] || DEFAULT_CODES[code] || DEFAULT_MESSAGES[status] || `Request failed (HTTP ${status}).`;
+  return { status, message, code };
 }
 
 /** Axios interceptor helper: JSON error bodies of blob endpoints arrive as Blob; decode them. */
