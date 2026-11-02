@@ -159,6 +159,57 @@
 /* Settings > operating hours: day label, open, close, closed. Stacks on phones so the card never overflows. */
 .bx-hours-row { align-items: end; grid-template-columns: 90px 1fr 1fr auto; }
 @media (max-width: 760px) { .bx-hours-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .bx-hours-row > :first-child, .bx-hours-row > :last-child { grid-column: 1 / -1; padding-bottom: 0 !important; } }
+.bx-hours-settings { max-width: 980px; }
+.bx-hours-heading { display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; padding: 0 2px 16px; }
+.bx-hours-title { max-width: 540px; }
+.bx-hours-heading .bx-card-title { font-size: 17px; margin-bottom: 4px; }
+.bx-hours-heading .bx-hint { margin: 0; }
+.bx-hours-stats { display: flex; gap: 9px; flex-wrap: wrap; }
+.bx-hours-stat { min-width: 104px; padding: 7px 12px; border-radius: 8px; background: var(--bx-brand-dim); }
+.bx-hours-stat small { display: block; color: var(--bx-mute); font-size: 11px; }
+.bx-hours-stat strong { color: var(--bx-title); font-size: 15px; font-variant-numeric: tabular-nums; }
+.bx-hours-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-bottom: 14px; }
+.bx-hours-tools .bx-btn:disabled { opacity: .5; cursor: not-allowed; }
+.bx-hours-timezone { margin-left: auto; color: var(--bx-mute); font-size: 12px; }
+.bx-hours-scale, .bx-hours-day { display: grid; grid-template-columns: 110px 92px 118px 118px minmax(90px, 1fr) 76px; gap: 12px; align-items: center; padding: 11px 2px; }
+.bx-hours-scale { padding-top: 0; padding-bottom: 4px; color: var(--bx-mute); font-size: 11px; }
+.bx-hours-scale > div { grid-column: 5; display: flex; justify-content: space-between; }
+.bx-hours-list { border-top: 1px solid var(--bx-hair); }
+.bx-hours-day { border-bottom: 1px solid var(--bx-hair); }
+.bx-hours-day.is-closed .bx-hours-day-name, .bx-hours-day.is-closed .bx-hours-duration { color: var(--bx-mute); }
+.bx-hours-day-name { color: var(--bx-title); font-weight: 600; }
+.bx-hours-day .bx-field { min-width: 0; margin: 0; }
+.bx-hours-day .bx-input { padding: 7px 9px; font-variant-numeric: tabular-nums; }
+.bx-hours-toggle { display: flex; align-items: center; gap: 8px; color: var(--bx-mute); font-size: 12px; cursor: pointer; user-select: none; }
+.bx-hours-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.bx-hours-switch { position: relative; flex: none; width: 34px; height: 19px; border-radius: 99px; background: var(--bx-border); transition: background .15s; }
+.bx-hours-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #0004; transition: transform .15s; }
+.bx-hours-toggle input:checked + .bx-hours-switch { background: var(--bx-green); }
+.bx-hours-toggle input:checked + .bx-hours-switch::after { transform: translateX(15px); }
+.bx-hours-toggle input:focus-visible + .bx-hours-switch { outline: 2px solid var(--bx-primary); outline-offset: 2px; }
+.bx-hours-bar { height: 9px; overflow: hidden; position: relative; border-radius: 99px; background: var(--bx-inset); }
+.bx-hours-bar span { position: absolute; top: 0; bottom: 0; min-width: 3px; border-radius: 99px; background: linear-gradient(90deg, var(--bx-primary), var(--bx-brand)); }
+.bx-hours-duration { color: var(--bx-mute); text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.bx-hours-day.is-invalid { padding-bottom: 7px; }
+.bx-hours-day.is-invalid .bx-input { border-color: var(--bx-red); }
+.bx-hours-bar.has-error span { background: var(--bx-red); }
+.bx-hours-error { grid-column: 1 / -1; margin-top: -4px; color: var(--bx-red); font-size: 12px; }
+.bx-hours-footnote { padding: 12px 2px; color: var(--bx-mute); font-size: 12px; }
+.bx-hours-footer { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 9px; margin: 0 -20px -20px; padding: 11px 20px; border-top: 1px solid var(--bx-border-soft); background: var(--bx-card); box-shadow: 0 -8px 18px rgba(15, 23, 42, .06); }
+.bx-hours-footer .bx-hint { flex: 1; }
+.bx-hours-footer:not(.is-visible) { display: none; }
+@media (max-width: 760px) {
+  .bx-hours-heading { flex-direction: column; gap: 8px; }
+  .bx-hours-timezone { margin-left: 0; width: 100%; }
+  .bx-hours-scale { display: none; }
+  .bx-hours-day { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 14px; padding: 12px 2px; }
+  .bx-hours-day-name { grid-column: 1; }
+  .bx-hours-toggle { grid-column: 2; justify-content: flex-end; }
+  .bx-hours-bar { grid-column: 1 / -1; }
+  .bx-hours-duration { grid-column: 1 / -1; text-align: left; }
+  .bx-hours-footer { flex-wrap: wrap; margin: 0 -20px -20px; }
+  .bx-hours-footer .bx-hint { flex: 1 0 100%; }
+}
 .bx-check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--bx-text); margin: 6px 0; }
 .bx-page input[type="checkbox"] { accent-color: var(--bx-primary); width: 16px; height: 16px; }
 .bx-page input[type="range"] { accent-color: var(--bx-primary); }

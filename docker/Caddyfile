@@ -1,0 +1,11 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	forward_auth {$AUTH_GATEWAY_UPSTREAM} {
+		uri {$AUTH_GATEWAY_PATH}
+	}
+	reverse_proxy frontend:8080
+}

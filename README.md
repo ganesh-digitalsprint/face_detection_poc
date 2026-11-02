@@ -2,6 +2,8 @@
 
 ## Repository
 
+This repository contains the Vault Monitoring, Branch Exterior Monitoring and Alert Service backends with a shared React frontend. See [docker/README.md](docker/README.md) for the production Compose deployment, HTTPS ingress, private service networking, persistent volumes and configuration.
+
 <!-- backend/use_cases/vault_monitoring/ - Vault Monitoring, Python 3.12 -->
 <!-- backend/use_cases/branch_exterior/ - Branch Exterior Monitoring, Python 3.11 -->
 <!-- backend/services/alert_service/ - Alert Service, Python 3.11 or 3.12 -->

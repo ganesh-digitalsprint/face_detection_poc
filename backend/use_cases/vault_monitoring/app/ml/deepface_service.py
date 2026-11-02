@@ -19,6 +19,7 @@ them is a probability.
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -255,7 +256,8 @@ class DeepFaceService:
 
     # -- embeddings ------------------------------------------------------
     def represent_face(
-        self, image: Image, *, detect: bool = True, max_faces: int | None = None
+        self, image: Image, *, detect: bool = True, max_faces: int | None = None,
+        correlation_ref: str | None = None,
     ) -> list[FaceEmbeddingResult]:
         """Return an ArcFace embedding for every face in ``image``.
 
@@ -268,69 +270,148 @@ class DeepFaceService:
         Returns ``[]`` when detection finds no face.
         """
         validate_image(image)
+        started = time.perf_counter()
         deepface = self._get_deepface()
-        detectors = self._detector_backends if detect else (SKIP_DETECTOR,)
-        raw = None
-        detector = detectors[0]
-        last_error: Exception | None = None
-        no_face_error: ValueError | None = None
-        for detector in detectors:
+
+        # DeepFace.represent normally performs extraction/alignment and model
+        # inference in one opaque call. Split the same DeepFace operations here
+        # so stage timings are observable, while passing the aligned RGB face
+        # crops straight to its existing ArcFace preprocessing/model path.
+        if not detect:
+            embedding_started = time.perf_counter()
             try:
                 with self._lock:
                     raw = deepface.represent(
                         img_path=image,
                         model_name=self._config.model_name,
-                        enforce_detection=detect,
-                        detector_backend=detector,
-                        align=detect,
+                        enforce_detection=False,
+                        detector_backend=SKIP_DETECTOR,
+                        align=False,
                     )
-                break
-            except ValueError as exc:
-                if _is_no_face_error(exc):
-                    no_face_error = exc
-                    continue
-                last_error = exc
-                logger.debug(
-                    "Detector backend '%s' failed; trying next backend", detector
-                )
             except Exception as exc:
-                last_error = exc
-                logger.debug(
-                    "Detector backend '%s' failed; trying next backend", detector
+                logger.debug("Embedding generation failed for a prepared face", exc_info=True)
+                raise EmbeddingError("Embedding generation failed") from exc
+            embedding_ms = (time.perf_counter() - embedding_started) * 1000.0
+            extraction_ms = 0.0
+            detector = SKIP_DETECTOR
+            face_metadata = [None] * len(raw)
+            raw_embeddings = raw
+        else:
+            extraction_started = time.perf_counter()
+            face_metadata = None
+            detector = self._detector_backends[0]
+            last_error: Exception | None = None
+            no_face_error: ValueError | None = None
+            for backend in self._detector_backends:
+                try:
+                    with self._lock:
+                        face_metadata = deepface.extract_faces(
+                            img_path=image,
+                            detector_backend=backend,
+                            enforce_detection=True,
+                            align=True,
+                            color_face="rgb",
+                            normalize_face=True,
+                        )
+                    detector = backend
+                    break
+                except ValueError as exc:
+                    if _is_no_face_error(exc):
+                        no_face_error = exc
+                        continue
+                    last_error = exc
+                    logger.debug("Detector backend '%s' failed; trying next backend", backend)
+                except Exception as exc:
+                    last_error = exc
+                    logger.debug("Detector backend '%s' failed; trying next backend", backend)
+
+            extraction_ms = (time.perf_counter() - extraction_started) * 1000.0
+            if face_metadata is None:
+                if last_error is None and no_face_error is not None:
+                    logger.debug("face_pipeline detection_ms=%.2f faces=0", extraction_ms)
+                    return []
+                logger.error(
+                    "Face detection/alignment failed after trying configured backends: %s",
+                    last_error,
                 )
-        if raw is None:
-            if last_error is None and no_face_error is not None:
+                raise FaceDetectionError("Face detection failed") from last_error
+            if not face_metadata:
+                logger.debug("face_pipeline detection_alignment_crop_ms=%.2f faces=0", extraction_ms)
                 return []
-            logger.error(
-                "Embedding generation failed after trying configured backends: %s",
-                last_error,
+
+            if correlation_ref:
+                logger.info(
+                    "vault_auth_timing session_ref=%s stage=face_alignment_preprocessing duration_ms=%.2f detector=%s",
+                    correlation_ref, extraction_ms, detector,
+                )
+
+            # ``max_faces`` is an application-level limit; DeepFace's
+            # extract_faces API does not accept it. Apply the limit locally,
+            # keeping the largest detections so the embeddings and metadata
+            # remain in sync.
+            height, width = image.shape[:2]
+
+            def _face_area(item: dict) -> int:
+                bbox = _bbox_from_area(item.get("facial_area"), width, height)
+                return bbox.area if bbox is not None else 0
+
+            face_metadata.sort(
+                key=_face_area,
+                reverse=True,
             )
-            raise EmbeddingError("Embedding generation failed") from last_error
+            face_metadata = face_metadata[: max_faces or get_ml_config().max_faces]
+
+            embedding_started = time.perf_counter()
+            try:
+                # DeepFace's own skip-detector branch still performs the same
+                # resize, ArcFace normalization and model inference as represent.
+                # Passing a list keeps multi-face input batched in one forward pass.
+                with self._lock:
+                    raw_groups = deepface.represent(
+                        img_path=[item["face"] for item in face_metadata],
+                        model_name=self._config.model_name,
+                        enforce_detection=False,
+                        detector_backend=SKIP_DETECTOR,
+                        align=False,
+                    )
+            except Exception as exc:
+                logger.debug("Embedding generation failed after face alignment", exc_info=True)
+                raise EmbeddingError("Embedding generation failed") from exc
+            embedding_ms = (time.perf_counter() - embedding_started) * 1000.0
+            if correlation_ref:
+                logger.info(
+                    "vault_auth_timing session_ref=%s stage=arcface_embedding_generation duration_ms=%.2f",
+                    correlation_ref, embedding_ms,
+                )
+            raw_embeddings = raw_groups if len(face_metadata) == 1 else [group[0] for group in raw_groups]
+
+        total_ms = (time.perf_counter() - started) * 1000.0
+        logger.debug(
+            "face_pipeline detection_alignment_crop_ms=%.2f embedding_ms=%.2f "
+            "total_embedding_pipeline_ms=%.2f faces=%s detector=%s",
+            extraction_ms, embedding_ms, total_ms, len(raw_embeddings), detector,
+        )
 
         height, width = image.shape[:2]
         results: list[FaceEmbeddingResult] = []
-        for item in raw:
-            bbox = (
-                _bbox_from_area(item.get("facial_area"), width, height)
-                if detect
-                else None
-            )
+        for index, item in enumerate(raw_embeddings):
+            area = face_metadata[index].get("facial_area") if detect else None
+            confidence = face_metadata[index].get("confidence") if detect else None
             results.append(
                 FaceEmbeddingResult(
                     embedding=self._normalize_embedding(item.get("embedding")),
                     model_name=self._config.model_name,
                     detector_name=detector,
-                    bbox=bbox,
-                    detection_confidence=(
-                        _optional_float(item.get("face_confidence")) if detect else None
-                    ),
+                    bbox=_bbox_from_area(area, width, height),
+                    detection_confidence=_optional_float(confidence),
                 )
             )
-        results.sort(key=lambda r: r.bbox.area if r.bbox else 0, reverse=True)
+        results.sort(key=lambda result: result.bbox.area if result.bbox else 0, reverse=True)
         return results[: max_faces or get_ml_config().max_faces]
 
     def generate_embedding(
-        self, image: Image, *, detect: bool = True, allow_multiple: bool = False
+        self, image: Image, *, detect: bool = True, allow_multiple: bool = False,
+        correlation_ref: str | None = None,
     ) -> FaceEmbeddingResult:
         """Return one embedding from ``image``.
 
@@ -344,7 +425,7 @@ class DeepFaceService:
             NoFaceDetectedError: No face found.
             MultipleFacesError: Several faces found and ``allow_multiple`` is False.
         """
-        faces = self.represent_face(image, detect=detect)
+        faces = self.represent_face(image, detect=detect, correlation_ref=correlation_ref)
         if not faces:
             raise NoFaceDetectedError("No face detected")
         if len(faces) > 1 and not allow_multiple:

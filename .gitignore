@@ -13,6 +13,7 @@ wheels/
 # Local launcher process metadata and logs
 /.launcher/
 /logs/
+/docker/production.env
 
 # Local environment and generated data
 **/.env
