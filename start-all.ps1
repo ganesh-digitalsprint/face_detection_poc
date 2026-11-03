@@ -4,6 +4,7 @@ param(
     [ValidateRange(15, 600)][int]$AlertTimeoutSeconds = 60,
     [ValidateRange(15, 600)][int]$VaultTimeoutSeconds = 180,
     [ValidateRange(15, 600)][int]$BranchTimeoutSeconds = 150,
+    [ValidateRange(15, 600)][int]$FaceMaskTimeoutSeconds = 90,
     [ValidateRange(15, 600)][int]$FrontendTimeoutSeconds = 60
 )
 
@@ -114,6 +115,10 @@ try {
     $vaultPython = Join-Path $vaultDir '.venv\Scripts\python.exe'
     $branchPython = Join-Path $branchDir '.venv\Scripts\python.exe'
     $alertPython = Join-Path $alertDir '.venv\Scripts\python.exe'
+    # Face Mask is optional: it is launched only when its own .venv exists, so existing setups start exactly as before.
+    $faceMaskDir = Join-Path $repoRoot 'backend\use_cases\face_mask'
+    $faceMaskPython = Join-Path $faceMaskDir '.venv\Scripts\python.exe'
+    $faceMaskEnabled = Test-Path -LiteralPath $faceMaskPython -PathType Leaf
     $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
     $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
 
@@ -136,6 +141,11 @@ try {
     Assert-PythonEnvironment -Label 'Vault Monitoring' -PythonPath $vaultPython -AllowedMinorVersions @(12) -RequiredModules @('fastapi','uvicorn','sqlalchemy','psycopg2','qdrant_client')
     Assert-PythonEnvironment -Label 'Branch Exterior Monitoring' -PythonPath $branchPython -AllowedMinorVersions @(11) -RequiredModules @('fastapi','uvicorn','sqlalchemy','cv2','aiosqlite','rfdetr','rtmlib')
     Assert-PythonEnvironment -Label 'Alert Service' -PythonPath $alertPython -AllowedMinorVersions @(11,12) -RequiredModules @('fastapi','uvicorn','sqlalchemy','httpx')
+    if ($faceMaskEnabled) {
+        Assert-PythonEnvironment -Label 'Face Mask Monitoring' -PythonPath $faceMaskPython -AllowedMinorVersions @(11) -RequiredModules @('fastapi','uvicorn','sqlalchemy','aiosqlite','yaml')
+    } else {
+        Add-LauncherWarning 'Face Mask has no .venv (backend\use_cases\face_mask\.venv); it will not be started.'
+    }
 
     $nodeVersionText = (& $nodeCommand.Source --version 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $nodeVersionText -notmatch '^v?(\d+)\.(\d+)\.(\d+)') { throw 'Node.js could not report its version.' }
@@ -217,6 +227,7 @@ try {
         @{ Name = 'Branch Exterior Monitoring'; Port = 8011; Health = 'http://127.0.0.1:8011/api/health' },
         @{ Name = 'Frontend'; Port = 3000; Health = 'http://127.0.0.1:3000/' }
     )
+    if ($faceMaskEnabled) { $portSpecs += @{ Name = 'Face Mask Monitoring'; Port = 8014; Health = 'http://127.0.0.1:8014/api/health' } }
 
     $existingEntries = @(Read-LauncherManifest -Path $manifestPath)
     if ($existingEntries.Count -gt 0) {
@@ -247,6 +258,11 @@ try {
         @{ Service = 'Branch Exterior Monitoring'; Exe = $branchPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8011'); Cwd = $branchDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8011'; Uri = 'http://127.0.0.1:8011/api/health'; Timeout = $BranchTimeoutSeconds; Env = @{} },
         @{ Service = 'Frontend'; Exe = $nodeCommand.Source; Args = @('node_modules/vite/bin/vite.js','--host','127.0.0.1'); Cwd = $frontendDir; Marker = 'vite/bin/vite.js --host 127.0.0.1'; Uri = 'http://127.0.0.1:3000/'; Timeout = $FrontendTimeoutSeconds; Env = @{} }
     )
+    if ($faceMaskEnabled) {
+        $faceMaskSpec = @{ Service = 'Face Mask Monitoring'; Exe = $faceMaskPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8014'); Cwd = $faceMaskDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8014'; Uri = 'http://127.0.0.1:8014/api/health'; Timeout = $FaceMaskTimeoutSeconds; Env = @{} }
+        # Keep Frontend last: Alert, Vault, Branch, Face Mask, Frontend.
+        $launchSpecs = @($launchSpecs[0..2]) + @($faceMaskSpec) + @($launchSpecs[3])
+    }
 
     foreach ($spec in $launchSpecs) {
         $safeName = $spec.Service.ToLowerInvariant() -replace '[^a-z0-9]+','-'
