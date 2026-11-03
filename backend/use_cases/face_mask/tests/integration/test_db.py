@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.db.engine import create_all_tables
 from app.db.repositories.sql_repo import CameraRepository, EventRepository, ReviewRepository
 from app.schemas.camera import CameraCreate
-from app.schemas.event import ConcealmentEventCreate
 
 EXPECTED_TABLES = {"fm_camera", "fm_entry_roi", "fm_entry_log", "fm_concealment_event", "fm_review_action"}
 
@@ -49,6 +48,8 @@ async def test_migration_on_existing_db_keeps_foreign_tables_and_data(tmp_path: 
 
 @pytest.mark.integration
 async def test_repositories_round_trip(tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
     engine = _engine(tmp_path / "repo.db")
@@ -56,9 +57,8 @@ async def test_repositories_round_trip(tmp_path: Path) -> None:
     async with AsyncSession(engine, expire_on_commit=False) as session:
         cam = await CameraRepository(session).create(CameraCreate(name="Gate", cam_type="rtsp", source="rtsp://h/s"))
         event = await EventRepository(session).create(
-            ConcealmentEventCreate(camera_id=cam.id, track_id=7, score=0.9, covering_type="scarf")
-        )
+            "evt1", cam.id, None, 7, 0.9, "scarf", 5, datetime.now(timezone.utc))
         action = await ReviewRepository(session).add(event.id, "OPEN", "UNDER_REVIEW", "tester", "")
         await session.commit()
-    assert event.status == "OPEN" and action.to_status == "UNDER_REVIEW"
+    assert event.status == "OPEN" and event.first_seen.tzinfo is not None and action.to_status == "UNDER_REVIEW"
     await engine.dispose()

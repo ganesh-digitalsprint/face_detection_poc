@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
+
+from app.schemas.common import UtcDatetime
 
 Outcome = Literal["VISIBLE", "CONCEALED", "UNABLE_TO_ASSESS"]
 EventStatus = Literal["OPEN", "UNDER_REVIEW", "CONFIRMED", "FALSE_POSITIVE", "CLOSED"]
@@ -20,16 +21,7 @@ class EntryLog(BaseModel):
     outcome: Outcome
     score: float
     frames_evaluated: int
-    evaluated_at: datetime
-
-
-class EntryLogCreate(BaseModel):
-    camera_id: str
-    roi_id: str | None = None
-    track_id: int
-    outcome: Outcome
-    score: float = Field(ge=0.0, le=1.0)
-    frames_evaluated: int = Field(ge=0)
+    evaluated_at: UtcDatetime
 
 
 class ConcealmentEvent(BaseModel):
@@ -42,8 +34,8 @@ class ConcealmentEvent(BaseModel):
     track_id: int
     camera_id: str
     roi_id: str | None
-    first_seen: datetime
-    last_seen: datetime
+    first_seen: UtcDatetime
+    last_seen: UtcDatetime
     frame_count: int
     alert_id: str | None
     evidence_id: str | None
@@ -53,13 +45,28 @@ class ConcealmentEvent(BaseModel):
     clip_error: str
     reviewer: str
     remarks: str
-    reviewed_at: datetime | None
+    reviewed_at: UtcDatetime | None
 
 
-class ConcealmentEventCreate(BaseModel):
+class EventPage(BaseModel):
+    items: list[ConcealmentEvent]
+    total: int
+    limit: int
+    offset: int
+
+
+class EvidenceDetails(BaseModel):
+    """Details of the evidence package of one event (FM-05)."""
+    event_id: str
     camera_id: str
-    roi_id: str | None = None
+    camera_name: str
+    roi_name: str
     track_id: int
-    score: float = Field(ge=0.0, le=1.0)
-    covering_type: str = ""
-    frame_count: int = Field(default=1, ge=1)
+    timestamp: UtcDatetime
+    score: float
+    covering_type: str
+    frames_evaluated: int
+    snapshot_url: str | None
+    clip_url: str | None
+    clip_status: ClipStatus
+    clip_error: str

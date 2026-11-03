@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.routes import health
+from app.api.routes import cameras, events, health, roi, stats, streams, uploads
 
 api_router = APIRouter()
-api_router.include_router(health.router)
+for module in (health, cameras, uploads, roi, streams, events, stats):
+    api_router.include_router(module.router)

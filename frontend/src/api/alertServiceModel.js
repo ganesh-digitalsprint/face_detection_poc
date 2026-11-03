@@ -8,6 +8,7 @@ export const ACTIVE_STATUSES = ['OPEN', 'ACKNOWLEDGED'];
 export const USE_CASE_LABELS = {
   vault_monitoring: 'Vault Monitoring',
   branch_exterior: 'Branch Exterior',
+  face_mask: 'Face Mask',
 };
 
 /** Lifecycle actions as the contract names them: target status -> endpoint segment. */

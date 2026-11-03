@@ -5,6 +5,7 @@ __pycache__/
 storage/*.db
 storage/snapshots/*.jpg
 storage/clips/*.mp4
+storage/clips/*.webm
 storage/uploads/*
 storage/sample_videos/*.mp4
 storage/alert_outbox/*

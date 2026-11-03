@@ -32,6 +32,15 @@ const BxSettings = lazy(() => import('./use-cases/branch-exterior/pages/Settings
 const BxSystemCheck = lazy(() => import('./use-cases/branch-exterior/pages/SystemCheckPage.jsx'));
 const bxFallback = <Loading message="Loading Branch Exterior Monitoring…" />;
 
+// Face Mask Monitoring (separate micro-service backend) - loaded on demand.
+const FmLayout = lazy(() => import('./use-cases/face-mask/components/FmLayout.jsx'));
+const FmDashboard = lazy(() => import('./use-cases/face-mask/pages/FaceMaskDashboard.jsx'));
+const FmLive = lazy(() => import('./use-cases/face-mask/pages/LiveMonitoring.jsx'));
+const FmEvents = lazy(() => import('./use-cases/face-mask/pages/EventsReview.jsx'));
+const FmRoi = lazy(() => import('./use-cases/face-mask/pages/EntryRoiConfig.jsx'));
+const FmReports = lazy(() => import('./use-cases/face-mask/pages/ReportsSettings.jsx'));
+const fmFallback = <Loading message="Loading Face Mask…" />;
+
 /** Old URL -> new URL, keeping the query string and hash (a bare <Navigate to> would drop them). */
 function LegacyRedirect({ to }) {
   const { search, hash } = useLocation();
@@ -78,6 +87,14 @@ export default function App() {
           <Route path="regions" element={<BxRegions />} />
           <Route path="guards" element={<BxGuards />} />
           <Route path="settings" element={<BxSettings />} />
+        </Route>
+        <Route path="face-mask" element={<Suspense fallback={fmFallback}><FmLayout /></Suspense>}>
+          <Route index element={<FmDashboard />} />
+          <Route path="live" element={<FmLive />} />
+          <Route path="events" element={<FmEvents />} />
+          <Route path="events/:eventId" element={<FmEvents />} />
+          <Route path="roi" element={<FmRoi />} />
+          <Route path="reports" element={<FmReports />} />
         </Route>
         <Route path="*" element={<Dashboard />} />
       </Route>

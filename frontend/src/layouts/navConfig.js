@@ -52,7 +52,18 @@ export const NAV_SECTIONS = [
         children: [{ id: 'branch-live', label: 'Live monitoring', to: '/branch-exterior/live' }],
       },
       { id: 'gate-mesh', label: 'Gate & Mesh', icon: DoorClosed, soon: true },
-      { id: 'face-concealment', label: 'Face Concealment', icon: EyeOff, soon: true },
+      {
+        id: 'face-mask',
+        label: 'Face Mask',
+        icon: EyeOff,
+        children: [
+          { id: 'fm-overview', label: 'Overview', to: '/face-mask', end: true },
+          { id: 'fm-live', label: 'Live monitoring', to: '/face-mask/live' },
+          { id: 'fm-events', label: 'Events & review', to: '/face-mask/events' },
+          { id: 'fm-roi', label: 'Entry ROI', to: '/face-mask/roi' },
+          { id: 'fm-reports', label: 'Reports & settings', to: '/face-mask/reports' },
+        ],
+      },
     ],
   },
   {

@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.exceptions import ConfigError
-from app.core.paths import CONFIG_DIR
+from app.core.paths import CONFIG_DIR, REPO_CONFIG_FILE, REPO_ROOT
 
 
 class Settings(BaseSettings):
@@ -58,10 +58,30 @@ class _Section(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class ModelsConfig(_Section):
+    dir: str
+    person_detector: str
+    face_detector: str
+    pose: str
+    face_landmarker: str
+    face_landmarker_enabled: bool = False
+    classifier: str
+
+    def path(self, filename: str) -> Path:
+        """Absolute path of a model file; relative `dir` is resolved against the repository root."""
+        base = Path(self.dir)
+        return (base if base.is_absolute() else REPO_ROOT / base) / filename
+
+
 class VisibilityConfig(_Section):
     analyzer: Literal["heuristic", "classifier"] = "heuristic"
     threshold: float = Field(ge=0.0, le=1.0)
-    classifier_model_path: str = ""
+    head_down_policy: Literal["unable", "concealed_if_frontal_body_and_no_skin"]
+    min_face_score: float = Field(ge=0.0, le=1.0)       # YuNet confidence needed to trust a detected face
+    skin_chroma_k: float = Field(gt=0.0)                # skin tolerance = k x spread of the reference skin patches
+    no_skin_ratio: float = Field(ge=0.0, le=1.0)        # head crop with less skin than this counts as "no skin"
+    min_skin_cr: float = Field(ge=100.0, le=160.0)      # skin is reddish: pixels with Cr below this (white/grey/blue) are not skin
+    skin_luma_tolerance: float = Field(gt=0.0, le=255.0)  # max brightness difference (Y) from the face's own skin
 
 
 class ConfirmationConfig(_Section):
@@ -121,17 +141,21 @@ class AlertsConfig(_Section):
 class StreamConfig(_Section):
     processing_fps: int = Field(ge=1, le=60)
     frame_width: int = Field(ge=160)
+    reconnect_initial_seconds: float = Field(gt=0.0)    # first wait before re-opening a lost live source
+    reconnect_max_seconds: float = Field(gt=0.0)        # backoff cap
+    offline_after_seconds: float = Field(gt=0.0)        # RECONNECTING becomes OFFLINE after this long without frames
+    file_realtime: bool = False                         # video files: pace to real time (True) or process as fast as possible
 
 
 class DetectorConfig(_Section):
-    person_model_size: Literal["auto", "nano", "small", "medium", "large"] = "auto"
     person_confidence: float = Field(ge=0.0, le=1.0)
-    person_low_confidence: float = Field(ge=0.0, le=1.0)
+    person_max_results: int = Field(ge=1)
 
 
 class TrackerConfig(_Section):
+    low_confidence: float = Field(ge=0.0, le=1.0)   # second ByteTrack stage; the first uses detector.person_confidence
+    iou_threshold: float = Field(ge=0.0, le=1.0)
     min_hits: int = Field(ge=1)
-    confirm_confidence: float = Field(ge=0.0, le=1.0)
     max_lost_seconds: float = Field(gt=0.0)
 
 
@@ -141,6 +165,7 @@ class UploadsConfig(_Section):
 
 
 class FaceMaskConfig(_Section):
+    models: ModelsConfig
     visibility: VisibilityConfig
     confirmation: ConfirmationConfig
     quality_gate: QualityGateConfig
@@ -155,8 +180,11 @@ class FaceMaskConfig(_Section):
 
 
 def resolve_config_path(settings: Settings | None = None) -> Path:
+    """FACE_MASK_CONFIG_PATH, else <repo>/config/use_cases/face_mask.yaml, else the service-local config/face_mask.yaml (Docker)."""
     explicit = (settings or get_settings()).config_path or os.environ.get("FACE_MASK_CONFIG_PATH", "")
-    return Path(explicit) if explicit else CONFIG_DIR / "face_mask.yaml"
+    if explicit:
+        return Path(explicit)
+    return REPO_CONFIG_FILE if REPO_CONFIG_FILE.is_file() else CONFIG_DIR / "face_mask.yaml"
 
 
 def load_face_mask_config(path: Path | None = None) -> FaceMaskConfig:
