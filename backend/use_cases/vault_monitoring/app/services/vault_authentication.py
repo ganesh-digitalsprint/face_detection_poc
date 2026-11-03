@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import inspect
 import time
 import math
 
@@ -63,6 +64,7 @@ class VaultAuthenticationService:
         self._embedding = embedding or get_face_embedding_service()
         self._qdrant = qdrant or get_qdrant_service()
         self._dual_control = dual_control or get_dual_control_session_manager()
+        self._session_started_monotonic: dict[str, float] = {}
         if vault_room_manager is None:
             from app.services.vault_room_manager import get_vault_room_manager
             vault_room_manager = get_vault_room_manager()
@@ -89,6 +91,7 @@ class VaultAuthenticationService:
         session = self._dual_control.start(
             liveness.session_id, liveness.challenge.value, required_persons
         )
+        self._session_started_monotonic[session.session_ref] = time.perf_counter()
         start_monitoring = getattr(self._vault_room_manager, "on_access_attempt_started", None)
         if start_monitoring is not None:
             start_monitoring(session.session_ref, session.required_persons)
@@ -102,6 +105,16 @@ class VaultAuthenticationService:
         return liveness, session
 
     def process_frame(self, session_id: str, image: Image) -> VaultAuthenticationResponse:
+        started = time.perf_counter()
+        try:
+            return self._process_frame(session_id, image)
+        finally:
+            logger.info(
+                "vault_auth_timing session_ref=%s stage=authentication_service_total duration_ms=%.2f",
+                session_id, (time.perf_counter() - started) * 1000.0,
+            )
+
+    def _process_frame(self, session_id: str, image: Image) -> VaultAuthenticationResponse:
         # Public routes carry only the non-secret UUID reference. Resolve the
         # credential in memory; it is never returned or persisted.
         try:
@@ -114,6 +127,7 @@ class VaultAuthenticationService:
                     None, session, status="ACCESS_GRANTED", access_granted=True
                 )
             if self._dual_control.expire_if_needed(session):
+                self._session_started_monotonic.pop(session.session_ref, None)
                 logger.info("SESSION_EXPIRED session_ref=%s", session.session_ref)
                 self._notify_terminal_auth_failure(session.session_ref, "SESSION_EXPIRED")
                 return self._dual_response(None, session, status="DUAL_AUTHENTICATION_TIMEOUT")
@@ -129,7 +143,9 @@ class VaultAuthenticationService:
                     session, 0, reason="NEXT_PERSON_READY"
                 )
 
-            response = self._process_person_frame(session.liveness_session_id, image)
+            response = self._process_person_frame(
+                session.liveness_session_id, image, session.session_ref
+            )
             # Liveness FAILED/EXPIRED is a terminal outcome; pending challenge
             # frames deliberately do not signal an unauthorized-entry event.
             if response.reason == "LIVENESS_FAILED":
@@ -138,6 +154,7 @@ class VaultAuthenticationService:
             if progress is not None:
                 progress(session.session_ref, len(session.verified))
             if self._dual_control.expire_if_needed(session):
+                self._session_started_monotonic.pop(session.session_ref, None)
                 logger.info("SESSION_EXPIRED session_ref=%s", session.session_ref)
                 self._notify_terminal_auth_failure(session.session_ref, "SESSION_EXPIRED")
                 return self._dual_response(response, session, status="DUAL_AUTHENTICATION_TIMEOUT")
@@ -215,6 +232,15 @@ class VaultAuthenticationService:
                             "ACCESS_GRANTED session_ref=%s required_persons=%s test_mode=%s",
                             session.session_ref, session.required_persons, test_mode,
                         )
+                        session_started = self._session_started_monotonic.pop(
+                            session.session_ref, None
+                        )
+                        if session_started is not None:
+                            logger.info(
+                                "vault_auth_timing session_ref=%s stage=session_start_to_access_granted duration_ms=%.2f",
+                                session.session_ref,
+                                (time.perf_counter() - session_started) * 1000.0,
+                            )
                         return self._dual_response(
                             response, session, status="ACCESS_GRANTED", access_granted=True
                         )
@@ -271,8 +297,21 @@ class VaultAuthenticationService:
         if callback is not None:
             callback(session_ref, reason)
 
-    def _process_person_frame(self, session_id: str, image: Image) -> VaultAuthenticationResponse:
-        liveness = self._liveness.process_frame(session_id, image)
+    def _process_person_frame(
+        self, session_id: str, image: Image, session_ref: str
+    ) -> VaultAuthenticationResponse:
+        liveness_started = time.perf_counter()
+        liveness_method = self._liveness.process_frame
+        if "correlation_ref" in inspect.signature(liveness_method).parameters:
+            liveness = liveness_method(
+                session_id, image, correlation_ref=session_ref
+            )
+        else:
+            liveness = liveness_method(session_id, image)
+        logger.info(
+            "vault_auth_timing session_ref=%s stage=liveness_processing duration_ms=%.2f passed=%s",
+            session_ref, (time.perf_counter() - liveness_started) * 1000.0, liveness.passed,
+        )
         liveness_decision = LivenessDecision(
             passed=liveness.passed,
             challenge=liveness.challenge.value,
@@ -300,22 +339,35 @@ class VaultAuthenticationService:
                 liveness_decision, "IDENTITY_WINDOW_EXPIRED"
             )
 
-        detection_started = time.perf_counter()
+        identity_started = time.perf_counter()
         pose_detector = getattr(self._liveness, "detect_pose", None)
         uses_fast_pose = callable(pose_detector)
+        pose_detection_started: float | None = None
+        pose_detection_ms = 0.0
         try:
-            pose_face = (
-                pose_detector(image)
-                if uses_fast_pose
-                else self._detection.detect_single_face(
-                    image,
-                    max_side=self._liveness.config.detection_max_side,
-                    require_landmarks=True,
+            take_cached_face = getattr(self._liveness, "take_last_detected_face", None)
+            pose_face = take_cached_face(session_id) if callable(take_cached_face) else None
+            if pose_face is None:
+                pose_detection_started = time.perf_counter()
+                pose_face = (
+                    pose_detector(image)
+                    if uses_fast_pose
+                    else self._detection.detect_single_face(
+                        image,
+                        max_side=self._liveness.config.detection_max_side,
+                        require_landmarks=True,
+                    )
                 )
-            )
+                pose_detection_ms = (time.perf_counter() - pose_detection_started) * 1000.0
             is_frontal = self._liveness.is_frontal(session_id, image, pose_face)
         except (NoFaceDetectedError, MultipleFacesError):
-            self._log_identity_detection_duration(session_id, detection_started)
+            if pose_detection_started is not None:
+                pose_detection_ms = (time.perf_counter() - pose_detection_started) * 1000.0
+                logger.info(
+                    "vault_auth_timing session_ref=%s stage=face_detection duration_ms=%.2f source=identity_pose_detector",
+                    session_ref, pose_detection_ms,
+                )
+            self._log_identity_detection_duration(session_id, identity_started)
             logger.info(
                 "Identity frame for liveness session %s needs a single visible face",
                 session_id,
@@ -323,7 +375,11 @@ class VaultAuthenticationService:
             return VaultAuthenticationResponse(
                 liveness=liveness_decision, reason="LOOK_AT_CAMERA"
             )
-        self._log_identity_detection_duration(session_id, detection_started)
+        logger.info(
+            "vault_auth_timing session_ref=%s stage=face_detection duration_ms=%.2f source=%s",
+            session_ref, pose_detection_ms,
+            "cached_liveness_face" if pose_detection_started is None else "identity_pose_detector",
+        )
 
         if not is_frontal:
             return VaultAuthenticationResponse(
@@ -331,6 +387,7 @@ class VaultAuthenticationService:
             )
 
         if uses_fast_pose:
+            identity_detection_started = time.perf_counter()
             try:
                 # Keep ArcFace identity detection aligned with enrollment's detector.
                 face = self._detection.detect_single_face(image)
@@ -338,6 +395,11 @@ class VaultAuthenticationService:
                 return VaultAuthenticationResponse(
                     liveness=liveness_decision, reason="LOOK_AT_CAMERA"
                 )
+            identity_detection_ms = (time.perf_counter() - identity_detection_started) * 1000.0
+            logger.info(
+                "vault_auth_timing session_ref=%s stage=face_detection duration_ms=%.2f source=arcface_detector",
+                session_ref, identity_detection_ms,
+            )
         else:
             face = pose_face
 
@@ -348,10 +410,35 @@ class VaultAuthenticationService:
                 liveness_decision, "IDENTITY_ATTEMPTS_EXCEEDED"
             )
 
-        embedding = self._embedding.generate_embedding_for_bbox(image, face.bbox)
+        embedding_started = time.perf_counter()
+        embedding_method = self._embedding.generate_embedding_for_bbox
+        if "correlation_ref" in inspect.signature(embedding_method).parameters:
+            embedding = embedding_method(
+                image, face.bbox, correlation_ref=session_ref
+            )
+        else:
+            # Keep injected embedding adapters that implement the original
+            # two-argument contract usable; the production service accepts
+            # correlation_ref and emits the finer DeepFace stage timings.
+            embedding = embedding_method(image, face.bbox)
+        embedding_ms = (time.perf_counter() - embedding_started) * 1000.0
         model_name = self._embedding.model_config.model_name
         probe_vector = self._embedding.to_vector(embedding)
+        qdrant_started = time.perf_counter()
         candidate = self._qdrant.search_employee_face(probe_vector, model_name=model_name)
+        qdrant_ms = (time.perf_counter() - qdrant_started) * 1000.0
+        logger.info(
+            "vault_auth_timing session_ref=%s stage=qdrant_similarity_search duration_ms=%.2f",
+            session_ref, qdrant_ms,
+        )
+        logger.debug(
+            "vault_face_recognition embedding_ms=%.2f qdrant_search_ms=%.2f "
+            "total_identity_ms=%.2f session=%s",
+            embedding_ms,
+            qdrant_ms,
+            (time.perf_counter() - identity_started) * 1000.0,
+            session_id,
+        )
         threshold = get_face_model_config().threshold
         if candidate is None or candidate.distance > threshold:
             recognition = RecognitionDecision(
@@ -375,6 +462,7 @@ class VaultAuthenticationService:
             recognition = RecognitionDecision(matched=False, distance=candidate.distance)
             return self._deny(liveness_decision, recognition, "IDENTITY_AMBIGUOUS")
 
+        authorization_started = time.perf_counter()
         employee = self._employees.get_by_employee_id(candidate.employee_id)
         if employee is None:
             recognition = RecognitionDecision(matched=False, distance=candidate.distance)
@@ -389,6 +477,10 @@ class VaultAuthenticationService:
         )
         logger.info("Vault recognition matched employee '%s'", employee.employee_id)
         authorization = self._authorizations.get_for_employee(employee.id)
+        logger.info(
+            "vault_auth_timing session_ref=%s stage=employee_authorization duration_ms=%.2f",
+            session_ref, (time.perf_counter() - authorization_started) * 1000.0,
+        )
         if authorization is None or authorization.id != candidate.authorized_employee_id:
             logger.warning(
                 "Vault face match had a mismatched authorization record for employee '%s'",

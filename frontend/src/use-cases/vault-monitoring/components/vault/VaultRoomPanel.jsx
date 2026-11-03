@@ -23,7 +23,7 @@ function useAlertClock(enabled) {
   return now;
 }
 
-export function VaultRoomVideoOverlay({ roomState, connection, counting, mirrored = false }) {
+export function VaultRoomVideoOverlay({ roomState, connection, counting, poses = [], mirrored = false }) {
   const [showBoxes, setShowBoxes] = useState(() => {
     try { return window.localStorage.getItem('vault-room-show-boxes') !== 'false'; } catch { return true; }
   });
@@ -52,6 +52,10 @@ export function VaultRoomVideoOverlay({ roomState, connection, counting, mirrore
   const width = counting?.imageWidth || roomState?.image_width || 640;
   const height = counting?.imageHeight || roomState?.image_height || 360;
   const tracks = counting?.tracks ?? roomState?.tracks ?? [];
+  const poseConnections = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24],
+    [23, 24], [23, 25], [25, 27], [24, 26], [26, 28]];
+  const posePoints = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+  const poseColors = ['#FFE066', '#66E3FF', '#8DFF9B', '#FF8CE4', '#FFB366', '#B8A1FF'];
   const count = roomState?.stable_count;
   const expected = roomState?.expected_persons;
   const boxTone = count == null || expected == null ? '#D18A00' : count > expected ? '#B3261E' : count === expected ? '#0B7A4B' : '#D18A00';
@@ -72,6 +76,30 @@ export function VaultRoomVideoOverlay({ roomState, connection, counting, mirrore
         return <g key={track.track_id}><rect x={x} y={y} width={boxWidth} height={boxHeight} rx="8" fill="none" stroke={boxTone} strokeWidth="3" vectorEffect="non-scaling-stroke" />
           <rect x={x} y={Math.max(0, y - 26)} width="132" height="24" rx="6" fill={boxTone} />
           <text x={x + 8} y={Math.max(17, y - 9)} fill="white" fontSize="14" fontWeight="700">Person {track.track_id}</text></g>;
+      })}
+    </svg>}
+    {poses.length > 0 && <svg aria-label={`${poses.length} body poses detected`} className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid slice">
+      {poses.map((landmarks, poseIndex) => {
+        const color = poseColors[poseIndex % poseColors.length];
+        const point = (index) => {
+          const item = landmarks[index];
+          if (!item || (item.visibility ?? 1) < 0.35) return null;
+          return { x: (mirrored ? 1 - item.x : item.x) * width, y: item.y * height };
+        };
+        return <g key={`pose-${poseIndex}`}>
+          {poseConnections.map(([start, end]) => {
+            const a = point(start); const b = point(end);
+            return a && b ? <line key={`${start}-${end}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+              stroke={color} strokeWidth="3" strokeLinecap="round" vectorEffect="non-scaling-stroke" /> : null;
+          })}
+          {posePoints.map((index) => {
+            const p = point(index);
+            return p ? <circle key={index} cx={p.x} cy={p.y} r="5" fill={color}
+              stroke="#10213D" strokeWidth="1.5" vectorEffect="non-scaling-stroke" /> : null;
+          })}
+          <text x={(point(0)?.x ?? point(11)?.x ?? 0) + 8} y={(point(0)?.y ?? point(11)?.y ?? 0) - 8}
+            fill={color} stroke="#10213D" strokeWidth="3" paintOrder="stroke" fontSize="15" fontWeight="700">Pose {poseIndex + 1}</text>
+        </g>;
       })}
     </svg>}
     <div role="status" aria-live="polite" className={`absolute inset-x-3 bottom-3 z-10 rounded-lg px-4 py-3 text-center text-sm font-bold shadow-lg sm:inset-x-5 sm:bottom-5 ${banner[0]}`}>

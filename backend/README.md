@@ -10,6 +10,7 @@ configuration, and application package. Run commands from that service's directo
 |---|---|---|
 | Vault Monitoring (migrated) | [`use_cases/vault_monitoring/`](use_cases/vault_monitoring/) | [`README.md`](use_cases/vault_monitoring/README.md) |
 | Branch Exterior Monitoring (migrated) | [`use_cases/branch_exterior/`](use_cases/branch_exterior/) | [`README.md`](use_cases/branch_exterior/README.md) |
+| Face Mask Monitoring (scaffold stage) | [`use_cases/face_mask/`](use_cases/face_mask/) | [`README.md`](use_cases/face_mask/README.md) |
 | Alert Service | [`services/alert_service/`](services/alert_service/) | [`README.md`](services/alert_service/README.md) |
 
 The legacy `vault-monitoring/` and `branch-exterior-monitoring/` directories remain as rollback copies.
@@ -27,6 +28,7 @@ Each service has its own environment and port. Start each in its own terminal; V
 | Alert Service | 3.11 or 3.12 | 8012 | `python -m uvicorn app.main:app --host 127.0.0.1 --port 8012` |
 | Vault Monitoring | 3.12 | 8010 | `python -m uvicorn app.main:app --port 8010` |
 | Branch Exterior | 3.11 | 8011 | `python -m uvicorn app.main:app --port 8011` |
+| Face Mask (scaffold stage) | 3.11 | 8014 | `python -m uvicorn app.main:app --port 8014` |
 
 Alert Service (`services/alert_service`), with one producer token per use case and a separate operator token:
 

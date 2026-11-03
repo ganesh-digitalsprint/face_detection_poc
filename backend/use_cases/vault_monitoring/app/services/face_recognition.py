@@ -327,11 +327,22 @@ class FaceRecognitionService:
         """
         started = time.perf_counter()
         validate_image(image)
+        detection_started = time.perf_counter()
         faces = self._detection.detect(image, max_side=get_ml_config().max_frame_size)
+        logger.debug(
+            "face_detection image_duration_ms=%.2f faces=%s",
+            (time.perf_counter() - detection_started) * 1000.0,
+            len(faces),
+        )
         results = [
             self._to_result(None, face.bbox, self._recognize(image, face.bbox))
             for face in faces
         ]
+        logger.debug(
+            "face_recognition image_total_ms=%.2f faces=%s",
+            _elapsed_ms(started),
+            len(results),
+        )
         return RecognitionResponse(
             faces_detected=len(results),
             recognized_faces=results,
@@ -352,16 +363,26 @@ class FaceRecognitionService:
             raise PersonNotFoundError(f"No person with code '{person_code}'")
         person_id = person.id
 
+        detection_started = time.perf_counter()
         face = self._detection.detect_single_face(
             image, max_side=get_ml_config().max_frame_size
         )
+        logger.debug(
+            "face_detection verification_duration_ms=%.2f faces=1",
+            (time.perf_counter() - detection_started) * 1000.0,
+        )
+        recognition_started = time.perf_counter()
+        embedding_started = time.perf_counter()
         result = self._embedding.generate_embedding_for_bbox(image, face.bbox)
+        embedding_ms = (time.perf_counter() - embedding_started) * 1000.0
+        qdrant_started = time.perf_counter()
         matches = self._embeddings.search_similar_embeddings(
             result.as_list(),
             model_name=self._config.model_name,
             limit=1,
             person_id=person_id,
         )
+        qdrant_ms = (time.perf_counter() - qdrant_started) * 1000.0
         self._end_read()
         if not matches:
             raise NoEnrolledEmbeddingError(
@@ -369,6 +390,12 @@ class FaceRecognitionService:
                 f"model '{self._config.model_name}'"
             )
         distance = min(max(matches[0].distance, 0.0), 2.0)  # guard float noise
+        logger.debug(
+            "face_verification embedding_ms=%.2f qdrant_search_ms=%.2f total_ms=%.2f",
+            embedding_ms,
+            qdrant_ms,
+            (time.perf_counter() - recognition_started) * 1000.0,
+        )
         return VerificationResponse(
             matched=is_match(distance, self._config.threshold),
             distance=distance,
@@ -388,8 +415,15 @@ class FaceRecognitionService:
         started = time.perf_counter()
         try:
             validate_image(frame)
+            detection_started = time.perf_counter()
             detections = self._detection.detect(
                 frame, max_side=get_ml_config().max_frame_size
+            )
+            logger.debug(
+                "face_detection frame=%s duration_ms=%.2f faces=%s",
+                frame_number,
+                (time.perf_counter() - detection_started) * 1000.0,
+                len(detections),
             )
         except (InvalidImageError, FaceDetectionError):
             logger.exception("Frame %s could not be processed; skipping", frame_number)
@@ -422,16 +456,28 @@ class FaceRecognitionService:
         Returns None if no embedding could be computed (logged). Database
         failures raise ``RepositoryError`` for the caller to handle.
         """
+        started = time.perf_counter()
         try:
+            embedding_started = time.perf_counter()
             result = self._embedding.generate_embedding_for_bbox(frame, bbox)
         except (FaceProcessingError, InvalidImageError) as exc:
             logger.warning("Could not embed face at %s: %s", bbox, exc)
             return None
+        embedding_ms = (time.perf_counter() - embedding_started) * 1000.0
 
+        qdrant_started = time.perf_counter()
         matches = self._embeddings.search_similar_embeddings(
             result.as_list(), model_name=self._config.model_name, limit=1
         )
+        qdrant_ms = (time.perf_counter() - qdrant_started) * 1000.0
         self._end_read()
+        logger.debug(
+            "face_recognition embedding_ms=%.2f qdrant_search_ms=%.2f "
+            "total_ms=%.2f",
+            embedding_ms,
+            qdrant_ms,
+            (time.perf_counter() - started) * 1000.0,
+        )
         return RecognitionOutcome.from_match(
             matches[0] if matches else None, self._config.threshold
         )

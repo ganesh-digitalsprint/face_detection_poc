@@ -96,6 +96,18 @@ class VaultRoomSettings(BaseModel):
     expired_repeat_seconds: int = Field(ge=1)
     expired_open_max_seconds: int | None = Field(default=None, ge=1)
     counting: "VaultRoomCountingSettings" = Field(default_factory=lambda: VaultRoomCountingSettings())
+    pose_preview: "VaultPosePreviewSettings" = Field(default_factory=lambda: VaultPosePreviewSettings())
+
+
+class VaultPosePreviewSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_path: str = "app/models/pose_landmarker_lite.task"
+    max_poses: int = Field(default=4, ge=1, le=8)
+    processing_interval_ms: int = Field(default=200, ge=1)
+    min_pose_detection_confidence: float = Field(default=0.5, ge=0, le=1)
+    min_pose_presence_confidence: float = Field(default=0.5, ge=0, le=1)
+    min_tracking_confidence: float = Field(default=0.5, ge=0, le=1)
 
 
 class VaultAlertEvidenceSettings(BaseModel):

@@ -37,7 +37,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1
 const LIVENESS_TEST_MENU_ENABLED = import.meta.env.VITE_LIVENESS_TEST_ENABLED == null
   ? import.meta.env.DEV
   : import.meta.env.VITE_LIVENESS_TEST_ENABLED === 'true';
-const PRODUCT_NAME = 'Fedbank Vision';
+const PRODUCT_NAME = 'Fedbank';
 // TODO: pass { alerts: <open count> } as `badges` to <Sidebar> once a lightweight shared alerts-count source exists
 // (useServiceAlerts is a full list+poll hook; mounting it here would add a second poller).
 

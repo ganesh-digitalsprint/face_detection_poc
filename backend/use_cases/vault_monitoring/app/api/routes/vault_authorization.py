@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 from datetime import datetime, timedelta, timezone
+import time
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -14,6 +15,7 @@ from app.api.errors import ErrorResponse
 from app.db.database import session_scope
 from app.db.models.vault_room import VaultAuditEvent, VaultSession
 from app.core.ml_config import get_vault_room_config
+from app.core.logging import get_logger
 from app.schemas.vault_authentication import (
     LivenessSessionResponse,
     StartVaultAuthenticationRequest,
@@ -26,6 +28,7 @@ from app.services.vault_room_manager import VaultRoomSessionActiveError, get_vau
 from app.services.vault_event_publisher import publish_alert_event
 
 router = APIRouter(prefix="/api/v1/vault-authentication", tags=["vault authentication"])
+logger = get_logger(__name__)
 Service = Annotated[VaultAuthenticationService, Depends(get_vault_authentication_service)]
 _lifecycle_written: set[str] = set()
 
@@ -120,12 +123,19 @@ def submit_frame(
     frame: Annotated[UploadFile, File(description="A current camera frame (JPEG, PNG or WebP)")],
 ) -> VaultAuthenticationResponse:
     """Advance the server-side liveness state machine with one camera frame."""
+    frame_started = time.perf_counter()
     if frame.content_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unsupported image type; use JPEG, PNG, or WebP",
         )
-    result = service.process_frame(session_ref, read_upload_image(frame))
+    decode_started = time.perf_counter()
+    image = read_upload_image(frame)
+    logger.info(
+        "vault_auth_timing session_ref=%s stage=frame_decode_validation duration_ms=%.2f",
+        session_ref, (time.perf_counter() - decode_started) * 1000.0,
+    )
+    result = service.process_frame(session_ref, image)
     if (result.access_granted or result.status == "DUAL_AUTHENTICATION_TIMEOUT") and session_ref not in _lifecycle_written:
         now = datetime.now(timezone.utc)
         with session_scope() as db:
@@ -150,4 +160,8 @@ def submit_frame(
             publish_alert_event("session.expired", entity_type="session", entity_id=session_ref,
                 entity_version=1, session_ref=session_ref, data={"phase": "ACCESS_ATTEMPT"})
         _lifecycle_written.add(session_ref)
+    logger.info(
+        "vault_auth_timing session_ref=%s stage=total_auth_processing duration_ms=%.2f",
+        session_ref, (time.perf_counter() - frame_started) * 1000.0,
+    )
     return result

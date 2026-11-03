@@ -96,6 +96,43 @@ def test_turn_challenge_advances_state_to_passed():
     assert result.score >= 0.7
 
 
+def test_liveness_exposes_and_consumes_face_from_the_frame_it_processed():
+    face = _face()
+    liveness = _liveness_service(
+        [LivenessChallenge.TURN_RIGHT], SequenceDetection([face])
+    )
+    started = liveness.start_session()
+
+    liveness.process_frame(started.session_id, _frame())
+
+    assert liveness.take_last_detected_face(started.session_id) is face
+    assert liveness.take_last_detected_face(started.session_id) is None
+
+
+def test_terminal_liveness_reuse_does_not_return_a_stale_face():
+    liveness = _liveness_service(
+        [LivenessChallenge.TURN_RIGHT], SequenceDetection([])
+    )
+    started = liveness.start_session()
+    session = liveness._sessions[started.session_id]
+    face = _face()
+    session.status = LivenessStatus.PASSED
+    session.last_result = LivenessResult(
+        passed=True,
+        score=1.0,
+        challenge=LivenessChallenge.TURN_RIGHT,
+        status=LivenessStatus.PASSED,
+        reason="passed",
+        completed_challenges=1,
+        required_challenges=1,
+    )
+    session.last_detected_face = face
+
+    liveness.process_frame(started.session_id, _frame())
+
+    assert liveness.take_last_detected_face(started.session_id) is None
+
+
 def test_passed_turn_requires_return_to_the_frontal_baseline():
     detector = SequenceDetection([_face(), _face(), _face(nose_x=92)])
     liveness = _liveness_service([LivenessChallenge.TURN_RIGHT], detector)
@@ -239,6 +276,7 @@ class PassedLiveness:
         self.max_attempts = max_attempts
         self.identity_attempts = 0
         self.sessions = 0
+        self.cached_face = None
 
     def start_session(self):
         self.sessions += 1
@@ -259,6 +297,11 @@ class PassedLiveness:
             completed_challenges=1 if self.passed else 0,
             required_challenges=1,
         )
+
+    def take_last_detected_face(self, session_id):
+        face = self.cached_face
+        self.cached_face = None
+        return face
 
     def identity_window_expired(self, session_id, window_seconds):
         return self.window_expired
@@ -288,7 +331,11 @@ class RecognitionEmbedding:
 
 
 class VaultDetection:
+    def __init__(self):
+        self.calls = 0
+
     def detect_single_face(self, image, *, max_side=None, require_landmarks=False):
+        self.calls += 1
         assert max_side == 480
         assert require_landmarks is True
         return DetectedFaceInfo(BoundingBox(10, 10, 40, 40), 0.99)
@@ -333,23 +380,28 @@ def _vault_service(
     candidate=None,
     employee=None,
     authorization=None,
+    cached_face=None,
 ):
     employee = employee or SimpleNamespace(employee_id="EMP001", id=10)
     authorization = authorization or SimpleNamespace(id=20, employee_id=10, is_active=True)
     qdrant = EmployeeSearch(candidate or EmployeeFaceMatch("EMP001", 20, 0.31))
+    liveness = PassedLiveness(
+        live,
+        frontal=frontal,
+        window_expired=window_expired,
+        max_attempts=max_attempts,
+    )
+    detection = VaultDetection()
     service = VaultAuthenticationService(
         EmployeeLookup(employee),
         AuthorizationLookup(authorization),
-        liveness=PassedLiveness(
-            live,
-            frontal=frontal,
-            window_expired=window_expired,
-            max_attempts=max_attempts,
-        ),
-        detection=VaultDetection(),
+        liveness=liveness,
+        detection=detection,
         embedding=RecognitionEmbedding(),
         qdrant=qdrant,
     )
+    service._liveness.cached_face = cached_face
+    service._test_detection = detection
     _liveness, dual = service.start()
     return service, qdrant, dual.session_id
 
@@ -365,7 +417,7 @@ def test_access_requires_liveness_recognition_and_active_authorization():
     assert granted.recognition.matched is True
     assert granted.authorization.active is True
     assert "_probe_vector" not in granted.model_dump()
-
+    assert service._test_detection.calls == 1
     service, qdrant, session_id = _vault_service(live=False)
     denied = service.process_frame(session_id, image)
     assert denied.access_granted is False
@@ -400,6 +452,18 @@ def test_access_requires_liveness_recognition_and_active_authorization():
     denied_authorization = service.process_frame(session_id, image)
     assert denied_authorization.access_granted is False
     assert denied_authorization.reason == "AUTHORIZATION_INACTIVE"
+
+
+def test_vault_access_reuses_face_detected_by_the_passing_liveness_frame():
+    face = _face()
+    service, qdrant, session_id = _vault_service(cached_face=face)
+
+    result = service.process_frame(session_id, np.zeros((80, 80, 3), dtype=np.uint8))
+
+    assert result.recognition.matched is True
+    assert qdrant.calls == 1
+    assert service._test_detection.calls == 0
+    assert service._liveness.cached_face is None
 
 
 def test_face_match_cannot_use_another_employees_authorization():

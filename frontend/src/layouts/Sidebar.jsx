@@ -109,7 +109,7 @@ function Brand({ collapsed }) {
         <ScanEye className="h-5 w-5" aria-hidden />
       </div>
       <div className={collapsed ? 'sr-only' : 'min-w-0'}>
-        <p className="text-[15px] font-semibold leading-tight">Fedbank Vision</p>
+        <p className="text-[15px] font-semibold leading-tight">Fedbank </p>
         <p className="text-[11px] text-slate-400">Security monitoring</p>
       </div>
     </div>

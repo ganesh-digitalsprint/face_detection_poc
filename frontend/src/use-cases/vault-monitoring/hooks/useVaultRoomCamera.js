@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from '../../../api/client.js';
-import { getRoomCameraSession, startRoomRtspCamera, stopRoomCameraSession } from '../api/vaultRoom.js';
+import { getRoomCameraSession, startRoomRtspCamera, stopPosePreview, stopRoomCameraSession } from '../api/vaultRoom.js';
 
-const INITIAL = { kind: null, status: 'idle', error: null, cctvSession: null, tracking: false, name: null };
+const INITIAL = { kind: null, status: 'idle', error: null, cctvSession: null, tracking: false,
+  name: null, posePreview: false, poseMetrics: null };
 const absoluteStreamUrl = (url) => `${String(API_BASE_URL || '').replace(/\/$/, '')}${url}`;
 
 export default function useVaultRoomCamera() {
@@ -13,7 +14,9 @@ export default function useVaultRoomCamera() {
   const operationRef = useRef(0);
   const connectInFlightRef = useRef(false);
   const mountedRef = useRef(true);
+  const posePreviewRef = useRef(false);
   const [camera, setCamera] = useState(INITIAL);
+  posePreviewRef.current = camera.posePreview;
 
   const releaseLocalStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -35,6 +38,7 @@ export default function useVaultRoomCamera() {
       }
     }
     sessionRef.current = null;
+    stopPosePreview().catch(() => {});
     setCamera(INITIAL);
     return true;
   }, [releaseLocalStream]);
@@ -43,10 +47,11 @@ export default function useVaultRoomCamera() {
     if (connectInFlightRef.current) return;
     connectInFlightRef.current = true;
     let operation;
+    const posePreview = posePreviewRef.current;
     try {
       if (!await stop()) return;
       operation = operationRef.current;
-      setCamera({ ...INITIAL, kind: 'webcam', name, status: 'starting' });
+      setCamera({ ...INITIAL, kind: 'webcam', name, status: 'starting', posePreview });
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access requires localhost or a secure HTTPS connection.');
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
       if (!mountedRef.current || operation !== operationRef.current) {
@@ -54,7 +59,9 @@ export default function useVaultRoomCamera() {
         return;
       }
       streamRef.current = stream;
-      setCamera({ ...INITIAL, kind: 'webcam', name, status: 'ready' });
+      // Keep the user's opt-in choice after the local camera finishes starting.
+      // Counting reads this state to decide whether to request pose landmarks.
+      setCamera({ ...INITIAL, kind: 'webcam', name, status: 'ready', posePreview });
     } catch (error) {
       if (!mountedRef.current || operation !== undefined && operation !== operationRef.current) return;
       releaseLocalStream();
@@ -67,7 +74,7 @@ export default function useVaultRoomCamera() {
     }
   }, [releaseLocalStream, stop]);
 
-  const startRtsp = useCallback(async (name, url) => {
+  const startRtsp = useCallback(async (name, url, posePreview = false) => {
     if (connectInFlightRef.current) return;
     connectInFlightRef.current = true;
     let operation;
@@ -75,14 +82,15 @@ export default function useVaultRoomCamera() {
       if (!await stop()) return;
       operation = operationRef.current;
       setCamera({ ...INITIAL, kind: 'cctv', name, status: 'connecting' });
-      const session = await startRoomRtspCamera(name, url);
+      const session = await startRoomRtspCamera(name, url, posePreview);
       if (!mountedRef.current || operation !== operationRef.current) {
         await stopRoomCameraSession(session.session_id).catch(() => {});
         return;
       }
       const attached = { ...session, stream_url: absoluteStreamUrl(session.stream_url) };
       sessionRef.current = attached;
-      setCamera({ ...INITIAL, kind: 'cctv', name, status: session.status, error: null, cctvSession: attached, tracking: true });
+      setCamera({ ...INITIAL, kind: 'cctv', name, status: session.status, error: null, cctvSession: attached,
+        tracking: true, posePreview: session.pose_preview, poseMetrics: session.pose_metrics });
     } catch (error) {
       if (!mountedRef.current || operation !== undefined && operation !== operationRef.current) return;
       setCamera({ ...INITIAL, kind: 'cctv', name, status: 'error', error: error?.message || 'The camera could not be connected.' });
@@ -107,6 +115,8 @@ export default function useVaultRoomCamera() {
         const nextStatus = result.status === 'failed' ? 'error' : result.status;
         setCamera((current) => ({ ...current, status: nextStatus,
           error: result.status === 'failed' ? (result.error || 'The camera connection failed.') : null,
+          posePreview: result.pose_preview,
+          poseMetrics: result.pose_metrics,
           cctvSession: current.cctvSession ? { ...current.cctvSession, ...result,
             stream_url: absoluteStreamUrl(result.stream_url) } : current.cctvSession }));
       } catch (error) {
@@ -127,10 +137,12 @@ export default function useVaultRoomCamera() {
       const session = sessionRef.current;
       sessionRef.current = null;
       if (session) stopRoomCameraSession(session.session_id).catch(() => {});
+      if (posePreviewRef.current) stopPosePreview().catch(() => {});
     };
   }, [releaseLocalStream]);
 
+  const setPosePreview = useCallback((value) => setCamera((current) => ({ ...current, posePreview: Boolean(value) })), []);
   const markCctvReady = useCallback(() => {}, []); // Status remains backend-authoritative.
   const markCctvFailed = useCallback(() => setCamera((current) => ({ ...current, status: 'error', error: 'The live camera preview could not be loaded.' })), []);
-  return { ...camera, videoRef, imgRef, stop, startWebcam, startRtsp, markCctvReady, markCctvFailed };
+  return { ...camera, videoRef, imgRef, stop, startWebcam, startRtsp, setPosePreview, markCctvReady, markCctvFailed };
 }

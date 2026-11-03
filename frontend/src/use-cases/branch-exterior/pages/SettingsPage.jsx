@@ -4,7 +4,8 @@ import { api } from '../api/index.js';
 import { SETTINGS_TABS, resolveSettingsTab } from '../settingsTabs.js';
 
 const DAYS = [['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'], ['fri', 'Friday'], ['sat', 'Saturday'], ['sun', 'Sunday']];
-const PORTS = { postgres: 5432, mysql: 3306, oracle: 1521, mongodb: 27017 };
+const minutes = (value) => { const [hours, mins] = (value || '').split(':').map(Number); return (hours || 0) * 60 + (mins || 0); };
+const durationLabel = (value) => `${Math.floor(value / 60)}h${value % 60 ? ` ${value % 60}m` : ''}`;
 const INT = (v) => parseInt(v, 10);
 const FLT = (v) => parseFloat(v);
 // threshold key -> parser used when saving (same types as the original page)
@@ -25,25 +26,19 @@ function Num({ label, k, form, set, ...rest }) {
 }
 
 export default function SettingsPage() {
-  const [db, setDb] = useState({ engine: 'sqlite', sqlite_path: 'storage/app.db', host: 'localhost', port: '', user: '', password: '', passwordSet: false, database: 'branch_monitoring', oracle_service_name: '' });
-  const [dbResult, setDbResult] = useState({ text: '', ok: null });
   const [form, setForm] = useState({});
   const [override, setOverride] = useState(false);
   const [minSev, setMinSev] = useState('high');
   const [webhook, setWebhook] = useState('');
   const [hours, setHours] = useState({});
+  const [savedHours, setSavedHours] = useState({});
+  const [hoursSave, setHoursSave] = useState({ busy: false, message: '', ok: null });
   const [loadError, setLoadError] = useState('');
   const [params, setParams] = useSearchParams();
   const tab = resolveSettingsTab(params.get('tab'));
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const setD = (k, v) => setDb((d) => ({ ...d, [k]: v }));
 
   useEffect(() => {
-    api.get('/settings/database').then((cfg) => setDb({
-      engine: cfg.engine, sqlite_path: cfg.sqlite_path || 'storage/app.db', host: cfg.host || 'localhost',
-      port: cfg.port || PORTS[cfg.engine] || '', user: cfg.user || '', password: cfg.password && cfg.password !== '********' ? cfg.password : '',
-      passwordSet: cfg.password === '********', database: cfg.database || 'branch_monitoring', oracle_service_name: cfg.oracle_service_name || '',
-    })).catch((e) => setLoadError(e.message));
     api.get('/settings/runtime').then((cfg) => {
       const t = cfg.thresholds;
       setForm({ ...t });
@@ -55,33 +50,9 @@ export default function SettingsPage() {
         h[key] = { closed, open: closed ? '10:00' : w[0], close: closed ? '18:00' : w[1] };
       });
       setHours(h);
+      setSavedHours(h);
     }).catch((e) => setLoadError(e.message));
   }, []);
-
-  const changeEngine = (engine) => setDb({ engine, sqlite_path: 'storage/app.db', host: 'localhost', port: PORTS[engine] || '', user: '', password: '', passwordSet: false, database: 'branch_monitoring', oracle_service_name: '' });
-
-  const readDb = () => {
-    const p = { engine: db.engine };
-    if (db.engine === 'sqlite') p.sqlite_path = db.sqlite_path.trim() || 'storage/app.db';
-    else {
-      p.host = db.host.trim(); p.port = parseInt(db.port, 10) || 0; p.user = db.user.trim();
-      p.password = db.password; p.database = db.database.trim();
-      if (db.engine === 'oracle') p.oracle_service_name = db.oracle_service_name.trim();
-    }
-    return p;
-  };
-
-  const testDb = async () => {
-    setDbResult({ text: 'Testing...', ok: null });
-    try {
-      const r = await api.post('/settings/database/test', readDb());
-      setDbResult({ text: r.ok ? `✓ Connected (${r.latency_ms} ms)` : `✗ ${r.message}`, ok: r.ok });
-    } catch (e) { setDbResult({ text: `✗ ${e.message}`, ok: false }); }
-  };
-  const saveDb = async () => {
-    if (!confirm('Switching databases will restart all camera workers and point every table (cameras, zones, guards, events) at the new database. Continue?')) return;
-    try { await api.post('/settings/database', readDb()); alert('Database reconnected successfully.'); window.location.reload(); } catch (e) { alert(`Failed to switch database: ${e.message}`); }
-  };
 
   const saveThresholds = async () => {
     try {
@@ -102,16 +73,39 @@ export default function SettingsPage() {
     } catch (e) { alert(`Could not save: ${e.message}`); }
   };
   const saveHours = async () => {
+    if (hoursInvalid) return;
+    setHoursSave({ busy: true, message: '', ok: null });
     try {
       const cfg = await api.get('/settings/runtime');
       const out = {};
       DAYS.forEach(([key]) => { const h = hours[key]; out[key] = h.closed ? [] : [h.open, h.close]; });
       cfg.operating_hours = out;
       await api.post('/settings/runtime', cfg);
-      alert('Operating hours saved.');
-    } catch (e) { alert(`Could not save: ${e.message}`); }
+      setSavedHours(hours);
+      setHoursSave({ busy: false, message: 'Working hours saved successfully.', ok: true });
+    } catch (e) { setHoursSave({ busy: false, message: `Could not save working hours: ${e.message}`, ok: false }); }
   };
   const setHour = (key, patch) => setHours((h) => ({ ...h, [key]: { ...h[key], ...patch } }));
+  const hoursDirty = JSON.stringify(hours) !== JSON.stringify(savedHours);
+  const hoursInvalid = DAYS.some(([key]) => {
+    const h = hours[key];
+    return h && !h.closed && (!h.open || !h.close || minutes(h.close) <= minutes(h.open));
+  });
+  const openDays = DAYS.filter(([key]) => hours[key] && !hours[key].closed).length;
+  const weeklyMinutes = DAYS.reduce((total, [key]) => {
+    const h = hours[key];
+    return h && !h.closed && minutes(h.close) > minutes(h.open) ? total + minutes(h.close) - minutes(h.open) : total;
+  }, 0);
+  const copyMonday = (indexes) => {
+    const monday = hours.mon;
+    if (!monday) return;
+    setHours((current) => {
+      const next = { ...current };
+      indexes.forEach((index) => { next[DAYS[index][0]] = { ...monday }; });
+      return next;
+    });
+    setHoursSave({ busy: false, message: '', ok: null });
+  };
 
   const n = { form, set };
 
@@ -132,61 +126,56 @@ export default function SettingsPage() {
         ))}
       </div>
       {tab === 'general' && (
-        <div className="bx-grid bx-grid-2" style={{ alignItems: 'start' }}>
+        <div className="bx-hours-settings">
           <div className="bx-card">
-            <div className="bx-card-title">Database connection</div>
-            <p className="bx-hint" style={{ marginBottom: 12 }}>
-              Point the whole system at SQLite, PostgreSQL, MySQL, Oracle or MongoDB. All dashboard data - cameras, zones, guards and every alert - is read from and written to
-              whichever database is configured here. Switching engines reconnects live; no restart needed.
-            </p>
-            <label className="bx-field">Database engine
-              <select className="bx-input" value={db.engine} onChange={(e) => changeEngine(e.target.value)}>
-                <option value="sqlite">SQLite (file-based, zero setup - good for this POC)</option>
-                <option value="postgres">PostgreSQL</option><option value="mysql">MySQL</option>
-                <option value="oracle">Oracle</option><option value="mongodb">MongoDB</option>
-              </select>
-            </label>
-            {db.engine === 'sqlite' ? (
-              <label className="bx-field">File path (relative to backend/)
-                <input className="bx-input" value={db.sqlite_path} onChange={(e) => setD('sqlite_path', e.target.value)} />
-              </label>
-            ) : (
-              <>
-                <div className="bx-field-row">
-                  <label className="bx-field">Host <input className="bx-input" value={db.host} onChange={(e) => setD('host', e.target.value)} /></label>
-                  <label className="bx-field">Port <input className="bx-input" type="number" value={db.port} onChange={(e) => setD('port', e.target.value)} /></label>
-                </div>
-                <div className="bx-field-row">
-                  <label className="bx-field">Username <input className="bx-input" value={db.user} onChange={(e) => setD('user', e.target.value)} /></label>
-                  <label className="bx-field">Password <input className="bx-input" type="password" value={db.password} placeholder={db.passwordSet ? 'unchanged' : ''} onChange={(e) => setD('password', e.target.value)} /></label>
-                </div>
-                <label className="bx-field">Database name{db.engine === 'oracle' ? ' (or leave blank to use service name below)' : ''}
-                  <input className="bx-input" value={db.database} onChange={(e) => setD('database', e.target.value)} />
-                </label>
-                {db.engine === 'oracle' && <label className="bx-field">Oracle service name (optional) <input className="bx-input" value={db.oracle_service_name} onChange={(e) => setD('oracle_service_name', e.target.value)} /></label>}
-              </>
-            )}
-            <div className="bx-row bx-gap-8 bx-wrap" style={{ marginTop: 6 }}>
-              <button type="button" className="bx-btn" onClick={testDb}>Test connection</button>
-              <button type="button" className="bx-btn bx-btn-primary" onClick={saveDb}>Save &amp; reconnect</button>
-              <span className="bx-hint" style={{ margin: 0, color: dbResult.ok === null ? undefined : dbResult.ok ? 'var(--bx-green)' : 'var(--bx-red)' }}>{dbResult.text}</span>
+            <div className="bx-hours-heading">
+              <div className="bx-hours-title">
+                <div className="bx-card-title">Operating hours</div>
+                <p className="bx-hint">Outside these hours, activity is treated as after-hours and intrusion alerts are raised.</p>
+              </div>
+              <div className="bx-hours-stats">
+                <div className="bx-hours-stat"><small>Open days</small><strong>{openDays}</strong></div>
+                <div className="bx-hours-stat"><small>Hours per week</small><strong>{durationLabel(weeklyMinutes)}</strong></div>
+              </div>
             </div>
-          </div>
-
-          <div className="bx-card">
-            <div className="bx-card-title">Operating hours (used by Task 1 and Task 4)</div>
+            <div className="bx-hours-tools">
+              <button type="button" className="bx-btn bx-btn-sm" disabled={!hours.mon} onClick={() => copyMonday([1, 2, 3, 4])}>Copy Monday to weekdays</button>
+              <button type="button" className="bx-btn bx-btn-sm" disabled={!hours.mon} onClick={() => copyMonday([1, 2, 3, 4, 5, 6])}>Copy Monday to all days</button>
+              <button type="button" className="bx-btn bx-btn-sm" disabled={!hoursDirty} onClick={() => { setHours(savedHours); setHoursSave({ busy: false, message: '', ok: null }); }}>Discard changes</button>
+              <span className="bx-hours-timezone">Times are evaluated in UTC</span>
+            </div>
+            <div className="bx-hours-scale" aria-hidden="true">
+              <span /> <span /> <span /> <span />
+              <div><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+              <span />
+            </div>
+            <div className="bx-hours-list">
             {DAYS.map(([key, label]) => {
               const h = hours[key]; if (!h) return null;
+              const openMinute = minutes(h.open);
+              const closeMinute = minutes(h.close);
+              const invalid = !h.closed && (!h.open || !h.close || closeMinute <= openMinute);
               return (
-                <div key={key} className="bx-field-row bx-hours-row">
-                  <div style={{ fontWeight: 500, paddingBottom: 9 }}>{label}</div>
-                  <label className="bx-field">Open <input className="bx-input" type="time" value={h.open} disabled={h.closed} onChange={(e) => setHour(key, { open: e.target.value })} /></label>
-                  <label className="bx-field">Close <input className="bx-input" type="time" value={h.close} disabled={h.closed} onChange={(e) => setHour(key, { close: e.target.value })} /></label>
-                  <label className="bx-check" style={{ paddingBottom: 9 }}><input type="checkbox" checked={h.closed} onChange={(e) => setHour(key, { closed: e.target.checked })} /> Closed</label>
+                <div key={key} className={`bx-hours-day${h.closed ? ' is-closed' : ''}${invalid ? ' is-invalid' : ''}`}>
+                  <div className="bx-hours-day-name">{label}</div>
+                  <label className="bx-hours-toggle"><input type="checkbox" checked={!h.closed} onChange={(e) => { setHour(key, { closed: !e.target.checked }); setHoursSave({ busy: false, message: '', ok: null }); }} /><span className="bx-hours-switch" aria-hidden="true" /><span>{h.closed ? 'Closed' : 'Open'}</span></label>
+                  <label className="bx-field">Opens <input className="bx-input" type="time" value={h.open} disabled={h.closed} aria-label={`${label} opens`} onChange={(e) => { setHour(key, { open: e.target.value }); setHoursSave({ busy: false, message: '', ok: null }); }} /></label>
+                  <label className="bx-field">Closes <input className="bx-input" type="time" value={h.close} disabled={h.closed} aria-label={`${label} closes`} onChange={(e) => { setHour(key, { close: e.target.value }); setHoursSave({ busy: false, message: '', ok: null }); }} /></label>
+                  <div className={`bx-hours-bar${invalid ? ' has-error' : ''}`} aria-label={h.closed ? 'Closed all day' : invalid ? 'Invalid time range' : `${durationLabel(closeMinute - openMinute)} open`}>
+                    {!h.closed && !invalid && <span style={{ left: `${(openMinute / 1440) * 100}%`, width: `${((closeMinute - openMinute) / 1440) * 100}%` }} />}
+                  </div>
+                  <div className="bx-hours-duration">{h.closed ? 'Closed' : invalid ? '—' : durationLabel(closeMinute - openMinute)}</div>
+                  {invalid && <div className="bx-hours-error" role="alert">Closing time must be later than opening time. Overnight hours aren’t supported.</div>}
                 </div>
               );
             })}
-            <button type="button" className="bx-btn bx-btn-primary" style={{ marginTop: 10 }} onClick={saveHours}>Save operating hours</button>
+            </div>
+            <div className="bx-hours-footnote">Closing time must be later than opening time. Overnight shifts aren’t supported.</div>
+            <div className={`bx-hours-footer${hoursDirty || hoursSave.message ? ' is-visible' : ''}`}>
+              <span className="bx-hint" role="status" aria-live="polite" style={{ margin: 0, color: hoursSave.ok === true ? 'var(--bx-green)' : hoursSave.ok === false ? 'var(--bx-red)' : undefined }}>{hoursSave.message || (hoursInvalid ? 'Fix the highlighted day before saving.' : 'You have unsaved changes.')}</span>
+              <button type="button" className="bx-btn" disabled={!hoursDirty || hoursSave.busy} onClick={() => { setHours(savedHours); setHoursSave({ busy: false, message: '', ok: null }); }}>Discard</button>
+              <button type="button" className="bx-btn bx-btn-primary" disabled={hoursSave.busy || !hoursDirty || hoursInvalid} onClick={saveHours}>{hoursSave.busy ? 'Saving…' : 'Save working hours'}</button>
+            </div>
           </div>
         </div>
       )}

@@ -10,8 +10,10 @@ inside the crop, then embed with the configured model.
 
 from __future__ import annotations
 
+import time
 from functools import lru_cache
 
+from app.core.logging import get_logger
 from app.ml.deepface_service import (
     DeepFaceService,
     FaceEmbeddingResult,
@@ -24,6 +26,7 @@ from app.utils.image import BoundingBox, Image, InvalidImageError, crop_face, va
 CROP_MARGIN_RATIO = 0.25
 # Crops smaller than this (in pixels, either side) are too small to embed reliably.
 MIN_CROP_SIZE = 20
+logger = get_logger(__name__)
 
 
 class FaceEmbeddingService:
@@ -49,7 +52,9 @@ class FaceEmbeddingService:
         validate_image(image)
         return self._deepface.generate_embedding(image, detect=True, allow_multiple=False)
 
-    def generate_embedding_from_face_crop(self, crop: Image) -> FaceEmbeddingResult:
+    def generate_embedding_from_face_crop(
+        self, crop: Image, *, correlation_ref: str | None = None
+    ) -> FaceEmbeddingResult:
         """Embed a face crop; if several faces appear in it, the largest is used.
 
         Raises:
@@ -64,17 +69,29 @@ class FaceEmbeddingService:
                 f"Face crop is too small ({width}x{height}); "
                 f"minimum side is {MIN_CROP_SIZE}px"
             )
-        return self._deepface.generate_embedding(crop, detect=True, allow_multiple=True)
+        return self._deepface.generate_embedding(
+            crop, detect=True, allow_multiple=True, correlation_ref=correlation_ref
+        )
 
     def generate_embedding_for_bbox(
-        self, frame: Image, bbox: BoundingBox, *, margin_ratio: float = CROP_MARGIN_RATIO
+        self, frame: Image, bbox: BoundingBox, *, margin_ratio: float = CROP_MARGIN_RATIO,
+        correlation_ref: str | None = None,
     ) -> FaceEmbeddingResult:
         """Crop ``bbox`` (plus margin) from ``frame`` and embed it.
 
         This is the path used by both registration and recognition.
         """
+        started = time.perf_counter()
         crop = crop_face(frame, bbox, margin_ratio)
-        return self.generate_embedding_from_face_crop(crop)
+        crop_ms = (time.perf_counter() - started) * 1000.0
+        if correlation_ref:
+            logger.info(
+                "vault_auth_timing session_ref=%s stage=face_crop_preprocessing duration_ms=%.2f",
+                correlation_ref, crop_ms,
+            )
+        else:
+            logger.debug("face_crop duration_ms=%.2f bbox=%s", crop_ms, bbox)
+        return self.generate_embedding_from_face_crop(crop, correlation_ref=correlation_ref)
 
     @staticmethod
     def to_vector(result: FaceEmbeddingResult) -> list[float]:

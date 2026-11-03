@@ -87,6 +87,7 @@ class _Session:
     passed_at: float | None = None
     identity_attempts: int = 0
     identity_completed: bool = False
+    last_detected_face: DetectedFaceInfo | None = None
 
     # Calibration/action fields live in the shared ActionState; these keep the old attribute API.
     @property
@@ -158,11 +159,30 @@ class LivenessService:
             require_landmarks=True,
         )
 
+    def take_last_detected_face(self, session_id: str) -> DetectedFaceInfo | None:
+        """Consume the face detection from the frame that just advanced liveness.
+
+        Vault authentication uses this on the frame that passes liveness, avoiding
+        an immediate second MediaPipe pass over the same image. A subsequent frame
+        that reuses the terminal liveness result has no cached face and is detected
+        normally by the identity stage.
+        """
+        with self._lock:
+            session = self._get_session(session_id)
+            face = session.last_detected_face
+            session.last_detected_face = None
+            return face
+
     def start_session(
-        self, *, challenge: LivenessChallenge | None = None
+        self, *, challenge: LivenessChallenge | str | None = None
     ) -> LivenessSessionStarted:
         if not self._config.enabled:
             raise RuntimeError("Active liveness is disabled")
+        if challenge is not None and not isinstance(challenge, LivenessChallenge):
+            try:
+                challenge = LivenessChallenge(challenge)
+            except ValueError as exc:
+                raise ValueError(f"Unsupported liveness challenge: {challenge}") from exc
         now = time.monotonic()
         with self._lock:
             self._expire_old_sessions(now)
@@ -223,7 +243,9 @@ class LivenessService:
             expires_in_seconds=self._config.session_timeout_seconds,
         )
 
-    def process_frame(self, session_id: str, image: Image) -> LivenessResult:
+    def process_frame(
+        self, session_id: str, image: Image, *, correlation_ref: str | None = None
+    ) -> LivenessResult:
         now = time.monotonic()
         with self._lock:
             session = self._get_session(session_id)
@@ -232,6 +254,9 @@ class LivenessService:
                 LivenessStatus.FAILED,
                 LivenessStatus.EXPIRED,
             }:
+                # Do not let identity consume a face from an earlier image when
+                # this call only reuses the terminal liveness decision.
+                session.last_detected_face = None
                 return session.last_result
             if now >= session.expires_at:
                 return self._finish(session, LivenessStatus.EXPIRED, 0.0, "Session expired")
@@ -245,14 +270,17 @@ class LivenessService:
         try:
             face = self.detect_pose(image)
         except NoFaceDetectedError:
+            self._log_correlated_face_detection(correlation_ref, detection_started)
             self._log_detection_duration(session_id, detection_started)
             return self._pending(session_id, "No face detected")
         except MultipleFacesError:
+            self._log_correlated_face_detection(correlation_ref, detection_started)
             self._log_detection_duration(session_id, detection_started)
             return self._finish_by_id(
                 session_id, LivenessStatus.FAILED, 0.0, "More than one face detected"
             )
         except FaceDetectionError:
+            self._log_correlated_face_detection(correlation_ref, detection_started)
             self._log_detection_duration(session_id, detection_started)
             logger.exception("Landmark face detection failed for liveness session %s", session_id)
             return self._finish_by_id(
@@ -261,6 +289,12 @@ class LivenessService:
                 0.0,
                 "Facial landmarks are unavailable for the configured detector",
             )
+
+        self._log_correlated_face_detection(correlation_ref, detection_started)
+
+        with self._lock:
+            session = self._get_session(session_id)
+            session.last_detected_face = face
 
         features = extract_features(image, face)
         self._log_detection_duration(session_id, detection_started)
@@ -414,6 +448,16 @@ class LivenessService:
             status=LivenessStatus.CHALLENGE_SELECTED,
             reason="Challenge timed out; retry the same challenge",
         )
+
+    @staticmethod
+    def _log_correlated_face_detection(
+        correlation_ref: str | None, started_at: float
+    ) -> None:
+        if correlation_ref:
+            logger.info(
+                "vault_auth_timing session_ref=%s stage=face_detection duration_ms=%.2f source=liveness_detector",
+                correlation_ref, (time.perf_counter() - started_at) * 1000.0,
+            )
 
     @staticmethod
     def _log_detection_duration(session_id: str, started_at: float) -> None:

@@ -49,10 +49,17 @@ export default function VaultRoomCameraControls({ camera, counting }) {
       return;
     }
     setFormError('');
-    camera.startRtsp(name, submitted);
+    camera.startRtsp(name, submitted, camera.posePreview);
   };
 
   return <div className="space-y-3">
+    <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-[#E3E7F0] bg-white px-3 text-sm font-semibold text-[#0F1B3D]">
+      <input type="checkbox" checked={camera.posePreview}
+        disabled={busy || (connected && camera.kind !== 'webcam')}
+        onChange={(event) => camera.setPosePreview(event.target.checked)} className="h-4 w-4 accent-[#34479B]" />
+      Test MediaPipe pose landmarks
+    </label>
+    {connected && camera.kind === 'cctv' && <p className="text-xs text-[#66718A]">Stop the CCTV session to change pose preview, then reconnect with the option enabled.</p>}
     <div className="flex flex-wrap items-center gap-3">
       <div role="group" aria-label="Vault Room camera source" className="inline-flex rounded-xl bg-[#F4F6FB] p-1">
         <button type="button" aria-pressed={source === 'webcam'} disabled={busy || connected}

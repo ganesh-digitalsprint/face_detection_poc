@@ -18,8 +18,11 @@ class FakeManager:
     def close_vault(self):
         raise vault_room.VaultRoomSessionConflictError("No vault-room session has existed")
 
-    def process_frame(self, _frame):
-        return {"accepts_frames": False}
+    def process_frame(self, _frame, *, include_pose=False):
+        result = {"accepts_frames": False}
+        if include_pose:
+            result["pose_preview"] = {"status": "no_pose_detected", "pose_count": 0}
+        return result
 
 
 def client(monkeypatch, key):
@@ -54,6 +57,10 @@ def test_frames_endpoint_maps_state_invalid_and_oversize(monkeypatch):
     test_client = client(monkeypatch, None)
     no_session = test_client.post("/api/v1/vault-room/frames", files={"frame": ("frame.jpg", _jpeg(), "image/jpeg")})
     assert no_session.status_code == 409
+    pose_only = test_client.post("/api/v1/vault-room/frames?pose_preview=true",
+        files={"frame": ("frame.jpg", _jpeg(), "image/jpeg")})
+    assert pose_only.status_code == 200
+    assert pose_only.json()["accepts_frames"] is False
     invalid = test_client.post("/api/v1/vault-room/frames", files={"frame": ("frame.jpg", b"bad", "image/jpeg")})
     assert invalid.status_code == 400
     oversized = test_client.post("/api/v1/vault-room/frames", files={"frame": ("frame.jpg", b"x" * 1048577, "image/jpeg")})

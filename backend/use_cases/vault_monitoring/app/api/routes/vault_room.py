@@ -76,7 +76,7 @@ def rate_limited(request: Request):
 @router.post("/frames", dependencies=[Depends(require_vault_room_key), Depends(rate_limited)],
              responses={400:{"model":ErrorResponse},401:{"model":ErrorResponse},409:{"model":ErrorResponse},
                         413:{"model":ErrorResponse},429:{"model":ErrorResponse},503:{"model":ErrorResponse}})
-def process_frame(frame: UploadFile = File(...)):
+def process_frame(frame: UploadFile = File(...), pose_preview: bool = Query(default=False)):
     cfg = get_vault_room_config().counting
     if frame.content_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail="Unsupported image type; use JPEG, PNG, or WebP")
@@ -87,8 +87,11 @@ def process_frame(frame: UploadFile = File(...)):
     if get_vault_room_camera_manager().is_active():
         raise HTTPException(status_code=409, detail="A Vault Room camera session is already processing frames.")
     try:
-        result = get_vault_room_manager().process_frame(image)
-        if not result.get("accepts_frames", True):
+        if pose_preview:
+            result = get_vault_room_manager().process_frame(image, include_pose=True)
+        else:
+            result = get_vault_room_manager().process_frame(image)
+        if not result.get("accepts_frames", True) and not pose_preview:
             raise HTTPException(status_code=409, detail="Vault-room session does not accept frames")
         return result
     except VaultRoomBusyError as exc:
@@ -99,6 +102,13 @@ def process_frame(frame: UploadFile = File(...)):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.post("/pose-preview/stop", dependencies=[Depends(require_vault_room_key)])
+def stop_pose_preview():
+    """Close the opt-in MediaPipe task after the camera preview is stopped."""
+    get_vault_room_manager().close_pose_preview()
+    return {"status": "stopped"}
+
+
 @router.post("/camera-sessions", dependencies=[Depends(require_vault_room_key)], response_model=VaultRoomCameraSessionResponse)
 def start_camera_session(payload: VaultRoomCameraStartRequest):
     """Create a webcam or RTSP source feeding the Vault Room person tracker."""
@@ -107,12 +117,20 @@ def start_camera_session(payload: VaultRoomCameraStartRequest):
         if payload.source_type == "webcam":
             if payload.rtsp_url is not None:
                 raise HTTPException(status_code=422, detail="Webcam requests must not include an RTSP URL.")
-            session = camera_manager.start_webcam(payload.name, payload.camera_index)
+            if payload.pose_preview:
+                session = camera_manager.start_webcam(
+                    payload.name, payload.camera_index, pose_preview=True
+                )
+            else:
+                session = camera_manager.start_webcam(payload.name, payload.camera_index)
         else:
             if payload.rtsp_url is None:
                 raise HTTPException(status_code=422, detail="An RTSP URL is required for an RTSP camera.")
             url = validate_rtsp_url(payload.rtsp_url.get_secret_value())
-            session = camera_manager.start_rtsp(payload.name, url)
+            if payload.pose_preview:
+                session = camera_manager.start_rtsp(payload.name, url, pose_preview=True)
+            else:
+                session = camera_manager.start_rtsp(payload.name, url)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:

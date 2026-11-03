@@ -15,7 +15,14 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt
 copy .env.example .env     # then edit; never commit .env
 ```
 
-The MediaPipe model `face_landmarker.task` is not stored in this tree. Place it at `app/models/face_landmarker.task` or set `VAULT_FACE_LANDMARKER_MODEL` to its path.
+The MediaPipe model `face_landmarker.task` is not stored in this tree. Download Google's Face Landmarker task bundle to the default path from this directory:
+
+```powershell
+New-Item -ItemType Directory -Force app\models | Out-Null
+Invoke-WebRequest -Uri https://storage.googleapis.com/mediapipe-assets/face_landmarker_v2.task -OutFile app\models\face_landmarker.task
+```
+
+Alternatively, set `VAULT_FACE_LANDMARKER_MODEL` to the path of an existing compatible model file.
 
 ## Run
 
