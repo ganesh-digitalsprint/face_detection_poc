@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.schemas.common import UtcDatetime
 
 
 class Point(BaseModel):
@@ -42,4 +42,4 @@ class EntryRoi(EntryRoiCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    created_at: datetime
+    created_at: UtcDatetime

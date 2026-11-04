@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, bxApiUrl } from '../api/index.js';
+import { FaceMaskBriefSection } from '../../face-mask/components/FaceMaskSummary.jsx';
 
 const SEV_COLOR = { critical: '#dc2626', high: '#ea580c', medium: '#ca8a04', low: '#16a34a', info: '#64748b' };
 const when = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -29,8 +30,8 @@ export default function SecurityBriefPage() {
   }, [hours]);
   useEffect(() => { load(); }, [load]);
 
-  if (error) return <div className="bx-card"><ul className="bx-headline"><li style={{ color: '#dc2626' }}>Could not load the brief: {error}. Copy the latest backend files and restart the server.</li></ul></div>;
-
+  // A stopped service must never break the whole brief: the Branch part shows its own message and every other
+  // section (controls, Face Mask) still renders. With all services up the output is unchanged.
   const t = b?.totals;
   const kp = t ? [['Incidents', t.events, ''], ['High / critical', t.high_critical, t.high_critical ? '#dc2626' : ''], ['Critical', t.critical, t.critical ? '#dc2626' : ''],
     ['With evidence saved', t.with_evidence, ''], ['Cameras involved', t.cameras, ''], ['Marked false positive', t.false_positive, '']] : [];
@@ -51,7 +52,12 @@ export default function SecurityBriefPage() {
         <button type="button" className="bx-btn bx-btn-primary" onClick={() => window.print()}>🖨 Print / Save as PDF</button>
       </div>
 
-      {!b && <div className="bx-row bx-gap-8 bx-muted" style={{ padding: 30, justifyContent: 'center' }}><span className="bx-spinner" /> Loading…</div>}
+      {error && (
+        <div className="bx-card" role="alert"><ul className="bx-headline"><li style={{ color: '#dc2626' }}>
+          Branch Exterior service unavailable: {error}. Start it, or copy the latest backend files and restart the server.
+        </li></ul></div>
+      )}
+      {!b && !error && <div className="bx-row bx-gap-8 bx-muted" style={{ padding: 30, justifyContent: 'center' }}><span className="bx-spinner" /> Loading…</div>}
       {b && (
         <>
           <div className="bx-card bx-mb-16">
@@ -112,6 +118,7 @@ export default function SecurityBriefPage() {
           <p className="bx-hint" style={{ marginTop: 12 }}>AI-assisted indications - every incident must be verified by a person before any action is taken.</p>
         </>
       )}
+      <FaceMaskBriefSection hours={hours} />
     </>
   );
 }

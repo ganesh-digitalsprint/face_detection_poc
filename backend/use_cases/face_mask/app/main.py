@@ -9,11 +9,14 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.errors import register_error_handlers
 from app.api.router import api_router
-from app.core.config import get_face_mask_config, get_settings
-from app.core.logging_config import configure_logging
-from app.core.paths import STORAGE_DIR, ensure_directories
-from app.db import init_db
 from app.api.routes.health import VERSION
+from app.core.config import get_settings
+from app.core.logging_config import configure_logging
+from app.core.paths import CLIP_DIR, SNAPSHOT_DIR, ensure_directories
+from app.core.settings_store import load_effective_config
+from app.db import init_db
+from app.services.roi_loader import reload_all_rois
+from app.services.runtime import Runtime
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -22,11 +25,17 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_directories()
-    get_face_mask_config()  # fail fast on a missing/invalid face_mask.yaml (FM-10)
+    cfg = load_effective_config()   # fail fast on a missing/invalid face_mask.yaml (FM-10)
     await init_db.startup()
-    logger.info("face_mask startup complete.")
+    runtime = Runtime(cfg, get_settings())
+    app.state.runtime = runtime
+    await runtime.start()
+    async with init_db.session_scope() as session:
+        await reload_all_rois(session, runtime)
+    logger.info("face_mask startup complete (analyzer configured: %s).", cfg.visibility.analyzer)
     yield
-    logger.info("face_mask shutting down...")
+    logger.info("face_mask shutting down: stopping cameras, flushing evidence and alerts...")
+    await runtime.stop()
     await init_db.shutdown()
 
 
@@ -45,4 +54,7 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.api_prefix)
 
 ensure_directories()
-app.mount("/storage", StaticFiles(directory=str(STORAGE_DIR)), name="storage")
+# Serve ONLY evidence media. Mounting all of storage/ (as branch_exterior does) would publish app.db, which holds
+# camera passwords, plus uploads, the alert outbox and runtime_overrides.json (FM-13).
+app.mount("/storage/snapshots", StaticFiles(directory=str(SNAPSHOT_DIR)), name="snapshots")
+app.mount("/storage/clips", StaticFiles(directory=str(CLIP_DIR)), name="clips")

@@ -17,7 +17,10 @@ const STATUS_STYLE = {
   OPEN: 'bg-red-50 text-red-700', ACKNOWLEDGED: 'bg-amber-50 text-amber-800',
   RESOLVED: 'bg-emerald-50 text-emerald-700', DISMISSED: 'bg-slate-100 text-slate-600',
 };
-const SOURCE_LINK = { vault_monitoring: '/alerts/vault', branch_exterior: '/alerts/branch' };
+const SOURCE_LINK = { vault_monitoring: '/alerts/vault', branch_exterior: '/alerts/branch', face_mask: '/face-mask/events' };
+/** Where "Open in <source>" goes. Face Mask alerts deep-link to the exact event (its id is the alert's source_event_id). */
+const linkFor = (alert) => (alert.useCase === 'face_mask' && alert.sourceEventId
+  ? `/face-mask/events/${alert.sourceEventId}` : SOURCE_LINK[alert.useCase]);
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—');
 
 function Pill({ className, children }) {
@@ -68,7 +71,7 @@ function Detail({ alert, audit, actionsEnabled, pending, notice, onAction, onClo
   const [note, setNote] = useState('');
   useEffect(() => setNote(''), [alert.id, alert.rowVersion]);
   const actions = availableActions(alert, actionsEnabled);
-  const sourceLink = SOURCE_LINK[alert.useCase];
+  const sourceLink = linkFor(alert);
   return <div className="vault-card sticky top-24 space-y-4 p-4 sm:p-5">
     <div className="flex items-start justify-between gap-2">
       <div><p className="text-xs font-semibold uppercase text-slate-500">Alert details</p>

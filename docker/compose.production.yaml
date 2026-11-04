@@ -30,7 +30,7 @@ services:
     environment:
       ALERT_DATABASE_URL: postgresql+psycopg://fedbank:${POSTGRES_PASSWORD}@postgres:5432/alert_service
       ALERT_PRODUCER_CREDENTIALS: >-
-        {"${VAULT_ALERT_PRODUCER_TOKEN:?Set a unique vault producer token}":{"use_case":"vault_monitoring","producer":"vault-monitoring"},"${BRANCH_ALERT_PRODUCER_TOKEN:?Set a unique branch producer token}":{"use_case":"branch_exterior","producer":"branch-exterior-monitoring"}}
+        {"${VAULT_ALERT_PRODUCER_TOKEN:?Set a unique vault producer token}":{"use_case":"vault_monitoring","producer":"vault-monitoring"},"${BRANCH_ALERT_PRODUCER_TOKEN:?Set a unique branch producer token}":{"use_case":"branch_exterior","producer":"branch-exterior-monitoring"},"${FACE_MASK_ALERT_PRODUCER_TOKEN:?Set a unique face mask producer token}":{"use_case":"face_mask","producer":"face-mask-monitoring"}}
       ALERT_OPERATOR_CREDENTIALS: >-
         {"${ALERT_SERVICE_OPERATOR_TOKEN:?Set an operator token}":{"actor_id":"production-operator","use_cases":["*"]}}
     depends_on:
@@ -137,6 +137,38 @@ services:
       retries: 3
       start_period: 180s
 
+  face-mask:
+    image: fedbank/face-mask:${IMAGE_TAG:?Set IMAGE_TAG in docker/production.env}
+    build:
+      context: ..
+      dockerfile: backend/use_cases/face_mask/Dockerfile
+    environment:
+      APP_NAME: Fedbank Face Mask Monitoring
+      ENVIRONMENT: production
+      API_PREFIX: /api
+      CORS_ORIGINS: https://${DOMAIN}
+      DB_SQLITE_PATH: storage/app.db
+      ALERT_SERVICE_BASE_URL: http://alert-service:8012
+      ALERT_SERVICE_TOKEN: ${FACE_MASK_ALERT_PRODUCER_TOKEN}
+    volumes:
+      - face-mask-storage:/app/storage
+    depends_on:
+      alert-service:
+        condition: service_healthy
+    networks: [data, egress]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: [/tmp:size=256m,mode=1777]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8014/api/health', timeout=6).read()"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 60s
+
   frontend:
     image: fedbank/frontend:${IMAGE_TAG:?Set IMAGE_TAG in docker/production.env}
     build:
@@ -145,6 +177,7 @@ services:
       args:
         VITE_VAULT_API_BASE_URL: /vault-api
         VITE_BRANCH_EXTERIOR_API_BASE_URL: /branch-api
+        VITE_FACE_MASK_API_BASE_URL: /face-mask-api
         VITE_ALERT_SERVICE_BASE_URL: /alert-service
     environment:
       VAULT_ROOM_API_KEY: ${VAULT_ROOM_API_KEY}
@@ -153,6 +186,8 @@ services:
       vault-monitoring:
         condition: service_healthy
       branch-exterior:
+        condition: service_healthy
+      face-mask:
         condition: service_healthy
       alert-service:
         condition: service_healthy
@@ -208,5 +243,6 @@ volumes:
   branch-config:
   branch-model-cache:
   branch-roboflow-cache:
+  face-mask-storage:
   caddy-data:
   caddy-config:

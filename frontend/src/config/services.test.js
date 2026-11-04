@@ -33,3 +33,35 @@ test('Vault stream URLs resolve against the Vault base, absolute URLs pass throu
   assert.equal(streams.resolveStreamUrl({ session_id: 's1', stream_url: '/api/v1/streams/s1/stream' }), 'http://localhost:8010/api/v1/streams/s1/stream');
   assert.equal(streams.resolveStreamUrl({ session_id: 's1', stream_url: 'https://cams.example/s1' }), 'https://cams.example/s1');
 });
+
+const faceMask = await import('../use-cases/face-mask/api/index.js');
+
+test('Face Mask defaults to port 8014 and its URL helper uses the single configured base', () => {
+  assert.equal(config.FACE_MASK_BASE_URL, 'http://localhost:8014');
+  assert.equal(faceMask.fmApiUrl('/streams/c1/processed'), 'http://localhost:8014/api/streams/c1/processed');
+  assert.equal(faceMask.qs({ a: 1, b: '', c: null, d: 'x y' }), '?a=1&d=x+y');
+  assert.equal(faceMask.qs({}), '');
+});
+
+test('an unreachable Face Mask service raises the friendly message with the exact start command', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
+  try {
+    await assert.rejects(() => faceMask.api.get('/health'), (error) => {
+      assert.equal(error instanceof faceMask.ServiceDownError, true);
+      assert.equal(error.message, 'Face Mask service is not running on port 8014. Start it with: uv run uvicorn app.main:app --reload --port 8014');
+      return true;
+    });
+  } finally { globalThis.fetch = original; }
+});
+
+test('Face Mask API errors surface the server detail and status, validation lists are flattened', async () => {
+  const original = globalThis.fetch;
+  const reply = (status, body) => () => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }));
+  try {
+    globalThis.fetch = reply(409, { detail: 'Invalid transition OPEN -> CONFIRMED. Allowed: UNDER_REVIEW' });
+    await assert.rejects(() => faceMask.api.post('/events/x/review', {}), (e) => e.status === 409 && /Allowed: UNDER_REVIEW/.test(e.message));
+    globalThis.fetch = reply(422, { detail: [{ loc: ['body', 'polygon'], msg: 'List should have at least 3 items' }] });
+    await assert.rejects(() => faceMask.api.post('/roi', {}), (e) => e.message === 'polygon: List should have at least 3 items');
+  } finally { globalThis.fetch = original; }
+});

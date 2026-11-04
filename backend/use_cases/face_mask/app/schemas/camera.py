@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.common import UtcDatetime
 
 CameraType = Literal["rtsp", "webcam", "upload", "folder"]
 MASK = "********"
@@ -38,7 +39,7 @@ class Camera(CameraCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    created_at: datetime
+    created_at: UtcDatetime
 
     def public(self) -> "CameraPublic":
         """FM-13: password never leaves the service; username and URL-embedded credentials are masked too."""
@@ -66,4 +67,4 @@ class CameraPublic(BaseModel):
     location: str
     enabled: bool
     loop_video: bool
-    created_at: datetime
+    created_at: UtcDatetime

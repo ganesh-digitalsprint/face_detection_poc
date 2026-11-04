@@ -4,6 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+# Repository root (backend/use_cases/face_mask/app/core/paths.py -> 5 levels up). Inside the Docker image the
+# service lives at /app, so this may not be a real repo root; callers must tolerate missing paths.
+REPO_ROOT = Path(__file__).resolve().parents[5] if len(Path(__file__).resolve().parents) > 5 else BACKEND_ROOT
+REPO_CONFIG_FILE = REPO_ROOT / "config" / "use_cases" / "face_mask.yaml"
 APP_DIR = BACKEND_ROOT / "app"
 CONFIG_DIR = BACKEND_ROOT / "config"
 STORAGE_DIR = BACKEND_ROOT / "storage"
