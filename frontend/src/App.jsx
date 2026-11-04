@@ -24,7 +24,7 @@ const LivenessTestPage = lazy(() => import('./use-cases/vault-monitoring/pages/L
 // Branch Exterior Monitoring (separate micro-service backend) - loaded on demand.
 const BxLayout = lazy(() => import('./use-cases/branch-exterior/components/BxLayout.jsx'));
 const BxLive = lazy(() => import('./use-cases/branch-exterior/pages/LiveMonitoringPage.jsx'));
-const BxRegions = lazy(() => import('./use-cases/branch-exterior/pages/RegionsZonesPage.jsx'));
+const RegionsZones = lazy(() => import('./use-cases/branch-exterior/pages/CommonRegionsZonesPage.jsx'));
 const BxDashboard = lazy(() => import('./use-cases/branch-exterior/pages/AlertsDashboardPage.jsx'));
 const BxBrief = lazy(() => import('./use-cases/branch-exterior/pages/SecurityBriefPage.jsx'));
 const BxGuards = lazy(() => import('./use-cases/branch-exterior/pages/GuardRosterPage.jsx'));
@@ -69,13 +69,13 @@ export default function App() {
         <Route path="verification" element={<Verification />} />
         <Route path="live/*" element={<LiveMonitoring />} />
         <Route path="video" element={<VideoRecognition />} />
+        <Route path="regions" element={<Suspense fallback={bxFallback}><RegionsZones /></Suspense>} />
         <Route path="branch-exterior" element={<Navigate to="/branch-exterior/live" replace />} />
         {/* One shared BxLayout for every Branch page (live feed socket, theme, toasts stay mounted while moving between them). */}
         <Route element={<Suspense fallback={bxFallback}><BxLayout /></Suspense>}>
           <Route path="branch-exterior/live" element={<BxLive />} />
           <Route path="branch-exterior/brief" element={<BxBrief />} />
           <Route path="branch-exterior/system-check" element={<BxSystemCheck />} />
-          <Route path="regions" element={<BxRegions />} />
           <Route path="guards" element={<BxGuards />} />
           <Route path="settings" element={<BxSettings />} />
         </Route>

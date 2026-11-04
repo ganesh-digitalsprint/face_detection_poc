@@ -19,7 +19,7 @@ export const BX_PAGES = {
 };
 
 /** Route layout for every /branch-exterior/* page, the /alerts/branch tab and the moved /regions, /guards, /settings pages: theme, shared websocket, toasts and the status chips. */
-export default function BxLayout() {
+export default function BxLayout({ children }) {
   const theme = useBxTheme();
   const { pathname } = useLocation();
   const [stats, setStats] = useState(null);
@@ -48,7 +48,7 @@ export default function BxLayout() {
           <span className="bx-chip">Open alerts <b>{stats ? stats.open_events : '-'}</b></span>
         </div>
       </div>
-      <Suspense fallback={<Loading message="Loading…" />}><Outlet /></Suspense>
+      <Suspense fallback={<Loading message="Loading…" />}>{children || <Outlet />}</Suspense>
       <Toasts onEvent={refreshStats} />
     </div>
   );

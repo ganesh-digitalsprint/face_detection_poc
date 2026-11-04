@@ -38,10 +38,14 @@ class Zone:
     name: str
     polygon: tuple[tuple[float, float], ...]
     reference: str = "bottom_center"
+    enabled: bool = True
 
     def as_dict(self) -> dict:
-        return {"id": self.id, "name": self.name, "reference": self.reference,
+        data = {"id": self.id, "name": self.name, "reference": self.reference,
                 "polygon": [[x, y] for x, y in self.polygon]}
+        if not self.enabled:
+            data["enabled"] = False
+        return data
 
 
 @dataclass(frozen=True)
@@ -142,7 +146,10 @@ def zone_from_dict(data: dict) -> Zone:
     if reference not in REFERENCES:
         raise ZoneConfigError(f"reference must be one of {', '.join(REFERENCES)}")
     name = str(data.get("name") or zone_id).strip()[:60]
-    return Zone(zone_id, name, validate_polygon(data.get("polygon", [])), reference)
+    enabled = data.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ZoneConfigError("enabled must be a boolean")
+    return Zone(zone_id, name, validate_polygon(data.get("polygon", [])), reference, enabled)
 
 
 def load_zones(path: str | Path) -> list[Zone]:

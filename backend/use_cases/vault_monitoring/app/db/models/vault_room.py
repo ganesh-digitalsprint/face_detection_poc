@@ -2,6 +2,7 @@
 from datetime import datetime
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import Uuid
 from app.db.database import Base
 
 
@@ -12,6 +13,9 @@ class VaultRoomSession(Base):
     # migration and new writes use the UUID session reference only.
     dual_control_session_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     session_ref: Mapped[str | None] = mapped_column(String(36), index=True)
+    location_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), ForeignKey("registry_locations.id"), nullable=True, index=True)
+    camera_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), ForeignKey("registry_cameras.id"), nullable=True, index=True)
+    assignment_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), ForeignKey("camera_use_case_assignments.id"), nullable=True, index=True)
     employees: Mapped[list] = mapped_column(JSON, nullable=False)
     required_persons: Mapped[int] = mapped_column(Integer, nullable=False)
     test_mode: Mapped[bool] = mapped_column(Boolean, nullable=False)

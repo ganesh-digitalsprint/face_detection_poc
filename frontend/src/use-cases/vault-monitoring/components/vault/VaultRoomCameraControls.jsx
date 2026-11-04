@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Cctv, Play, Square, Webcam } from 'lucide-react';
+import { Cctv, Eye, EyeOff, Play, Square, Webcam } from 'lucide-react';
 
 const button = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50';
 const field = 'mt-1 min-h-11 w-full rounded-lg border border-[#C8CEDB] bg-white px-3 font-normal text-[#0F1B3D] outline-none focus-visible:border-[#34479B] focus-visible:ring-2 focus-visible:ring-[#34479B]/20';
@@ -16,6 +16,7 @@ export default function VaultRoomCameraControls({ camera, counting }) {
   const [channel, setChannel] = useState('101');
   const [path, setPath] = useState('');
   const [url, setUrl] = useState('');
+  const [showUrl, setShowUrl] = useState(false);
   const [formError, setFormError] = useState('');
   const busy = ['starting', 'connecting', 'reconnecting', 'stopping'].includes(camera.status);
   const connected = ['ready', 'connected', 'streaming'].includes(camera.status);
@@ -106,7 +107,14 @@ export default function VaultRoomCameraControls({ camera, counting }) {
           <input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} className={field} placeholder="Vault Room Camera" />
         </label>
         {mode === 'url' ? <label className="text-sm font-semibold text-[#0F1B3D] sm:col-span-2">RTSP stream URL
-          <input required type="password" autoComplete="off" spellCheck="false" value={url} onChange={(event) => setUrl(event.target.value)} className={field} placeholder="rtsp://user:password@192.168.1.50:554/stream" />
+          <span className="relative mt-1 block">
+            <input required type={showUrl ? 'text' : 'password'} autoComplete="off" spellCheck="false" value={url} onChange={(event) => setUrl(event.target.value)} onBlur={() => setUrl((value) => value.trim())} className={`${field} pr-12`} placeholder="rtsp://user:password@192.168.1.50:554/stream" />
+            <button type="button" onClick={() => setShowUrl((visible) => !visible)}
+              aria-label={showUrl ? 'Hide RTSP URL' : 'Show RTSP URL'} title={showUrl ? 'Hide URL' : 'Show URL'}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-2 text-[#55607A] hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">
+              {showUrl ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+            </button>
+          </span>
           <span className="mt-1 block text-xs font-normal text-[#66718A]">RTSP credentials are sent to the backend and are not included in camera status.</span>
         </label> : <>
           <label className="text-sm font-semibold text-[#0F1B3D]">Protocol

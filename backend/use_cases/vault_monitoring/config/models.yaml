@@ -35,6 +35,7 @@ vault_access:
     ambiguity_margin: 0.05
 
 vault_room:
+  zones_source: file
   entry_buffer_seconds: 30
   pose_preview:
     model_path: app/models/pose_landmarker_lite.task

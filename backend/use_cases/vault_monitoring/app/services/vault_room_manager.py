@@ -30,6 +30,7 @@ from app.services.person_detector import RfDetrPersonDetector
 from app.services.person_tracker import PersonTracker
 from app.services.vault_room_counter import StableCounter
 from app.core.zones import ZoneFile, ZoneMonitor
+from app.services.vault_zone_provider import VaultRoomZoneProvider
 
 logger = get_logger(__name__)
 
@@ -67,7 +68,7 @@ class VaultRoomDetectorUnavailableError(RuntimeError): pass
 
 class VaultRoomManager:
     def __init__(self, *, clock=time.monotonic, door: DoorController | None=None, writer=None, config=None,
-                 detector=None, tracker=None, counter=None, zone_file=None, zone_monitor=None):
+                 detector=None, tracker=None, counter=None, zone_file=None, zone_monitor=None, zone_provider=None):
         self._lock = threading.RLock()
         self._clock = clock
         self._wall_anchor = datetime.now(timezone.utc)
@@ -81,8 +82,12 @@ class VaultRoomManager:
         self._counter = counter or (StableCounter(window_seconds=self._counting.count_stable_seconds,
             min_samples=self._counting.stable_min_samples, majority_ratio=self._counting.stable_majority_ratio,
             stale_seconds=self._counting.frame_stale_seconds) if self._counting.enabled else None)
-        self._zone_file = zone_file or ZoneFile()
-        self._zone_monitor = zone_monitor or ZoneMonitor(self._zone_file.load())
+        self._zone_provider = zone_provider or VaultRoomZoneProvider(zone_file or ZoneFile())
+        self._zone_monitor = zone_monitor or ZoneMonitor()
+        self._zone_identity: dict | None = None
+        self._session_identity: dict | None = None
+        self._zones_status = {"source": "file", "status": "not_loaded", "zone_count": 0,
+                              "last_loaded_at": None, "error": None}
         self._inference_slot = threading.Semaphore(1)
         self._last_frame_at: float | None = None
         self._processing_ms: deque[float] = deque(maxlen=10)
@@ -264,13 +269,40 @@ class VaultRoomManager:
             self._stop.clear()
             self._ensure_ticker()
 
+    def _load_zone_snapshot(self):
+        """Load once before the authentication/session frame loop starts."""
+        loaded = None
+        try:
+            loaded = self._zone_provider.load()
+        except Exception as exc:
+            logger.error("Vault zone snapshot load failed error=%s", type(exc).__name__)
+        identity = getattr(self._zone_provider, "active_identity", None)
+        source = getattr(self._zone_provider, "last_source", "file")
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            if loaded is not None:
+                self._zone_monitor.set_zones(loaded)
+                self._zone_identity = dict(identity) if identity else None
+                self._zones_status = {"source": source, "status": "ready", "zone_count": len(loaded),
+                                      "last_loaded_at": now, "error": None}
+            else:
+                if identity != self._zone_identity:
+                    # Never carry another camera/assignment's zones into this session.
+                    self._zone_monitor.set_zones([])
+                    self._zone_identity = dict(identity) if identity else None
+                self._zones_status = {"source": source, "status": "error", "zone_count": len(self._zone_monitor.zones),
+                                      "last_loaded_at": now, "error": "Zone configuration could not be loaded; retaining the last valid snapshot."}
+            self._zone_monitor.reset()
+
     def on_access_attempt_started(self, session_ref: str, required_persons: int):
         """Open the monitoring gate; this does not grant access or unlock the door."""
+        self._load_zone_snapshot()
         with self._lock:
             self._phase = "ACCESS_ATTEMPT"
             self._session_ref = session_ref
             self._ctx = replace(self._ctx, required_persons=required_persons)
             self._verified_count = 0
+            self._session_identity = dict(self._zone_identity) if self._zone_identity else None
             self._phase_since = self._clock()
             self._shortfall_since = self._unauthorized_since = None
             self._tracker.reset(); self._counter.reset(); self._last_frame_at = None
@@ -438,9 +470,6 @@ class VaultRoomManager:
                 tracks = self._tracker.update(detections)
                 raw_count = len(tracks)
                 completed_at = self._clock()
-                changed_zones = self._zone_file.changed()
-                if changed_zones is not None:
-                    self._zone_monitor.set_zones(changed_zones)
                 normalized_tracks = [(t.track_id, t.x1 / frame_bgr.shape[1], t.y1 / frame_bgr.shape[0],
                     t.x2 / frame_bgr.shape[1], t.y2 / frame_bgr.shape[0]) for t in tracks]
                 zone_events = self._zone_monitor.update(completed_at, normalized_tracks)
@@ -546,7 +575,10 @@ class VaultRoomManager:
             "end_reason": ctx.end_reason, "duration_seconds": elapsed, "expired_before_close": expired,
             "expired_alert_count": ctx.expired_alert_level, "peak_count": ctx.peak_count,
             "seconds_at_count": dict(ctx.seconds_at_count or {}), "alert_count": len(ctx.alerts),
-            "count_at_expiry": ctx.count_at_expiry, "count_at_close": ctx.count_at_close}
+            "count_at_expiry": ctx.count_at_expiry, "count_at_close": ctx.count_at_close,
+            "location_id": (self._session_identity or {}).get("location_id"),
+            "camera_id": (self._session_identity or {}).get("camera_id"),
+            "assignment_id": (self._session_identity or {}).get("assignment_id")}
 
     def _utc_datetime(self, mono):
         if mono is None: return None
@@ -560,6 +592,8 @@ class VaultRoomManager:
     def _summary_db_row(summary):
         return {"id": summary["session_id"], "dual_control_session_id": None,
             "session_ref": summary.get("session_ref"),
+            "location_id": summary.get("location_id"), "camera_id": summary.get("camera_id"),
+            "assignment_id": summary.get("assignment_id"),
             "employees": summary["employees"], "required_persons": summary["required_persons"],
             "test_mode": summary["test_mode"], "granted_at": summary["granted_at"],
             "started_at": summary["started_at"], "ended_at": summary["ended_at"],
@@ -641,7 +675,12 @@ class VaultRoomManager:
                 countdown = max(0, self._counting.empty_lock_seconds-(now-c.empty_since))
             current_open_alerts = [{k:v for k,v in a.items() if not k.startswith("_")} for a in c.open_alerts]
             current_open_alerts.extend(open_alerts)
+            identity = {"use_case": "vault_room", "location_id": (self._session_identity or {}).get("location_id"),
+                "camera_id": (self._session_identity or {}).get("camera_id"),
+                "assignment_id": (self._session_identity or {}).get("assignment_id"),
+                "session_id": c.session_id}
             return {"state":c.state, "phase":self._phase, "session_ref":self._session_ref,
+                "identity": identity, "zones_status": dict(self._zones_status),
                 "session_id":c.session_id, "end_reason":c.end_reason,
                 "required_persons":c.required_persons,
                 "verified_count":self._verified_count, "expires_at":expires_at,
@@ -661,6 +700,12 @@ class VaultRoomManager:
                 "zones": self._zone_monitor.snapshot(),
                 "lock_countdown_remaining_seconds":countdown,
                 "alerts":[{k:v for k,v in a.items() if not k.startswith("_")} for a in c.alerts]}
+
+    def active_registry_identity(self):
+        with self._lock:
+            if self._phase == "IDLE" and self._ctx.state == "IDLE":
+                return None
+            return dict(self._session_identity) if self._session_identity else None
 
     def stop(self, timeout=5):
         self._stop.set()
