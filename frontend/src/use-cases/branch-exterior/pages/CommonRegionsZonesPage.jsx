@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Camera, Check, ImagePlus, Pencil, Plus, RefreshCw, Trash2, Undo2, Video, X } from 'lucide-react';
 import { regionsRegistryApi } from '../../../api/regionsRegistry.js';
 import { buildRegistryAdapter } from '../regionsAdapters.js';
@@ -67,7 +68,7 @@ function RegistrySetupDialog({ mode, location, useCase, onClose, onSaved }) {
   </div>;
 }
 
-function CommonUseCaseEditor({ useCase, useCases, onUseCaseChange }) {
+function CommonUseCaseEditor({ useCase, useCases, onUseCaseChange, initialLocationId = '', initialCameraId = '' }) {
   const adapter = useMemo(() => buildRegistryAdapter(regionsRegistryApi, useCase.frontend_id), [useCase.frontend_id]);
   const [locations, setLocations] = useState([]); const [cameras, setCameras] = useState([]); const [assignments, setAssignments] = useState([]);
   const [locationId, setLocationId] = useState(''); const [cameraId, setCameraId] = useState(''); const [zones, setZones] = useState([]);
@@ -104,7 +105,9 @@ function CommonUseCaseEditor({ useCase, useCases, onUseCaseChange }) {
     } catch (exception) { setError(exception.response?.data?.detail || exception.message || 'Could not load Regions & Zones.'); }
     finally { setLoading(false); }
   }, [adapter, useCase.id]);
-  useEffect(() => { refresh(); }, [refresh]);
+  // Deep links (e.g. from Grill Gate configuration) preselect a location/camera; unknown ids fall back to the first.
+  const initialRef = useRef([initialLocationId, initialCameraId]);
+  useEffect(() => { refresh(...initialRef.current); }, [refresh]);
 
   useEffect(() => {
     let disposed = false;
@@ -263,10 +266,11 @@ function CommonUseCaseEditor({ useCase, useCases, onUseCaseChange }) {
 }
 
 export default function CommonRegionsZonesPage() {
-  const [useCases, setUseCases] = useState([]); const [selectedId, setSelectedId] = useState('vault_room'); const [error, setError] = useState('');
+  const [params] = useSearchParams();
+  const [useCases, setUseCases] = useState([]); const [selectedId, setSelectedId] = useState(() => params.get('use_case') || 'vault_room'); const [error, setError] = useState('');
   useEffect(() => { let active = true; regionsRegistryApi.get('/use-cases').then((items) => { if (active) setUseCases(items); }).catch((exception) => { if (active) setError(exception.response?.data?.detail || exception.message || 'Could not load use cases.'); }); return () => { active = false; }; }, []);
   const selected = useCases.find((item) => item.id === selectedId);
   const selector = <label className="text-xs text-slate-600">Use case<select aria-label="Use case" className="ml-2 rounded-lg border border-slate-300 bg-white p-2 text-sm" value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>{useCases.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>;
   if (selectedId === 'branch_exterior') return <div className="min-h-full bg-[#f5f6fa]"><header className="mx-auto flex max-w-6xl items-center justify-between px-4 pt-5 sm:px-6"><h1 className="text-base font-semibold">Region &amp; Zone Management</h1>{selector}</header><Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading Branch Exterior editor…</div>}><BxLayout><LegacyBranchRegionsZonesPage/></BxLayout></Suspense></div>;
-  return <div className="min-h-full bg-[#f5f6fa]">{error ? <div className="mx-auto max-w-6xl p-6 text-sm text-red-700" role="alert">{error}</div> : selected && <CommonUseCaseEditor key={selected.id} useCase={selected} useCases={useCases} onUseCaseChange={setSelectedId}/>}</div>;
+  return <div className="min-h-full bg-[#f5f6fa]">{error ? <div className="mx-auto max-w-6xl p-6 text-sm text-red-700" role="alert">{error}</div> : selected && <CommonUseCaseEditor key={selected.id} useCase={selected} useCases={useCases} onUseCaseChange={setSelectedId} initialLocationId={selected.id === params.get('use_case') ? params.get('location_id') || '' : ''} initialCameraId={selected.id === params.get('use_case') ? params.get('camera_id') || '' : ''}/>}</div>;
 }

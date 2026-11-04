@@ -51,7 +51,7 @@ export const NAV_SECTIONS = [
         icon: Video,
         children: [{ id: 'branch-live', label: 'Live monitoring', to: '/branch-exterior/live' }],
       },
-      { id: 'gate-mesh', label: 'Gate & Mesh', icon: DoorClosed, soon: true },
+      { id: 'gate-mesh', label: 'Gate & Mesh', icon: DoorClosed, to: '/grill-gate' },
       { id: 'face-concealment', label: 'Face Concealment', icon: EyeOff, soon: true },
     ],
   },

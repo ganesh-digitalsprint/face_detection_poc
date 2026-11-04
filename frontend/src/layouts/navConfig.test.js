@@ -57,8 +57,13 @@ test('Employees is also active on nested authorized-registration routes', () => 
 });
 
 test('soon items are never active', () => {
-  assert.ok(!isItemActive(byId('gate-mesh'), '/'));
-  assert.ok(!linkTargets(NAV_SECTIONS).some((t) => t.includes('gate') || t.includes('concealment')));
+  assert.ok(!isItemActive(byId('face-concealment'), '/'));
+  assert.ok(!linkTargets(NAV_SECTIONS).some((t) => t.includes('concealment')));
+});
+
+test('Gate & Mesh links to the Grill Gate page', () => {
+  assert.equal(byId('gate-mesh').to, '/grill-gate');
+  assert.ok(isItemActive(byId('gate-mesh'), '/grill-gate'));
 });
 
 test('groups open by default flag or when a child route is active', () => {

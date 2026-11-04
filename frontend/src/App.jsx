@@ -19,6 +19,7 @@ import FaceEnrollment from './use-cases/vault-monitoring/pages/registration/Face
 import Verification from './pages/Verification.jsx';
 import VideoRecognition from './pages/VideoRecognition.jsx';
 
+const GrillGatePage = lazy(() => import('./use-cases/grill-gate/pages/GrillGatePage.jsx'));
 const LivenessTestPage = lazy(() => import('./use-cases/vault-monitoring/pages/LivenessTestPage.jsx'));
 
 // Branch Exterior Monitoring (separate micro-service backend) - loaded on demand.
@@ -64,6 +65,10 @@ export default function App() {
         <Route
           path="liveness-test"
           element={<Suspense fallback={<Loading message="Loading Liveness Test…" />}><LivenessTestPage /></Suspense>}
+        />
+        <Route
+          path="grill-gate"
+          element={<Suspense fallback={<Loading message="Loading Grill Gate Monitoring…" />}><GrillGatePage /></Suspense>}
         />
         <Route path="identification" element={<Identification />} />
         <Route path="verification" element={<Verification />} />

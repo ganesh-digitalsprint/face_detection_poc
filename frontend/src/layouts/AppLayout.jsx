@@ -21,6 +21,7 @@ const TITLES = [
   ['/vault-alerts/incidents', 'Incident detail'],
   ['/alerts', 'Alerts'],
   ['/vault-access', 'Vault Access'],
+  ['/grill-gate', 'Grill Gate Monitoring'],
   ['/liveness-test', 'Liveness Test'],
   ['/detection', 'Face Detection'],
   ['/registration', 'Person Registration'],
