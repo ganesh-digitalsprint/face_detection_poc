@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal, get_args
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,17 @@ from app.services.runtime import Runtime
 
 router = APIRouter(prefix="/events", tags=["events"])
 _write = [Depends(require_api_key)]
+
+def parse_statuses(raw: str | None) -> list[str] | None:
+    """'OPEN,UNDER_REVIEW' -> ['OPEN', 'UNDER_REVIEW']; unknown names are rejected with 422."""
+    if not raw:
+        return None
+    names = [part.strip().upper() for part in raw.split(",") if part.strip()]
+    unknown = [n for n in names if n not in get_args(EventStatus)]
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown status: {', '.join(unknown)}")
+    return names
+
 
 _MEDIA_TYPES = {".jpg": "image/jpeg", ".mp4": "video/mp4", ".webm": "video/webm"}
 
@@ -43,6 +55,8 @@ def _storage_file(relative: str):
 async def list_events(
     date_from: datetime | None = None, date_to: datetime | None = None, camera_id: str | None = None,
     status: EventStatus | None = None, covering_type: str | None = None,
+    statuses: str | None = Query(default=None, description="Comma-separated statuses (e.g. OPEN,UNDER_REVIEW)"),
+    sort: Literal["asc", "desc"] = "desc",
     outcome: str | None = Query(default=None, description="Events are always CONCEALED; use /api/entries for other outcomes"),
     limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_session),
@@ -51,7 +65,7 @@ async def list_events(
         return EventPage(items=[], total=0, limit=limit, offset=offset)
     items, total = await EventRepository(session).list(
         date_from=date_from, date_to=date_to, camera_id=camera_id, status=status, covering_type=covering_type,
-        limit=limit, offset=offset)
+        statuses=parse_statuses(statuses), ascending=sort == "asc", limit=limit, offset=offset)
     return EventPage(items=items, total=total, limit=limit, offset=offset)
 
 

@@ -1,20 +1,20 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, coveringLabel, fmApiUrl, fmtTime, qs } from '../api/index.js';
-import { EventStatusBadge, PageState } from '../components/ui.jsx';
-import Modal from '../../branch-exterior/components/Modal.jsx';
+import { useState } from 'react';
+import { api, coveringLabel, fmApiUrl, fmtTime } from '../api/index.js';
+import { EventStatusBadge, PageState } from './ui.jsx';
 import usePolling from '../hooks/usePolling.js';
 
-const STATUSES = ['OPEN', 'UNDER_REVIEW', 'CONFIRMED', 'FALSE_POSITIVE', 'CLOSED'];
-const PAGE_SIZE = 15;
 // Which review actions the workflow allows from each status (the server enforces the same table).
 const NEXT = { OPEN: ['UNDER_REVIEW'], UNDER_REVIEW: ['CONFIRMED', 'FALSE_POSITIVE'], CONFIRMED: ['CLOSED'], FALSE_POSITIVE: ['CLOSED'], CLOSED: [] };
 const ACTION_LABEL = { UNDER_REVIEW: 'Mark under review', CONFIRMED: 'Confirm', FALSE_POSITIVE: 'False positive', CLOSED: 'Close' };
 const NEEDS_REASON = { FALSE_POSITIVE: 'Reason (why is this a false positive?)', CLOSED: 'Closing remarks' };
 
-function toIso(local) { return local ? new Date(local).toISOString() : ''; }
+/** 409 from an invalid transition arrives as the server's sentence; make a missing one readable. */
+function readableReviewError(e) {
+  if (e?.status === 409) return `That change is not allowed from the event's current status. ${e.message || ''}`.trim();
+  return e?.message || 'The review action failed.';
+}
 
-function Detail({ eventId, cameras, onClose, onChanged }) {
+export default function FaceMaskEventDetail({ eventId, cameras, onClose, onChanged }) {
   const ev = usePolling(async () => {
     const [event, evidence, actions] = await Promise.all([
       api.get(`/events/${eventId}`), api.get(`/events/${eventId}/evidence`), api.get(`/events/${eventId}/actions`)]);
@@ -33,7 +33,7 @@ function Detail({ eventId, cameras, onClose, onChanged }) {
       await api.post(`/events/${eventId}/review`, { to_status: status, remarks: remarks || '', reviewer });
       setPending(null); setReason('');
       await ev.reload(); onChanged();
-    } catch (e) { setError(e.message); } finally { setBusy(false); }
+    } catch (e) { setError(readableReviewError(e)); } finally { setBusy(false); }
   };
 
   const data = ev.data;
@@ -42,10 +42,14 @@ function Detail({ eventId, cameras, onClose, onChanged }) {
   const cameraName = cameras.find((c) => c.id === e?.camera_id)?.name || evidence?.camera_name || e?.camera_id;
 
   return (
-    <Modal title={`Concealment event ${eventId.slice(0, 8)}`} onClose={onClose} maxWidth={920}>
+    <aside className="bx-card" aria-label={`Concealment event ${eventId.slice(0, 8)}`}>
+      <div className="bx-row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
+        <div className="bx-card-title" style={{ margin: 0 }}>Concealment event {eventId.slice(0, 8)}</div>
+        <button type="button" className="bx-btn bx-btn-sm" onClick={onClose} aria-label="Close details">Close</button>
+      </div>
       <PageState loading={ev.loading} error={ev.error} data={data} onRetry={ev.reload}>
         {e && (
-          <div className="bx-two-col" style={{ gridTemplateColumns: '1.3fr 1fr' }}>
+          <div className="bx-two-col" style={{ gridTemplateColumns: '1fr' }}>
             <div>
               <div className="bx-card-title">Evidence</div>
               {evidence.snapshot_url
@@ -115,85 +119,7 @@ function Detail({ eventId, cameras, onClose, onChanged }) {
           </div>
         )}
       </PageState>
-    </Modal>
+    </aside>
   );
 }
 
-export default function EventsReview() {
-  const { eventId } = useParams();
-  const navigate = useNavigate();
-  const [search] = useSearchParams();
-  const [filters, setFilters] = useState({ from: '', to: '', camera_id: '', status: STATUSES.includes(search.get('status')) ? search.get('status') : '', covering_type: '' });
-  const [page, setPage] = useState(0);
-  const set = (k) => (ev) => { setFilters((f) => ({ ...f, [k]: ev.target.value })); setPage(0); };
-
-  const cams = usePolling(() => api.get('/cameras'), 15000);
-  const list = usePolling(() => api.get(`/events${qs({
-    date_from: toIso(filters.from), date_to: toIso(filters.to), camera_id: filters.camera_id, status: filters.status,
-    covering_type: filters.covering_type, limit: PAGE_SIZE, offset: page * PAGE_SIZE })}`), 5000, [filters, page]);
-  const cameras = cams.data || [];
-  const nameOf = (id) => cameras.find((c) => c.id === id)?.name || id.slice(0, 8);
-  const total = list.data?.total || 0;
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  useEffect(() => { if (page > pages - 1) setPage(0); }, [pages, page]);
-
-  return (
-    <>
-      <div className="bx-card bx-mb-16">
-        <div className="bx-field-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
-          <label className="bx-field">From <input className="bx-input" type="datetime-local" value={filters.from} onChange={set('from')} /></label>
-          <label className="bx-field">To <input className="bx-input" type="datetime-local" value={filters.to} onChange={set('to')} /></label>
-          <label className="bx-field">Camera
-            <select className="bx-input" value={filters.camera_id} onChange={set('camera_id')}>
-              <option value="">All cameras</option>{cameras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </label>
-          <label className="bx-field">Status
-            <select className="bx-input" value={filters.status} onChange={set('status')}>
-              <option value="">All statuses</option>{STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
-          </label>
-          <label className="bx-field">Covering
-            <select className="bx-input" value={filters.covering_type} onChange={set('covering_type')}>
-              <option value="">Any</option>
-              {['lower_face_covering', 'full_face_covering', 'head_covering', 'surgical_mask', 'scarf', 'cap_concealing', 'helmet', 'other_mask']
-                .map((c) => <option key={c} value={c}>{coveringLabel(c)}</option>)}
-            </select>
-          </label>
-        </div>
-        <button type="button" className="bx-btn bx-btn-sm" onClick={() => { setFilters({ from: '', to: '', camera_id: '', status: '', covering_type: '' }); setPage(0); }}>Clear filters</button>
-      </div>
-
-      <div className="bx-card">
-        <PageState loading={list.loading} error={list.error} data={list.data} onRetry={list.reload}
-          isEmpty={(d) => d.total === 0} emptyIcon="🛡" emptyText="No concealment events match these filters.">
-          <div className="bx-scroll-x">
-            <table className="bx-table">
-              <thead><tr><th>Time</th><th>Camera</th><th>Track</th><th>Covering</th><th>Score</th><th>Status</th><th>Clip</th></tr></thead>
-              <tbody>
-                {(list.data?.items || []).map((e) => (
-                  <tr key={e.id} className="clickable" tabIndex={0} onClick={() => navigate(`/face-mask/events/${e.id}`)}
-                    onKeyDown={(k) => { if (k.key === 'Enter') navigate(`/face-mask/events/${e.id}`); }}>
-                    <td>{fmtTime(e.first_seen)}</td><td>{nameOf(e.camera_id)}</td><td>#{e.track_id}</td>
-                    <td>{coveringLabel(e.covering_type)}</td><td>{e.score.toFixed(2)}</td>
-                    <td><EventStatusBadge status={e.status} /></td><td>{e.clip_status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="bx-row bx-gap-8" style={{ justifyContent: 'space-between', marginTop: 12 }}>
-            <span className="bx-muted" style={{ fontSize: 13 }}>{total} event{total === 1 ? '' : 's'} · page {page + 1} of {pages}</span>
-            <span className="bx-row bx-gap-8">
-              <button type="button" className="bx-btn bx-btn-sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</button>
-              <button type="button" className="bx-btn bx-btn-sm" disabled={page >= pages - 1} onClick={() => setPage((p) => p + 1)}>Next</button>
-            </span>
-          </div>
-        </PageState>
-      </div>
-
-      {eventId && <Detail eventId={eventId} cameras={cameras} onClose={() => navigate('/face-mask/events')} onChanged={list.reload} />}
-    </>
-  );
-}

@@ -5,9 +5,10 @@ import AddCameraModal from '../components/AddCameraModal.jsx';
 import { useFmStatus } from '../components/FmStatus.jsx';
 import { EventStatusBadge, PageState, ServiceDown, StateDot, StreamBadge, Empty } from '../components/ui.jsx';
 import usePolling from '../hooks/usePolling.js';
+import { faceMaskEventLink } from '../../../layouts/routes.js';
 
 // A sensible default entrance for a quick video test: the lower part of the frame, people walking "up" into the building.
-// Real cameras get their own ROI on the Entry ROI page.
+// Real cameras get their own Entry ROI on the common Regions & Zones page.
 const DEFAULT_ROI = {
   name: 'Default entrance (lower frame)',
   polygon: [{ x: 0.05, y: 0.4 }, { x: 0.95, y: 0.4 }, { x: 0.95, y: 0.98 }, { x: 0.05, y: 0.98 }],
@@ -61,7 +62,7 @@ function VideoPanel({ onCreated }) {
       </div>
       <label className="bx-row bx-gap-8" style={{ fontSize: 13, marginBottom: 10 }}>
         <input type="checkbox" checked={useDefaultRoi} onChange={(e) => setUseDefaultRoi(e.target.checked)} />
-        Use a default entrance (lower part of the frame, walking up). Untick to set the entry area yourself on the Entry ROI page first.
+        Use a default entrance (lower part of the frame, walking up). Untick to set the entry area yourself on <Link to="/regions?use_case=face_mask">Regions &amp; Zones</Link> first.
       </label>
       <button type="button" className="bx-btn bx-btn-primary" disabled={busy} onClick={submit}>{busy ? 'Starting…' : 'Analyse video'}</button>
     </div>
@@ -171,7 +172,7 @@ export default function LiveMonitoring() {
               {cam && (
                 <div className="bx-row bx-gap-8 bx-wrap">
                   <button type="button" className={`bx-btn bx-btn-sm${running ? '' : ' bx-btn-primary'}`} onClick={toggleRun}>{running ? 'Stop' : 'Start'}</button>
-                  <Link className="bx-btn bx-btn-sm" to={`/face-mask/roi?camera=${cam.id}`}>Entry ROI</Link>
+                  <Link className="bx-btn bx-btn-sm" to={`/regions?use_case=face_mask&camera=${cam.id}`}>Entry ROI</Link>
                   <button type="button" className="bx-btn bx-btn-sm bx-btn-ghost" onClick={remove}>Delete</button>
                 </div>
               )}
@@ -180,10 +181,10 @@ export default function LiveMonitoring() {
             {cam && st.status === 'DONE' && (
               <div className="bx-hint" style={{ margin: '0 16px 10px' }}>
                 <b>Finished.</b> {st.frames_read} frames analysed, <b>{st.events_found}</b> concealment event{st.events_found === 1 ? '' : 's'} found.
-                {st.events_found > 0 && <> <Link to="/face-mask/events">Review them</Link>.</>}
+                {st.events_found > 0 && <> <Link to="/alerts/face-mask">Review them</Link>.</>}
               </div>
             )}
-            {cam && st.notice && <div className="bx-diag" role="status" style={{ margin: '0 16px 10px' }}>{st.notice}. <Link to={`/face-mask/roi?camera=${cam.id}`}>Set it now</Link>.</div>}
+            {cam && st.notice && <div className="bx-diag" role="status" style={{ margin: '0 16px 10px' }}>{st.notice}. <Link to={`/regions?use_case=face_mask&camera=${cam.id}`}>Set it now</Link>.</div>}
             {cam && st.last_error && ['RECONNECTING', 'OFFLINE'].includes(st.status) === false && st.status !== 'ERROR' && (
               <div style={{ padding: '0 16px 6px', fontSize: 12, color: 'var(--bx-red)' }}>{st.last_error}</div>
             )}
@@ -204,12 +205,12 @@ export default function LiveMonitoring() {
           </div>
 
           <div className="bx-card">
-            <div className="bx-card-title">Concealment events <Link to="/face-mask/events" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></div>
+            <div className="bx-card-title">Concealment events <Link to="/alerts/face-mask" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></div>
             <div className="bx-ticker">
               {events.error && !events.data && <ServiceDown error={events.error} onRetry={events.reload} />}
               {events.data && events.data.items.length === 0 && <Empty icon="🕑" bare>No concealment events yet.</Empty>}
               {(events.data?.items || []).map((e) => (
-                <Link key={e.id} to={`/face-mask/events/${e.id}`} className="bx-ticker-item sev-high" style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+                <Link key={e.id} to={faceMaskEventLink(e.id)} className="bx-ticker-item sev-high" style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
                   <div className="top"><span className="cam">{coveringLabel(e.covering_type)}</span><span className="time">{timeAgo(e.first_seen)}</span></div>
                   <div className="msg">Track #{e.track_id} · score {e.score.toFixed(2)} · {e.frame_count} frames</div>
                   <div style={{ marginTop: 5 }}><EventStatusBadge status={e.status} /></div>

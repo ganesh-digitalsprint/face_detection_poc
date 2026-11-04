@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_runtime, get_session, require_api_key
 from app.core import settings_store
-from app.db.repositories.sql_repo import CameraRepository, EntryLogRepository, EventRepository
+from app.api.routes.events import parse_statuses
+from app.db.repositories.sql_repo import CameraRepository, EntryLogRepository, EntryRoiRepository, EventRepository
 from app.schemas.event import EntryLog, EventStatus
 from app.schemas.settings import SettingsUpdate, TunableSettings
 from app.schemas.stats import StatsSummary
@@ -51,17 +52,21 @@ def _safe_cell(value: object) -> str:
 @router.get("/reports/events.csv")
 async def events_csv(date_from: datetime | None = None, date_to: datetime | None = None,
                      camera_id: str | None = None, status: EventStatus | None = None,
-                     covering_type: str | None = None, session: AsyncSession = Depends(get_session)):
+                     covering_type: str | None = None, statuses: str | None = None,
+                     session: AsyncSession = Depends(get_session)):
     events, _ = await EventRepository(session).list(date_from=date_from, date_to=date_to, camera_id=camera_id,
-                                                    status=status, covering_type=covering_type, limit=100000)
+                                                    status=status, covering_type=covering_type,
+                                                    statuses=parse_statuses(statuses), limit=100000)
     names = {c.id: c.name for c in await CameraRepository(session).list()}
+    roi_names = {r.id: r.name for r in await EntryRoiRepository(session).list(None)}
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["event_id", "first_seen_utc", "last_seen_utc", "camera_id", "camera_name", "track_id", "status",
+    writer.writerow(["event_id", "first_seen_utc", "last_seen_utc", "camera_id", "camera_name", "roi_name", "track_id", "status",
                      "score", "covering_type", "frames_evaluated", "clip_status", "reviewer", "remarks", "reviewed_at_utc"])
     for e in events:
         writer.writerow([e.id, e.first_seen.isoformat(), e.last_seen.isoformat(), e.camera_id,
-                         _safe_cell(names.get(e.camera_id, "")), e.track_id, e.status, f"{e.score:.3f}",
+                         _safe_cell(names.get(e.camera_id, "")),
+                         _safe_cell(roi_names.get(e.roi_id, "")), e.track_id, e.status, f"{e.score:.3f}",
                          e.covering_type, e.frame_count, e.clip_status, _safe_cell(e.reviewer), _safe_cell(e.remarks),
                          e.reviewed_at.isoformat() if e.reviewed_at else ""])
     return StreamingResponse(iter([buffer.getvalue()]), media_type="text/csv",

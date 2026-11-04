@@ -62,3 +62,22 @@ async def test_repositories_round_trip(tmp_path: Path) -> None:
         await session.commit()
     assert event.status == "OPEN" and event.first_seen.tzinfo is not None and action.to_status == "UNDER_REVIEW"
     await engine.dispose()
+
+
+@pytest.mark.integration
+async def test_migration_adds_common_zone_columns_to_an_old_entry_roi_table(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "old_roi.db")
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "CREATE TABLE fm_entry_roi (id VARCHAR(32) PRIMARY KEY, camera_id VARCHAR(32), name VARCHAR(120), "
+            "polygon JSON, inward_vector JSON, created_at DATETIME)"))
+        await conn.execute(text(
+            "INSERT INTO fm_entry_roi VALUES ('r1', 'c1', 'Grill Gate', '[]', '{}', '2026-01-01 00:00:00')"))
+    await create_all_tables(engine)
+    await create_all_tables(engine)  # idempotent: a second run must not fail
+    async with engine.connect() as conn:
+        cols = await conn.run_sync(lambda c: {col["name"] for col in inspect(c).get_columns("fm_entry_roi")})
+        row = (await conn.execute(text("SELECT name, enabled FROM fm_entry_roi"))).one()
+    assert {"enabled", "updated_at"} <= cols
+    assert tuple(row) == ("Grill Gate", 1)  # existing ROI survives and defaults to enabled
+    await engine.dispose()

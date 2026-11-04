@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/index.js';
+import FaceMaskSettingsTab from '../../face-mask/components/FaceMaskSettingsTab.jsx';
 import { SETTINGS_TABS, resolveSettingsTab } from '../settingsTabs.js';
 
 const DAYS = [['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'], ['fri', 'Friday'], ['sat', 'Saturday'], ['sun', 'Sunday']];
@@ -111,7 +112,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      {loadError && <div className="bx-diag"><b>Could not load settings:</b> {loadError}</div>}
+      {loadError && tab !== 'face-mask' && <div className="bx-diag"><b>Could not load settings:</b> {loadError}</div>}
       <div role="group" aria-label="Settings sections" className="bx-row bx-gap-8 bx-wrap" style={{ marginBottom: 16 }}>
         {SETTINGS_TABS.map((t) => (
           <button
@@ -239,7 +240,8 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
-      <p className="bx-hint" style={{ marginTop: 16 }}>Something not working? Open the <Link to="/branch-exterior/system-check" style={{ color: 'var(--bx-brand)', textDecoration: 'underline' }}>System check</Link> page.</p>
+      {tab !== 'face-mask' && <p className="bx-hint" style={{ marginTop: 16 }}>Something not working? Open the <Link to="/branch-exterior/system-check" style={{ color: 'var(--bx-brand)', textDecoration: 'underline' }}>System check</Link> page.</p>}
+      {tab === 'face-mask' && <FaceMaskSettingsTab />}
     </>
   );
 }

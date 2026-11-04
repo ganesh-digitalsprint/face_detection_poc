@@ -1,8 +1,8 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import Loading from './components/common/Loading.jsx';
 import AppLayout from './layouts/AppLayout.jsx';
-import { LEGACY_REDIRECTS } from './layouts/routes.js';
+import { faceMaskEventLink, LEGACY_REDIRECTS } from './layouts/routes.js';
 import AlertsLayout from './pages/alerts/AlertsLayout.jsx';
 import AlertCenter from './pages/AlertCenter.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -16,6 +16,7 @@ import VaultIncident from './use-cases/vault-monitoring/pages/VaultIncident.jsx'
 import AuthorizedEmployeeRegistration from './use-cases/vault-monitoring/pages/registration/AuthorizedEmployeeRegistration.jsx';
 import EmployeeRegistration from './use-cases/vault-monitoring/pages/registration/EmployeeRegistration.jsx';
 import FaceEnrollment from './use-cases/vault-monitoring/pages/registration/FaceEnrollment.jsx';
+import RegionsPage from './pages/regions/RegionsPage.jsx';
 import Verification from './pages/Verification.jsx';
 import VideoRecognition from './pages/VideoRecognition.jsx';
 
@@ -24,7 +25,6 @@ const LivenessTestPage = lazy(() => import('./use-cases/vault-monitoring/pages/L
 // Branch Exterior Monitoring (separate micro-service backend) - loaded on demand.
 const BxLayout = lazy(() => import('./use-cases/branch-exterior/components/BxLayout.jsx'));
 const BxLive = lazy(() => import('./use-cases/branch-exterior/pages/LiveMonitoringPage.jsx'));
-const RegionsZones = lazy(() => import('./use-cases/branch-exterior/pages/CommonRegionsZonesPage.jsx'));
 const BxDashboard = lazy(() => import('./use-cases/branch-exterior/pages/AlertsDashboardPage.jsx'));
 const BxBrief = lazy(() => import('./use-cases/branch-exterior/pages/SecurityBriefPage.jsx'));
 const BxGuards = lazy(() => import('./use-cases/branch-exterior/pages/GuardRosterPage.jsx'));
@@ -34,17 +34,28 @@ const bxFallback = <Loading message="Loading Branch Exterior Monitoring…" />;
 
 // Face Mask Monitoring (separate micro-service backend) - loaded on demand.
 const FmLayout = lazy(() => import('./use-cases/face-mask/components/FmLayout.jsx'));
-const FmDashboard = lazy(() => import('./use-cases/face-mask/pages/FaceMaskDashboard.jsx'));
+const FmEventsTab = lazy(() => import('./use-cases/face-mask/pages/FaceMaskEventsTab.jsx'));
 const FmLive = lazy(() => import('./use-cases/face-mask/pages/LiveMonitoring.jsx'));
-const FmEvents = lazy(() => import('./use-cases/face-mask/pages/EventsReview.jsx'));
-const FmRoi = lazy(() => import('./use-cases/face-mask/pages/EntryRoiConfig.jsx'));
-const FmReports = lazy(() => import('./use-cases/face-mask/pages/ReportsSettings.jsx'));
 const fmFallback = <Loading message="Loading Face Mask…" />;
 
 /** Old URL -> new URL, keeping the query string and hash (a bare <Navigate to> would drop them). */
 function LegacyRedirect({ to }) {
   const { search, hash } = useLocation();
   return <Navigate to={{ pathname: to, search, hash }} replace />;
+}
+
+/** Old Entry ROI page -> common Regions & Zones with Face Mask selected (a ?camera= link is kept). */
+function FaceMaskRoiRedirect() {
+  const { search } = useLocation();
+  const camera = new URLSearchParams(search).get('camera');
+  const query = new URLSearchParams({ use_case: 'face_mask', ...(camera ? { camera } : {}) });
+  return <Navigate to={{ pathname: '/regions', search: `?${query}` }} replace />;
+}
+
+/** Old /face-mask/events/:id deep link -> the Face Mask events tab with that event open. */
+function FaceMaskEventRedirect() {
+  const { eventId } = useParams();
+  return <Navigate to={eventId ? faceMaskEventLink(eventId) : '/alerts/face-mask'} replace />;
 }
 
 export default function App() {
@@ -65,6 +76,7 @@ export default function App() {
           <Route path="branch" element={<Suspense fallback={bxFallback}><BxLayout /></Suspense>}>
             <Route index element={<BxDashboard />} />
           </Route>
+          <Route path="face-mask" element={<Suspense fallback={fmFallback}><FmEventsTab /></Suspense>} />
         </Route>
         {LEGACY_REDIRECTS.map(([from, to]) => (
           <Route key={from} path={from.slice(1)} element={<LegacyRedirect to={to} />} />
@@ -78,7 +90,6 @@ export default function App() {
         <Route path="verification" element={<Verification />} />
         <Route path="live/*" element={<LiveMonitoring />} />
         <Route path="video" element={<VideoRecognition />} />
-        <Route path="regions" element={<Suspense fallback={bxFallback}><RegionsZones /></Suspense>} />
         <Route path="branch-exterior" element={<Navigate to="/branch-exterior/live" replace />} />
         {/* One shared BxLayout for every Branch page (live feed socket, theme, toasts stay mounted while moving between them). */}
         <Route element={<Suspense fallback={bxFallback}><BxLayout /></Suspense>}>
@@ -88,14 +99,17 @@ export default function App() {
           <Route path="guards" element={<BxGuards />} />
           <Route path="settings" element={<BxSettings />} />
         </Route>
+        <Route path="regions" element={<RegionsPage />} />
+        <Route path="face-mask/roi" element={<FaceMaskRoiRedirect />} />
         <Route path="face-mask" element={<Suspense fallback={fmFallback}><FmLayout /></Suspense>}>
-          <Route index element={<FmDashboard />} />
+          <Route index element={<Navigate to="/face-mask/live" replace />} />
           <Route path="live" element={<FmLive />} />
-          <Route path="events" element={<FmEvents />} />
-          <Route path="events/:eventId" element={<FmEvents />} />
-          <Route path="roi" element={<FmRoi />} />
-          <Route path="reports" element={<FmReports />} />
         </Route>
+        <Route path="face-mask/overview" element={<Navigate to="/" replace />} />
+        <Route path="face-mask/events" element={<LegacyRedirect to="/alerts/face-mask" />} />
+        <Route path="face-mask/events/:eventId" element={<FaceMaskEventRedirect />} />
+        <Route path="face-mask/reports" element={<LegacyRedirect to="/branch-exterior/brief" />} />
+        <Route path="face-mask/settings" element={<Navigate to="/settings?tab=face-mask" replace />} />
         <Route path="*" element={<Dashboard />} />
       </Route>
     </Routes>

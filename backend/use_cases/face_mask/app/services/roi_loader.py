@@ -15,7 +15,7 @@ def to_spec(roi: EntryRoi) -> RoiSpec:
 
 
 async def reload_camera_rois(session: AsyncSession, runtime: Runtime, camera_id: str) -> None:
-    rois = await EntryRoiRepository(session).list(camera_id)
+    rois = await EntryRoiRepository(session).list(camera_id, enabled_only=True)
     runtime.set_rois(camera_id, [to_spec(r) for r in rois])
 
 

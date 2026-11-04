@@ -20,6 +20,14 @@ class TunableSettings(BaseModel):
     clip_pre_seconds: float = Field(ge=0.0)
     clip_post_seconds: float = Field(ge=0.0)
     cooldown_seconds: float = Field(ge=0.0)
+    processing_fps: int = Field(ge=1, le=60)
+    person_confidence: float = Field(ge=0.0, le=1.0)
+    entering_window_frames: int = Field(ge=2)
+    entering_min_displacement_px: float = Field(ge=0.0)
+    alert_dashboard: bool
+    alert_sms: bool
+    alert_email: bool
+    alert_app: bool
 
 
 class SettingsUpdate(BaseModel):
@@ -37,3 +45,11 @@ class SettingsUpdate(BaseModel):
     clip_pre_seconds: float | None = Field(default=None, ge=0.0)
     clip_post_seconds: float | None = Field(default=None, ge=0.0)
     cooldown_seconds: float | None = Field(default=None, ge=0.0)
+    processing_fps: int | None = Field(default=None, ge=1, le=60)
+    person_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    entering_window_frames: int | None = Field(default=None, ge=2)
+    entering_min_displacement_px: float | None = Field(default=None, ge=0.0)
+    alert_dashboard: bool | None = None
+    alert_sms: bool | None = None
+    alert_email: bool | None = None
+    alert_app: bool | None = None

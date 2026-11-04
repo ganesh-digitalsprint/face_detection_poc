@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -36,3 +37,18 @@ async def create_all_tables(engine: AsyncEngine) -> None:
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)
+
+
+# (table, column, DDL type + default). Additive only; each is skipped when the column already exists, so it is idempotent.
+_ADDED_COLUMNS = (
+    ("fm_entry_roi", "enabled", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("fm_entry_roi", "updated_at", "DATETIME"),
+)
+
+
+def _add_missing_columns(sync_conn) -> None:
+    inspector = inspect(sync_conn)
+    for table, column, ddl in _ADDED_COLUMNS:
+        if column not in {c["name"] for c in inspector.get_columns(table)}:
+            sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))

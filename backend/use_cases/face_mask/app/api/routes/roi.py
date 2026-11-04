@@ -15,8 +15,10 @@ router = APIRouter(prefix="/roi", tags=["entry-roi"], dependencies=[Depends(requ
 
 
 @router.get("", response_model=list[EntryRoi])
-async def list_rois(camera_id: str | None = None, session: AsyncSession = Depends(get_session)):
-    return await EntryRoiRepository(session).list(camera_id)
+async def list_rois(camera_id: str | None = None, enabled: bool | None = None,
+                    session: AsyncSession = Depends(get_session)):
+    rois = await EntryRoiRepository(session).list(camera_id)
+    return rois if enabled is None else [r for r in rois if r.enabled is enabled]
 
 
 @router.post("", response_model=EntryRoi, status_code=201)

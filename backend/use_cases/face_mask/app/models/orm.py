@@ -46,7 +46,10 @@ class EntryRoiORM(Base):
     name: Mapped[str] = mapped_column(String(120))
     polygon: Mapped[list] = mapped_column(JSON)          # [{x, y}] normalised 0..1
     inward_vector: Mapped[dict] = mapped_column(JSON)    # {x, y} direction a person moves when entering
+    # Common-zone fields (additive): a disabled ROI is kept but not applied to running streams.
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=_now, onupdate=_now)
 
 
 class EntryLogORM(Base):

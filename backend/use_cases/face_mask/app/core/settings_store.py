@@ -34,7 +34,22 @@ TUNABLE: dict[str, tuple[str, str]] = {
     "clip_pre_seconds": ("evidence", "clip_pre_seconds"),
     "clip_post_seconds": ("evidence", "clip_post_seconds"),
     "cooldown_seconds": ("cooldown", "seconds"),
+    "processing_fps": ("stream", "processing_fps"),
+    "person_confidence": ("detector", "person_confidence"),
+    "entering_window_frames": ("entering", "window_frames"),
+    "entering_min_displacement_px": ("entering", "min_inward_displacement_px"),
+    "alert_dashboard": ("alerts.channels", "dashboard"),
+    "alert_sms": ("alerts.channels", "sms"),
+    "alert_email": ("alerts.channels", "email"),
+    "alert_app": ("alerts.channels", "app"),
 }
+
+
+def _section(obj, dotted: str):
+    """Walk 'alerts.channels' style section names on a dict or a config model."""
+    for part in dotted.split("."):
+        obj = obj[part] if isinstance(obj, dict) else getattr(obj, part)
+    return obj
 
 
 class SettingsError(FaceMaskError):
@@ -57,7 +72,7 @@ def build_config(overrides: dict) -> FaceMaskConfig:
     raw = copy.deepcopy(_read_yaml())
     for field, value in overrides.items():
         section, key = TUNABLE[field]
-        raw[section][key] = value
+        _section(raw, section)[key] = value
     try:
         return FaceMaskConfig.model_validate(raw)
     except ValidationError as exc:
@@ -73,7 +88,7 @@ def load_effective_config(path: Path = OVERRIDES_FILE) -> FaceMaskConfig:
 
 
 def current_values(cfg: FaceMaskConfig) -> dict:
-    return {field: getattr(getattr(cfg, section), key) for field, (section, key) in TUNABLE.items()}
+    return {field: getattr(_section(cfg, section), key) for field, (section, key) in TUNABLE.items()}
 
 
 def save_overrides(updates: dict, path: Path = OVERRIDES_FILE) -> FaceMaskConfig:

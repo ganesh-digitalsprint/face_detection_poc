@@ -64,7 +64,8 @@ class EntryRoiRepository:
 
     async def create(self, data: EntryRoiCreate) -> EntryRoi:
         row = EntryRoiORM(camera_id=data.camera_id, name=data.name,
-                          polygon=[p.model_dump() for p in data.polygon], inward_vector=data.inward_vector.model_dump())
+                          polygon=[p.model_dump() for p in data.polygon], inward_vector=data.inward_vector.model_dump(),
+                          enabled=data.enabled)
         self._s.add(row)
         await self._s.flush()
         return EntryRoi.model_validate(row)
@@ -73,10 +74,12 @@ class EntryRoiRepository:
         row = await self._s.get(EntryRoiORM, roi_id)
         return EntryRoi.model_validate(row) if row else None
 
-    async def list(self, camera_id: str | None = None) -> list[EntryRoi]:
+    async def list(self, camera_id: str | None = None, enabled_only: bool = False) -> list[EntryRoi]:
         stmt = select(EntryRoiORM).order_by(EntryRoiORM.created_at)
         if camera_id:
             stmt = stmt.where(EntryRoiORM.camera_id == camera_id)
+        if enabled_only:
+            stmt = stmt.where(EntryRoiORM.enabled.is_(True))
         return [EntryRoi.model_validate(r) for r in (await self._s.execute(stmt)).scalars().all()]
 
     async def update(self, roi_id: str, data: EntryRoiUpdate) -> EntryRoi | None:
@@ -89,6 +92,8 @@ class EntryRoiRepository:
             row.polygon = [p.model_dump() for p in data.polygon]
         if data.inward_vector is not None:
             row.inward_vector = data.inward_vector.model_dump()
+        if data.enabled is not None:
+            row.enabled = data.enabled
         await self._s.flush()
         return EntryRoi.model_validate(row)
 
@@ -157,7 +162,7 @@ class EventRepository:
         row = await self._s.get(ConcealmentEventORM, event_id)
         return ConcealmentEvent.model_validate(row) if row else None
 
-    def _filtered(self, stmt, date_from, date_to, camera_id, status, covering_type):
+    def _filtered(self, stmt, date_from, date_to, camera_id, status, covering_type, statuses=None):
         if date_from:
             stmt = stmt.where(ConcealmentEventORM.first_seen >= _naive_utc(date_from))
         if date_to:
@@ -166,18 +171,21 @@ class EventRepository:
             stmt = stmt.where(ConcealmentEventORM.camera_id == camera_id)
         if status:
             stmt = stmt.where(ConcealmentEventORM.status == status)
+        if statuses:
+            stmt = stmt.where(ConcealmentEventORM.status.in_(tuple(statuses)))
         if covering_type:
             stmt = stmt.where(ConcealmentEventORM.covering_type == covering_type)
         return stmt
 
     async def list(self, *, date_from=None, date_to=None, camera_id=None, status=None, covering_type=None,
+                   statuses=None, ascending: bool = False,
                    limit: int = 50, offset: int = 0) -> tuple[list[ConcealmentEvent], int]:
-        base = self._filtered(select(ConcealmentEventORM), date_from, date_to, camera_id, status, covering_type)
+        base = self._filtered(select(ConcealmentEventORM), date_from, date_to, camera_id, status, covering_type, statuses)
         total = (await self._s.execute(
             self._filtered(select(func.count()).select_from(ConcealmentEventORM), date_from, date_to, camera_id,
-                           status, covering_type))).scalar_one()
-        rows = (await self._s.execute(base.order_by(ConcealmentEventORM.first_seen.desc()).limit(limit).offset(offset))
-                ).scalars().all()
+                           status, covering_type, statuses))).scalar_one()
+        order = ConcealmentEventORM.first_seen.asc() if ascending else ConcealmentEventORM.first_seen.desc()
+        rows = (await self._s.execute(base.order_by(order).limit(limit).offset(offset))).scalars().all()
         return [ConcealmentEvent.model_validate(r) for r in rows], total
 
     async def update_fields(self, event_id: str, **fields) -> None:

@@ -1,3 +1,5 @@
+import { SERVICES, serviceForUrl, serviceById, unavailableMessage } from '../config/serviceRegistry.js';
+
 const DEFAULT_MESSAGES = {
   400: 'Invalid image or request.',
   401: 'Authentication failed. Check the configured operator key (VITE_VAULT_ROOM_API_KEY) and that the session has not expired.',
@@ -31,9 +33,14 @@ export function describeError(error, overrides = {}) {
   if (error?.userMessage && !overrides) return { status: error.status ?? null, message: error.userMessage };
   const status = error?.response?.status;
   if (!status) {
+    const requestUrl = `${error?.config?.baseURL ?? ''}${error?.config?.url ?? ''}`;
+    const service = overrides.service ? serviceById(overrides.service) : serviceForUrl(requestUrl);
+    if (service) {
+      return { status: null, service: service.id, url: requestUrl || service.baseUrl, message: `${unavailableMessage(service)} (${requestUrl || service.baseUrl})` };
+    }
     return {
       status: null,
-      message: 'Cannot reach the API. Check that the backend is running and VITE_VAULT_API_BASE_URL is correct.',
+      message: `Cannot reach the API${requestUrl ? ` at ${requestUrl}` : ''}. Check that the backend service is running: ${SERVICES.map((s) => s.label).join(', ')}.`,
     };
   }
   const detail = extractDetail(error.response.data);

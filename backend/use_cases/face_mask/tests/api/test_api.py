@@ -117,6 +117,38 @@ def test_roi_crud_is_applied_to_the_runtime_immediately(client) -> None:
     assert runtime.rois_for(cid) == []
 
 
+def test_roi_carries_common_zone_fields(client) -> None:
+    cid = _camera(client).json()["id"]
+    body = client.post("/api/roi", json={"camera_id": cid, "name": "Grill Gate", "polygon": POLY,
+                                         "inward_vector": {"x": 0, "y": -1}}).json()
+    assert body["use_case"] == "face_mask" and body["zone_type"] == "entry_roi"
+    assert body["enabled"] is True and body["updated_at"]
+
+
+def test_disabled_roi_is_kept_but_not_applied_to_the_runtime(client) -> None:
+    cid = _camera(client).json()["id"]
+    runtime = client.app.state.runtime
+    rid = client.post("/api/roi", json={"camera_id": cid, "name": "Gate", "polygon": POLY,
+                                        "inward_vector": {"x": 0, "y": -1}}).json()["id"]
+    assert len(runtime.rois_for(cid)) == 1
+    patched = client.patch(f"/api/roi/{rid}", json={"enabled": False}).json()
+    assert patched["enabled"] is False
+    assert runtime.rois_for(cid) == []
+    assert [r["id"] for r in client.get(f"/api/roi?camera_id={cid}").json()] == [rid]
+    client.patch(f"/api/roi/{rid}", json={"enabled": True})
+    assert len(runtime.rois_for(cid)) == 1
+
+
+def test_roi_list_can_filter_enabled_only(client) -> None:
+    cid = _camera(client).json()["id"]
+    make = lambda n: client.post("/api/roi", json={"camera_id": cid, "name": n, "polygon": POLY,  # noqa: E731
+                                                   "inward_vector": {"x": 0, "y": -1}}).json()["id"]
+    a, _b = make("A"), make("B")
+    client.patch(f"/api/roi/{a}", json={"enabled": False})
+    assert {r["name"] for r in client.get("/api/roi?enabled=true").json()} == {"B"}
+    assert {r["name"] for r in client.get("/api/roi").json()} == {"A", "B"}
+
+
 def test_roi_validation(client) -> None:
     cid = _camera(client).json()["id"]
     base = {"camera_id": cid, "name": "x", "polygon": POLY, "inward_vector": {"x": 0, "y": -1}}
