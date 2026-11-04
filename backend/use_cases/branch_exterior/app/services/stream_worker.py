@@ -21,11 +21,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import threading
 import time
 from concurrent.futures import Future
+from pathlib import Path
 
 import cv2
+
+import os
+
+_SHARED = Path(os.environ.get("FEDBANK_SHARED_PATH") or Path(__file__).resolve().parents[4] / "shared")
+if str(_SHARED) not in sys.path:
+    sys.path.append(str(_SHARED))
+
+from fedbank_core.camera_stream import open_capture as open_shared_capture
 
 from app.core.config import get_settings
 from app.db.repositories.interfaces import Repositories
@@ -71,13 +81,7 @@ def _open_capture(camera: Camera) -> cv2.VideoCapture:
         index = int(camera.source) if camera.source.strip().isdigit() else 0
         return cv2.VideoCapture(index)
     if camera.cam_type == "rtsp":
-        url = camera.source
-        if camera.username and "://" in url and "@" not in url:
-            scheme, rest = url.split("://", 1)
-            url = f"{scheme}://{camera.username}:{camera.password}@{rest}"
-        cap = cv2.VideoCapture(url)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # always analyse the newest frame, not a stale queue
-        return cap
+        return open_shared_capture(camera.source, username=camera.username, password=camera.password)
     return cv2.VideoCapture(camera.source)  # "upload" / "folder": a local file path
 
 

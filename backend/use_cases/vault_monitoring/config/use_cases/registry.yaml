@@ -1,0 +1,13 @@
+use_cases:
+  - id: vault_room
+    frontend_id: vault-room
+    label: Vault Room Monitoring
+    zone_types_file: vault-room/zone_types.yaml
+  - id: branch_exterior
+    frontend_id: branch-exterior
+    label: Branch Exterior Monitoring
+    zone_types_file: branch-exterior/zone_types.yaml
+  - id: grill_gate
+    frontend_id: grill-gate
+    label: Grill Gate Monitoring
+    zone_types_file: grill-gate/zone_types.yaml

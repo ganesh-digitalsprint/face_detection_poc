@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import alerts, evidence, incidents, liveness_test, video
+from app.api.routes import alerts, evidence, incidents, liveness_test, video, regions
 from app.api.routes import vault_room
 from app.api.errors import install_error_handlers
 from app.core.config import settings
@@ -96,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(employees.employee_router)
     app.include_router(vault_authorization.router)
     app.include_router(vault_room.router)
+    app.include_router(regions.router)
     app.include_router(evidence.router)
     app.include_router(alerts.router)
     app.include_router(incidents.router)

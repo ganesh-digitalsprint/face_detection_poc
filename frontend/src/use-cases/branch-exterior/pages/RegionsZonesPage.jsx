@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api, bxApiUrl, bxUrl } from '../api/index.js';
+import { branchRegionsAdapter, selectionResponseIsCurrent } from '../regionsAdapters.js';
+import { regionsRegistryApi } from '../../../api/regionsRegistry.js';
+import { cloneZoneSnapshot, isRegionsDraftDirty } from '../regionsPageState.js';
 import AddCameraModal, { rescanVideosFolder } from '../components/AddCameraModal.jsx';
 import Modal from '../components/Modal.jsx';
 import { Empty } from '../components/ui.jsx';
@@ -70,7 +74,7 @@ function cleanPolygon(pts, w, h) {
 }
 
 // ---------------------------------------------------------------- zone dialog --
-function ZoneModal({ editing, onBack, onSave }) {
+const ZoneModal = forwardRef(function ZoneModal({ editing, normPoints, zoneTypes, onBack, onSave, onDirtyChange }, ref) {
   const z = editing || {};
   const [name, setName] = useState(z.name || '');
   const [type, setType] = useState(z.zone_type || 'atm');
@@ -79,17 +83,35 @@ function ZoneModal({ editing, onBack, onSave }) {
   const [restricted, setRestricted] = useState(!!z.restricted);
   const [busy, setBusy] = useState(false);
 
-  const changeType = (t) => { setType(t); if (!editing) setAlertMode(TYPE_DEFAULT_ALERT[t] || 'suspicious'); };
-  const save = async () => {
+  const reportDirty = (next = {}) => {
+    const values = { name, type, alertMode, sev, restricted, ...next };
+    const polygonChanged = JSON.stringify(normPoints) !== JSON.stringify(editing?.polygon || []);
+    const changed = !editing || polygonChanged || values.name.trim() !== (editing.name || '')
+      || values.type !== (editing.zone_type || 'atm')
+      || values.alertMode !== (editing.alert_mode || 'off')
+      || values.sev !== (editing.alert_severity || 'high')
+      || values.restricted !== Boolean(editing.restricted);
+    onDirtyChange(changed);
+  };
+  const submit = async () => {
     setBusy(true);
-    await onSave({
-      name: name.trim() || (editing ? editing.name : 'Unnamed zone'),
-      zone_type: type,
-      restricted: restricted || type === 'restricted',
-      alert_mode: alertMode,
-      alert_severity: sev,
-    });
-    setBusy(false);
+    try {
+      return await onSave({
+        name: name.trim() || (editing ? editing.name : 'Unnamed zone'),
+        zone_type: type,
+        restricted: restricted || type === 'restricted',
+        alert_mode: alertMode,
+        alert_severity: sev,
+      });
+    } finally { setBusy(false); }
+  };
+  useImperativeHandle(ref, () => ({ submit }), [submit]);
+  useEffect(() => { reportDirty(); /* initial form state */ }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const changeType = (t) => {
+    const nextAlert = !editing ? (TYPE_DEFAULT_ALERT[t] || 'suspicious') : alertMode;
+    setType(t);
+    if (!editing) setAlertMode(nextAlert);
+    reportDirty({ type: t, alertMode: nextAlert });
   };
 
   return (
@@ -99,26 +121,21 @@ function ZoneModal({ editing, onBack, onSave }) {
       footer={(
         <>
           <button type="button" className="bx-btn" onClick={onBack}>← Back to the outline</button>
-          <button type="button" className="bx-btn bx-btn-primary" disabled={busy} onClick={save}>{editing ? 'Save changes' : 'Save zone'}</button>
+          <button type="button" className="bx-btn bx-btn-primary" disabled={busy} onClick={submit}>{editing ? 'Save changes' : 'Save zone'}</button>
         </>
       )}
     >
       <label className="bx-field">Zone name
-        <input className="bx-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ATM front" autoComplete="off" autoFocus />
+        <input className="bx-input" value={name} onChange={(e) => { setName(e.target.value); reportDirty({ name: e.target.value }); }} placeholder="e.g. ATM front" autoComplete="off" autoFocus />
       </label>
       <label className="bx-field">Zone type
-        <select className="bx-input" value={type} onChange={(e) => changeType(e.target.value)}>
-          <option value="entrance">Entrance / gate</option>
-          <option value="atm">ATM area</option>
-          <option value="side_lane">Side lane</option>
-          <option value="forecourt">Forecourt / parking</option>
-          <option value="rear">Rear access</option>
-          <option value="restricted">Restricted (after-hours intrusion applies)</option>
-          <option value="other">Other</option>
+        <select className="bx-input" value={type} onChange={(e) => changeType(e.target.value)} disabled={!zoneTypes.length}>
+          {zoneTypes.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
         </select>
       </label>
+      {!zoneTypes.length && <div className="bx-hint">Zone types could not be loaded from the Regions configuration service.</div>}
       <label className="bx-field">When should this zone raise an alert?
-        <select className="bx-input" value={alertMode} onChange={(e) => setAlertMode(e.target.value)}>
+        <select className="bx-input" value={alertMode} onChange={(e) => { setAlertMode(e.target.value); reportDirty({ alertMode: e.target.value }); }}>
           <option value="suspicious">Suspicious activity only (recommended)</option>
           <option value="enter">Restricted area - also the moment anyone touches or enters it</option>
           <option value="near">Restricted area - also when anyone comes near it</option>
@@ -126,7 +143,7 @@ function ZoneModal({ editing, onBack, onSave }) {
         </select>
       </label>
       <label className="bx-field">Alert severity
-        <select className="bx-input" value={sev} onChange={(e) => setSev(e.target.value)}>
+        <select className="bx-input" value={sev} onChange={(e) => { setSev(e.target.value); reportDirty({ sev: e.target.value }); }}>
           <option value="low">Low</option><option value="medium">Medium</option>
           <option value="high">High (a snapshot + clip are saved)</option><option value="critical">Critical (a snapshot + clip are saved)</option>
         </select>
@@ -137,19 +154,23 @@ function ZoneModal({ editing, onBack, onSave }) {
         Use the restricted options only for areas nobody should enter.
       </div>
       <label className="bx-check" style={{ marginTop: 12 }}>
-        <input type="checkbox" checked={restricted} onChange={(e) => setRestricted(e.target.checked)} />
+        <input type="checkbox" checked={restricted} onChange={(e) => { setRestricted(e.target.checked); reportDirty({ restricted: e.target.checked }); }} />
         Treat as a restricted area (after-hours intrusion, stricter loitering threshold)
       </label>
     </Modal>
   );
-}
+});
 
 // ---------------------------------------------------------------- page --
 export default function RegionsZonesPage() {
+  const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const [locationId, setLocationId] = useState('');
   const [cameras, setCameras] = useState([]);
   const [statuses, setStatuses] = useState({});
   const [cameraId, setCameraId] = useState(null);
   const [zones, setZones] = useState([]);
+  const [zoneTypes, setZoneTypes] = useState([]);
   const [mediaMode, setMediaModeState] = useState('none'); // video | still | live | none
   const [prepInfo, setPrepInfo] = useState(null);
   const [liveTest, setLiveTestState] = useState(false);
@@ -163,6 +184,9 @@ export default function RegionsZonesPage() {
   const [framePos, setFramePos] = useState(15);
   const [ui, setUi] = useState({ drawing: false, n: 0, adjusting: false, editing: false });
   const [zoneModal, setZoneModal] = useState(null);
+  const [switchPrompt, setSwitchPrompt] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [mutationBusy, setMutationBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [rescanBusy, setRescanBusy] = useState(false);
   const [canvasTitle, setCanvasTitle] = useState('Camera view - click points to trace a zone boundary, then press "Finish zone"');
@@ -179,14 +203,50 @@ export default function RegionsZonesPage() {
   const canvasRef = useRef(null);
   const posTimer = useRef(null);
   const fn = useRef({});
+  const zoneModalRef = useRef(null);
+  const zoneSnapshotRef = useRef([]);
+  const zoneFormDirtyRef = useRef(false);
+  const dirtyRef = useRef(false);
+  const pendingTargetRef = useRef(null);
+  const selectionRequestRef = useRef(0);
+  const currentRouteRef = useRef(`${routeLocation.pathname}${routeLocation.search}${routeLocation.hash}`);
+  currentRouteRef.current = `${routeLocation.pathname}${routeLocation.search}${routeLocation.hash}`;
+
+  useEffect(() => {
+    let current = true;
+    regionsRegistryApi.get('/use-cases').then((items) => {
+      if (!current) return;
+      const selected = items.find((item) => item.frontend_id === 'branch-exterior');
+      setZoneTypes(selected?.zone_types || []);
+    }).catch(() => { if (current) setZoneTypes([]); });
+    return () => { current = false; };
+  }, []);
 
   const setMediaMode = (m) => { R.current.mediaMode = m; setMediaModeState(m); };
   const setLiveTest = (v) => { R.current.liveTest = v; setLiveTestState(v); };
-  const setZoneList = (z) => { R.current.zones = z; setZones(z); };
+  const setZoneList = (z) => {
+    R.current.zones = z;
+    zoneSnapshotRef.current = cloneZoneSnapshot(z);
+    setZones(z);
+  };
   const curCam = () => cameras.find((c) => c.id === R.current.cameraId) || null;
   const syncUi = () => {
     const r = R.current;
     setUi({ drawing: r.drawing, n: r.drawPoints.length, adjusting: !!r.editingZoneId && !r.redrawMode, editing: !!r.editingZoneId });
+    dirtyRef.current = isRegionsDraftDirty({ ...r, zoneFormDirty: zoneFormDirtyRef.current });
+  };
+  const locations = branchRegionsAdapter.listLocations(cameras);
+  const camerasAtLocation = branchRegionsAdapter.camerasForLocation(cameras, locationId);
+  const selectionBusy = saving || mutationBusy || switchPrompt;
+  const updateZoneFormDirty = (value) => {
+    zoneFormDirtyRef.current = value;
+    dirtyRef.current = isRegionsDraftDirty({ ...R.current, zoneFormDirty: value });
+  };
+  const chooseLocation = (nextLocationId) => {
+    const nextCameras = branchRegionsAdapter.camerasForLocation(cameras, nextLocationId);
+    if (!nextCameras.length) return;
+    const nextCamera = nextCameras.find((camera) => camera.id === R.current.cameraId) || nextCameras[0];
+    requestTarget({ kind: 'selection', locationId: nextLocationId, cameraId: nextCamera.id });
   };
 
   // ---- build check -----------------------------------------------------
@@ -253,10 +313,106 @@ export default function RegionsZonesPage() {
 
   const setMode = (mode) => { setMediaMode(mode); setTimeout(refreshCanvasSize, 0); };
 
+  const executePendingTarget = () => {
+    const target = pendingTargetRef.current;
+    pendingTargetRef.current = null;
+    setSwitchPrompt(false);
+    if (!target) return;
+    if (target.kind === 'navigate') {
+      navigate(target.to);
+      return;
+    }
+    setLocationId(target.locationId);
+    if (target.cameraId && target.cameraId !== R.current.cameraId) {
+      loadCameraView(target.cameraId, { locationId: target.locationId });
+    }
+  };
+
+  const requestTarget = (target) => {
+    if (selectionBusy) return;
+    if (target.kind === 'camera' && target.cameraId === R.current.cameraId) {
+      setLocationId(target.locationId);
+      return;
+    }
+    if (dirtyRef.current) {
+      pendingTargetRef.current = target;
+      setSwitchPrompt(true);
+      return;
+    }
+    pendingTargetRef.current = target;
+    executePendingTarget();
+  };
+
+  const discardAndSwitch = () => {
+    zoneFormDirtyRef.current = false;
+    setZoneModal(null);
+    setZoneList(cloneZoneSnapshot(zoneSnapshotRef.current));
+    cancelDrawing();
+    executePendingTarget();
+  };
+
+  const saveAndSwitch = async () => {
+    if (saving) return;
+    setSwitchPrompt(false);
+    if (zoneModal) {
+      await zoneModalRef.current?.submit();
+      return;
+    }
+    if (R.current.drawing) {
+      if (R.current.drawPoints.length < 3) {
+        setSwitchPrompt(true);
+        setHint('Add at least 3 points before saving this zone.');
+        return;
+      }
+      finishDrawing();
+      return;
+    }
+    executePendingTarget();
+  };
+
+  useEffect(() => {
+    const onBeforeUnload = (event) => {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    const onDocumentClick = (event) => {
+      if (!dirtyRef.current || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target?.closest?.('a[href]');
+      if (!anchor || anchor.target === '_blank' || anchor.hasAttribute('download')) return;
+      const url = new URL(anchor.href, window.location.href);
+      const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      const destination = `${url.pathname}${url.search}${url.hash}`;
+      if (url.origin !== window.location.origin || destination === current) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      pendingTargetRef.current = { kind: 'navigate', to: destination };
+      setSwitchPrompt(true);
+    };
+    const onPopState = (event) => {
+      if (!dirtyRef.current) return;
+      const destination = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (destination === currentRouteRef.current) return;
+      event.stopImmediatePropagation();
+      window.history.pushState(event.state, '', currentRouteRef.current);
+      pendingTargetRef.current = { kind: 'navigate', to: destination };
+      setSwitchPrompt(true);
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    document.addEventListener('click', onDocumentClick, true);
+    window.addEventListener('popstate', onPopState, true);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('click', onDocumentClick, true);
+      window.removeEventListener('popstate', onPopState, true);
+    };
+  }, []);
+
   // ---- drawing actions -----------------------------------------------------
   const cancelDrawing = (msg) => {
     const r = R.current;
     r.drawing = false; r.drawPoints = []; r.editingZoneId = null; r.editOriginal = null; r.redrawMode = false; r.dragIndex = -1; r.hoverIndex = -1; r.pending = null;
+    zoneFormDirtyRef.current = false;
     syncUi();
     if (msg) setHint(msg);
     redrawCanvas();
@@ -270,6 +426,7 @@ export default function RegionsZonesPage() {
     if (r.mediaMode === 'video') { videoRef.current.pause(); setPaused(true); } // a moving picture is impossible to draw on
     refreshCanvasSize();
     r.editingZoneId = null; r.redrawMode = false; r.editOriginal = null; r.pending = null;
+    zoneFormDirtyRef.current = false;
     r.drawing = true; r.drawPoints = [];
     setHint('Click at least 3 points around the area (e.g. the ATM, the gate), then press "Finish zone". Backspace removes the last point, Escape cancels.');
     syncUi(); redrawCanvas();
@@ -282,7 +439,8 @@ export default function RegionsZonesPage() {
     const pixelPts = r.drawPoints.map((p) => ({ ...p }));
     const normPoints = cleanPolygon(pixelPts, canvas.width, canvas.height);
     if (!normPoints) { alert('The zone outline could not be read (the picture may not be ready). Press Reload above the picture and try again.'); return; }
-    const state = { editing, editId, normPoints, pixelPts, keepOriginal: r.editOriginal ? r.editOriginal.map((p) => ({ ...p })) : null, wasRedraw: r.redrawMode };
+    const state = { editing, editId, normPoints, pixelPts, cameraId: r.cameraId,
+      keepOriginal: r.editOriginal ? r.editOriginal.map((p) => ({ ...p })) : null, wasRedraw: r.redrawMode };
     // stop interactive drawing while the form is open, but keep the outline visible on the picture
     r.drawing = false; r.dragIndex = -1; r.hoverIndex = -1;
     r.pending = { pts: pixelPts, label: editing ? `${editing.name} (editing)` : 'new zone' };
@@ -292,6 +450,8 @@ export default function RegionsZonesPage() {
 
   const backToOutline = () => {
     const r = R.current; const m = zoneModal; if (!m) return;
+    pendingTargetRef.current = null;
+    zoneFormDirtyRef.current = false;
     setZoneModal(null);
     r.pending = null;
     r.drawing = true; r.drawPoints = m.pixelPts; r.editingZoneId = m.editId; r.editOriginal = m.keepOriginal; r.redrawMode = m.wasRedraw;
@@ -299,43 +459,35 @@ export default function RegionsZonesPage() {
     syncUi(); redrawCanvas();
   };
 
-  // Save a zone. If the server answers 422 (it rejected something), save in two steps so nothing is lost and the
-  // message says exactly which part was refused. Returns "" when everything was saved, or a message when only part was.
-  const saveZoneRequest = async (editing, body, polygon) => {
-    const full = { ...body, polygon };
-    try {
-      if (editing) await api.patch(`/zones/${editing.id}`, full);
-      else await api.post('/zones', { camera_id: R.current.cameraId, ...full });
-      return '';
-    } catch (e) {
-      if (!/^422/.test(String(e.message))) throw e;
-      const base = { name: body.name, zone_type: body.zone_type, restricted: body.restricted, polygon };
-      const alerts = { alert_mode: body.alert_mode, alert_severity: body.alert_severity };
-      let id = editing ? editing.id : null;
-      if (editing) await api.patch(`/zones/${id}`, base);
-      else id = (await api.post('/zones', { camera_id: R.current.cameraId, ...base })).id;
-      try { await api.patch(`/zones/${id}`, alerts); return ''; } catch (e2) {
-        return `The zone's outline, name and type were saved, but the server refused the alert rule:\n\n${e2.message}\n\nThis usually means backend/app/schemas/zone.py on the server is older than this page. Replace it with the latest one, restart the server, then use Edit zone to choose the alert rule again.`;
-      }
-    }
-  };
-
   const saveZone = async (body) => {
     const m = zoneModal; if (!m) return;
     let partial = '';
-    try { partial = await saveZoneRequest(m.editing, body, m.normPoints); } catch (e) {
+    setSaving(true);
+    try {
+      partial = await branchRegionsAdapter.saveZone(m.cameraId, m.editing, body, m.normPoints);
+    } catch (e) {
       const missing = /^(404|405)/.test(String(e.message));
       alert(missing
         ? `Could not save the zone: the server has no zones API (${e.message}).\nCopy the latest backend/app/main.py over the project the server runs from, then restart it. The red box at the top of this page lists exactly what is missing.`
         : `Could not save the zone: ${e.message}`);
-      return;
+      return false;
     }
-    setZoneModal(null);
-    cancelDrawing();
-    setZoneList(await api.get(`/zones?camera_id=${R.current.cameraId}`));
-    redrawCanvas();
-    if (partial) { alert(partial); return; }
-    setHint(m.editing ? "Zone updated. Press 'Live test' to see it react." : "Zone saved. Press 'Live test': the zone stays quiet for normal activity and flashes red when something suspicious happens at it.");
+    try {
+      setZoneModal(null);
+      cancelDrawing();
+      zoneFormDirtyRef.current = false;
+      if (R.current.cameraId === m.cameraId) {
+        try {
+          const savedZones = await branchRegionsAdapter.loadZones(m.cameraId);
+          if (R.current.cameraId === m.cameraId) setZoneList(savedZones);
+        } catch (e) { alert(`The zone was saved, but the zone list could not be refreshed: ${e.message}`); }
+      }
+      redrawCanvas();
+      if (partial) alert(partial);
+      else setHint(m.editing ? "Zone updated. Press 'Live test' to see it react." : "Zone saved. Press 'Live test': the zone stays quiet for normal activity and flashes red when something suspicious happens at it.");
+      executePendingTarget();
+      return true;
+    } finally { setSaving(false); }
   };
 
   const editZone = (id) => {
@@ -348,6 +500,7 @@ export default function RegionsZonesPage() {
     refreshCanvasSize();
     const c = canvasRef.current;
     r.editingZoneId = id; r.redrawMode = false; r.hoverIndex = -1; r.dragIndex = -1; r.pending = null;
+    zoneFormDirtyRef.current = false;
     r.drawPoints = z.polygon.map((p) => ({ x: p.x * c.width, y: p.y * c.height }));
     r.editOriginal = r.drawPoints.map((p) => ({ ...p }));
     r.drawing = true;
@@ -358,19 +511,31 @@ export default function RegionsZonesPage() {
 
   const deleteZone = async (id) => {
     if (!confirm('Delete this zone?')) return;
-    try { await api.del(`/zones/${id}`); } catch (e) { alert(e.message); }
-    setZoneList(await api.get(`/zones?camera_id=${R.current.cameraId}`));
-    redrawCanvas();
+    const requestCameraId = R.current.cameraId;
+    setMutationBusy(true);
+    try {
+      await branchRegionsAdapter.deleteZone(requestCameraId, id);
+      const current = await branchRegionsAdapter.loadZones(requestCameraId);
+      if (R.current.cameraId === requestCameraId) setZoneList(current);
+      redrawCanvas();
+    } catch (e) { alert(e.message); }
+    finally { setMutationBusy(false); }
   };
 
   const armAllZones = async () => {
+    const requestCameraId = R.current.cameraId;
+    setMutationBusy(true);
     for (const z of R.current.zones.filter((q) => (q.alert_mode || 'off') === 'off')) {
       try {
-        await api.patch(`/zones/${z.id}`, { alert_mode: TYPE_DEFAULT_ALERT[z.zone_type] || 'suspicious', alert_severity: z.alert_severity || 'high' });
-      } catch (e) { alert(`Could not update a zone: ${e.message}`); return; }
+        await branchRegionsAdapter.patchZone(z.id, { alert_mode: TYPE_DEFAULT_ALERT[z.zone_type] || 'suspicious', alert_severity: z.alert_severity || 'high' });
+      } catch (e) { alert(`Could not update a zone: ${e.message}`); setMutationBusy(false); return; }
     }
-    setZoneList(await api.get(`/zones?camera_id=${R.current.cameraId}`));
-    redrawCanvas();
+    try {
+      const current = await branchRegionsAdapter.loadZones(requestCameraId);
+      if (R.current.cameraId === requestCameraId) setZoneList(current);
+      redrawCanvas();
+    } catch (e) { alert(`Could not reload zones: ${e.message}`); }
+    finally { setMutationBusy(false); }
   };
 
   const undoOrReset = () => {
@@ -443,32 +608,50 @@ export default function RegionsZonesPage() {
     if (!silent) await loadMedia();
   };
 
-  const loadCameraView = async (id) => {
+  const loadCameraView = async (id, { locationId: nextLocationId } = {}) => {
+    const requestId = ++selectionRequestRef.current;
     const r = R.current;
     if (r.liveTest) await stopLiveTest(true);
     r.cameraId = id; setCameraId(id);
+    const camera = cameras.find((item) => item.id === id);
+    const selectedLocation = nextLocationId ?? (String(camera?.location || '').trim() || '__unassigned__');
+    setLocationId(selectedLocation);
     localStorage.setItem('regionsCameraId', id);
     r.drawing = false; r.drawPoints = []; r.editingZoneId = null; r.editOriginal = null; r.pending = null;
+    zoneFormDirtyRef.current = false;
     syncUi();
+    setZoneList([]);
     try {
-      setZoneList(await api.get(`/zones?camera_id=${id}`));
+      const loadedZones = await branchRegionsAdapter.loadZones(id);
+      if (!selectionResponseIsCurrent(requestId, selectionRequestRef.current, id, R.current.cameraId)) return;
+      setZoneList(loadedZones);
     } catch (e) {
+      if (!selectionResponseIsCurrent(requestId, selectionRequestRef.current, id, R.current.cameraId)) return;
       setZoneList([]);
       setBuildWarning(<><b>Could not load zones ({e.message}).</b> The server does not have the zones API registered - copy the latest <code>backend/app/main.py</code> and restart it.</>);
     }
+    if (!selectionResponseIsCurrent(requestId, selectionRequestRef.current, id, R.current.cameraId)) return;
     await loadMedia();
   };
 
   const loadCameraList = async (keepSelection) => {
-    const cams = await api.get('/cameras');
+    const requestId = ++selectionRequestRef.current;
+    const cams = await branchRegionsAdapter.listCameras();
+    if (requestId !== selectionRequestRef.current) return;
     let st = {};
-    try { st = await api.get('/cameras/status/all'); } catch { st = {}; }
+    try { st = await branchRegionsAdapter.listCameraStatuses(); } catch { st = {}; }
+    if (requestId !== selectionRequestRef.current) return;
     setCameras(cams); setStatuses(st);
-    if (cams.length === 0) { R.current.cameraId = null; setCameraId(null); return; }
+    if (cams.length === 0) {
+      R.current.cameraId = null; setCameraId(null); setLocationId(''); setZoneList([]); return;
+    }
     const want = (keepSelection && R.current.cameraId) || new URLSearchParams(window.location.search).get('camera')
       || localStorage.getItem('regionsCameraId') || localStorage.getItem('liveCameraId');
     const pick = cams.some((c) => c.id === want) ? want : cams[0].id;
-    if (pick !== R.current.cameraId) await loadCameraView(pick);
+    const pickCamera = cams.find((camera) => camera.id === pick);
+    const pickLocation = String(pickCamera?.location || '').trim() || '__unassigned__';
+    setLocationId(pickLocation);
+    if (pick !== R.current.cameraId) await loadCameraView(pick, { locationId: pickLocation });
     else setCameraId(pick);
   };
 
@@ -612,15 +795,27 @@ export default function RegionsZonesPage() {
     <>
       <div className="bx-card bx-mb-16">
         <div className="bx-row bx-gap-12 bx-wrap" style={{ alignItems: 'flex-end' }}>
-          <label className="bx-field" style={{ flex: 1, minWidth: 280, margin: 0 }}>Video / camera (same list as Live Monitoring)
+          <label className="bx-field" style={{ flex: 1, minWidth: 200, margin: 0 }}>Location
+            <select className="bx-input" value={locationId} disabled={selectionBusy || !locations.length} onChange={(e) => chooseLocation(e.target.value)}>
+              {locations.length === 0 && <option value="">No locations available</option>}
+              {locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+            </select>
+          </label>
+          <label className="bx-field" style={{ flex: 1, minWidth: 260, margin: 0 }}>Camera
+            <select className="bx-input" value={cameraId || ''} disabled={selectionBusy || !camerasAtLocation.length} onChange={(e) => { const selected = camerasAtLocation.find((item) => item.id === e.target.value); if (selected) requestTarget({ kind: 'selection', locationId, cameraId: selected.id }); }}>
+              {camerasAtLocation.length === 0 && <option value="">No cameras in this location</option>}
+              {camerasAtLocation.map((c) => <option key={c.id} value={c.id}>{statuses[c.id] && statuses[c.id].running ? 'Running · ' : ''}{c.name}</option>)}
+            </select>
+          </label>
+          <label className="bx-field" style={{ display: 'none' }}>Legacy camera selector
             <select className="bx-input" value={cameraId || ''} onChange={(e) => e.target.value && loadCameraView(e.target.value)}>
               {cameras.length === 0 && <option value="">No videos or cameras yet - use &quot;Add camera&quot; or put a video in storage/sample_videos</option>}
               {cameras.map((c) => <option key={c.id} value={c.id}>{statuses[c.id] && statuses[c.id].running ? '▶ ' : ''}{c.name}</option>)}
             </select>
           </label>
-          <button type="button" className="bx-btn" disabled={rescanBusy} title="Scan storage/sample_videos for new files now (also automatic every 15s)"
+          <button type="button" className="bx-btn" disabled={rescanBusy || selectionBusy} title="Scan storage/sample_videos for new files now (also automatic every 15s)"
             onClick={() => rescanVideosFolder(setRescanBusy, () => loadCameraList(true))}>{rescanBusy ? 'Scanning...' : '↻ Rescan videos folder'}</button>
-          <button type="button" className="bx-btn bx-btn-primary" onClick={() => setAddOpen(true)}>+ Add camera</button>
+          <button type="button" className="bx-btn bx-btn-primary" disabled={selectionBusy} onClick={() => setAddOpen(true)}>+ Add camera</button>
         </div>
       </div>
 
@@ -708,12 +903,20 @@ export default function RegionsZonesPage() {
         </div>
       </div>
 
-      {zoneModal && <ZoneModal editing={zoneModal.editing} onBack={backToOutline} onSave={saveZone} />}
+      {zoneModal && <ZoneModal ref={zoneModalRef} editing={zoneModal.editing} normPoints={zoneModal.normPoints} zoneTypes={zoneTypes} onDirtyChange={updateZoneFormDirty} onBack={backToOutline} onSave={saveZone} />}
+      {switchPrompt && <Modal title="Unsaved zone changes" onClose={() => { pendingTargetRef.current = null; setSwitchPrompt(false); }} maxWidth={440}
+        footer={<>
+          <button type="button" className="bx-btn" onClick={() => { pendingTargetRef.current = null; setSwitchPrompt(false); }}>Cancel</button>
+          <button type="button" className="bx-btn" onClick={discardAndSwitch} disabled={saving}>Discard changes</button>
+          <button type="button" className="bx-btn bx-btn-primary" onClick={saveAndSwitch} disabled={saving || mutationBusy}>{saving ? 'Saving…' : 'Save and continue'}</button>
+        </>}>
+        <p>You have unsaved zone changes. Save them before switching, discard them, or cancel and stay here.</p>
+      </Modal>}
       {addOpen && (
         <AddCameraModal
           start={false} // only needs a picture to draw on - don't start analysing yet
           onClose={() => setAddOpen(false)}
-          onCreated={async (created) => { R.current.cameraId = created.id; await loadCameraList(true); await loadCameraView(created.id); }}
+          onCreated={async (created) => { R.current.cameraId = created.id; await loadCameraList(true); await loadCameraView(created.id, { locationId: String(created.location || '').trim() || '__unassigned__' }); }}
         />
       )}
     </>

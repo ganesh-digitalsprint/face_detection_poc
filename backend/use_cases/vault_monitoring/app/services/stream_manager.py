@@ -3,15 +3,24 @@
 from __future__ import annotations
 
 import queue
+import os
+import sys
 import threading
 import time
 import uuid
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 import cv2
 import numpy as np
+
+_SHARED = Path(os.environ.get("FEDBANK_SHARED_PATH") or Path(__file__).resolve().parents[4] / "shared")
+if str(_SHARED) not in sys.path:
+    sys.path.append(str(_SHARED))
+
+from fedbank_core.camera_stream import open_capture as open_shared_capture
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -88,15 +97,8 @@ class StreamManager:
         return session
 
     def _open_capture(self, source_type: str, uri: str | int) -> cv2.VideoCapture:
-        if source_type != "rtsp":
-            return self._capture_factory(int(uri))
-        return self._capture_factory(
-            str(uri), cv2.CAP_FFMPEG,
-            [
-                cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, settings.RTSP_READ_TIMEOUT_MS,
-                cv2.CAP_PROP_READ_TIMEOUT_MSEC, settings.RTSP_READ_TIMEOUT_MS,
-            ],
-        )
+        return open_shared_capture(uri, source_type="webcam" if source_type == "webcam" else "rtsp",
+            capture_factory=self._capture_factory, timeout_ms=settings.RTSP_READ_TIMEOUT_MS)
 
     def get(self, session_id: str) -> LiveSession | None:
         with self._lock:
