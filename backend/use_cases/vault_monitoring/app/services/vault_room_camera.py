@@ -2,23 +2,31 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import queue
 import socket
+import sys
 import threading
 import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 from urllib.parse import urlsplit
 
 import cv2
 
+_SHARED = Path(os.environ.get("FEDBANK_SHARED_PATH") or Path(__file__).resolve().parents[4] / "shared")
+if str(_SHARED) not in sys.path:
+    sys.path.append(str(_SHARED))
+
+from fedbank_core.camera_stream import open_capture as open_shared_capture
+
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.ml_config import get_vault_room_config
 from app.services.vault_room_manager import VaultRoomBusyError, VaultRoomDetectorUnavailableError
-from app.services.camera_capture import open_webcam_capture
 
 logger = get_logger(__name__)
 
@@ -33,33 +41,39 @@ def _is_private_address(value: str) -> bool:
 
 def validate_rtsp_url(url: str, *, allowed_hosts: list[str] | None = None) -> str:
     """Validate URL syntax without ever returning it in an error message."""
+    clean_url = url.strip()
     try:
-        parsed = urlsplit(url.strip())
-        valid = (parsed.scheme.lower() in {"rtsp", "rtsps"} and bool(parsed.hostname)
-                 and not any(ch.isspace() for ch in url) and len(url) <= 2048)
-        if parsed.port is not None and not 1 <= parsed.port <= 65535:
-            valid = False
-        if valid:
-            host = parsed.hostname.rstrip(".").lower()
-            configured = settings.RTSP_ALLOWED_HOSTS if allowed_hosts is None else allowed_hosts
-            if configured:
-                rules = [item.strip().lower().lstrip(".").rstrip(".") for item in configured if item.strip()]
-                valid = any(host == rule or host.endswith("." + rule) for rule in rules)
-            else:
-                try:
-                    addresses = [host]
-                    try:
-                        ipaddress.ip_address(host)
-                    except ValueError:
-                        addresses = list({entry[4][0] for entry in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)})
-                    valid = bool(addresses) and all(_is_private_address(item) for item in addresses)
-                except (OSError, ValueError):
-                    valid = False
+        parsed = urlsplit(clean_url)
+        syntax_valid = (parsed.scheme.lower() in {"rtsp", "rtsps"} and bool(parsed.hostname)
+                        and not any(ch.isspace() for ch in clean_url) and len(clean_url) <= 2048
+                        and (parsed.port is None or 1 <= parsed.port <= 65535))
     except (ValueError, UnicodeError):
-        valid = False
-    if not valid:
+        syntax_valid = False
+        parsed = None
+    if not syntax_valid or parsed is None:
         raise ValueError("Enter a valid rtsp:// or rtsps:// stream URL.")
-    return url.strip()
+
+    host = parsed.hostname.rstrip(".").lower()
+    configured = settings.RTSP_ALLOWED_HOSTS if allowed_hosts is None else allowed_hosts
+    if configured:
+        rules = [item.strip().lower().lstrip(".").rstrip(".") for item in configured if item.strip()]
+        host_allowed = any(host == rule or host.endswith("." + rule) for rule in rules)
+    else:
+        try:
+            addresses = [host]
+            try:
+                ipaddress.ip_address(host)
+            except ValueError:
+                addresses = list({entry[4][0] for entry in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)})
+            host_allowed = bool(addresses) and all(_is_private_address(item) for item in addresses)
+        except (OSError, ValueError):
+            host_allowed = False
+    if not host_allowed:
+        raise ValueError(
+            "Camera host is not allowed. Add its IP address or domain to RTSP_ALLOWED_HOSTS "
+            "in the Vault Monitoring .env file, then restart Vault Monitoring."
+        )
+    return clean_url
 
 
 @dataclass
@@ -367,11 +381,10 @@ class VaultRoomCameraManager:
 
     def _open_capture(self, session: VaultRoomCameraSession):
         if session.source_type == "webcam":
-            return open_webcam_capture(session.camera_index, capture_factory=self._capture_factory)
-        return self._capture_factory(session.url, cv2.CAP_FFMPEG, [
-            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, settings.RTSP_READ_TIMEOUT_MS,
-            cv2.CAP_PROP_READ_TIMEOUT_MSEC, settings.RTSP_READ_TIMEOUT_MS,
-        ])
+            return open_shared_capture(session.camera_index, source_type="webcam",
+                capture_factory=self._capture_factory, timeout_ms=settings.RTSP_READ_TIMEOUT_MS)
+        return open_shared_capture(session.url, capture_factory=self._capture_factory,
+            timeout_ms=settings.RTSP_READ_TIMEOUT_MS)
 
     @staticmethod
     def _annotate(frame, tracks, poses=None):

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Cctv, RotateCcw, Square, Video, Webcam } from 'lucide-react';
+import { Cctv, Eye, EyeOff, RotateCcw, Square, Video, Webcam } from 'lucide-react';
 import { CAMERA_KINDS } from '../../hooks/useCameraSource.js';
 
 const SOURCES = [
@@ -26,6 +26,7 @@ export default function VaultCameraControls({ camera, sessionActive, sessionStar
   const [channel, setChannel] = useState('101');
   const [streamPath, setStreamPath] = useState('');
   const [rtspUrl, setRtspUrl] = useState('');
+  const [showRtspUrl, setShowRtspUrl] = useState(false);
   const [formError, setFormError] = useState('');
   const cameraOn = camera.status === 'starting' || camera.status === 'ready';
   const selected = camera.kind ?? source;
@@ -123,7 +124,15 @@ export default function VaultCameraControls({ camera, sessionActive, sessionStar
           <input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} className={input} placeholder="Entrance CCTV" />
         </label>
         {connectionMode === 'url' ? <label className="text-sm font-semibold text-[#0F1B3D] sm:col-span-2 lg:col-span-2">RTSP URL
-          <input required value={rtspUrl} onChange={(event) => setRtspUrl(event.target.value)} className={input} type="password" autoComplete="off" spellCheck="false" placeholder="rtsp://user:password@192.168.1.50:554/stream" />
+          <span className="relative mt-1 block">
+            <input required value={rtspUrl} onChange={(event) => setRtspUrl(event.target.value)} onBlur={() => setRtspUrl((value) => value.trim())} className={`${input} pr-24`} type={showRtspUrl ? 'text' : 'password'} autoComplete="off" spellCheck="false" placeholder="rtsp://user:password@192.168.1.50:554/stream" />
+            <button type="button" onClick={() => setShowRtspUrl((visible) => !visible)}
+              aria-label={showRtspUrl ? 'Hide RTSP URL' : 'Show RTSP URL'}
+              className="absolute right-2 top-1/2 inline-flex -translate-y-1/2 items-center gap-1 rounded-md border border-[#C8CEDB] bg-white px-2 py-1.5 text-xs font-semibold text-[#34479B] shadow-sm hover:bg-[#F4F6FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">
+              {showRtspUrl ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+              {showRtspUrl ? 'Hide' : 'Show'}
+            </button>
+          </span>
           <span className="mt-1 block text-xs font-normal text-[#66718A]">Your URL and credentials are sent securely to the backend and are not shown in camera status.</span>
         </label> : <>
           <label className="text-sm font-semibold text-[#0F1B3D]">Protocol

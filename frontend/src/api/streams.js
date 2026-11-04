@@ -5,7 +5,7 @@ export const startWebcam = () => client.post('/api/v1/streams/webcam').then((r) 
 
 export const startCCTV = (source) =>
   client.post('/api/v1/streams/cctv', typeof source === 'string'
-    ? { rtsp_url: source }
+    ? { rtsp_url: source.trim() }
     : { stream_index: source }).then((r) => r.data);
 
 export const stopStream = (sessionId) =>

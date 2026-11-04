@@ -95,6 +95,8 @@ class VaultRoomSettings(BaseModel):
     warn_before_expiry_seconds: int = Field(ge=1)
     expired_repeat_seconds: int = Field(ge=1)
     expired_open_max_seconds: int | None = Field(default=None, ge=1)
+    zones_source: Literal["file", "database"] = "file"
+    active_assignment: "VaultActiveAssignmentSettings | None" = None
     counting: "VaultRoomCountingSettings" = Field(default_factory=lambda: VaultRoomCountingSettings())
     pose_preview: "VaultPosePreviewSettings" = Field(default_factory=lambda: VaultPosePreviewSettings())
 
@@ -108,6 +110,12 @@ class VaultPosePreviewSettings(BaseModel):
     min_pose_detection_confidence: float = Field(default=0.5, ge=0, le=1)
     min_pose_presence_confidence: float = Field(default=0.5, ge=0, le=1)
     min_tracking_confidence: float = Field(default=0.5, ge=0, le=1)
+
+
+class VaultActiveAssignmentSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    location_code: str = Field(min_length=1, max_length=39, pattern=r"^[a-z0-9_-]+$")
+    camera_code: str = Field(min_length=1, max_length=39, pattern=r"^[a-z0-9_-]+$")
 
 
 class VaultAlertEvidenceSettings(BaseModel):

@@ -58,6 +58,9 @@ from app.db.models.vault_room import (  # noqa: E402
     VaultAuditEvent, VaultEvidence, VaultIncident, VaultIncidentComment,
     VaultRoomAlert, VaultRoomEvent, VaultRoomSession, VaultSession, VaultAlertCondition,
 )
+from app.db.models.camera_registry import (  # noqa: E402
+    CameraSource, CameraUseCaseAssignment, RegistryCamera, RegistryLocation, RegistryZone,
+)
 
 __all__ = [
     "AuthorizedEmployee",
@@ -73,4 +76,9 @@ __all__ = [
     "VaultAuditEvent",
     "VaultSession",
     "VaultAlertCondition",
+    "RegistryLocation",
+    "RegistryCamera",
+    "CameraSource",
+    "CameraUseCaseAssignment",
+    "RegistryZone",
 ]

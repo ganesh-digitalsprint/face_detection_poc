@@ -1,0 +1,22 @@
+zone_types:
+  - key: entrance
+    label: Entrance / gate
+    description: Existing Branch Exterior entrance or gate zone.
+  - key: atm
+    label: ATM area
+    description: Existing Branch Exterior ATM zone.
+  - key: side_lane
+    label: Side lane
+    description: Existing Branch Exterior side lane zone.
+  - key: forecourt
+    label: Forecourt / parking
+    description: Existing Branch Exterior forecourt or parking zone.
+  - key: rear
+    label: Rear access
+    description: Existing Branch Exterior rear access zone.
+  - key: restricted
+    label: Restricted
+    description: Existing Branch Exterior restricted zone.
+  - key: other
+    label: Other
+    description: Existing Branch Exterior zone type for other areas.
