@@ -38,16 +38,6 @@ export function Pill({ tone = 'idle', dot = false, children, className = '' }) {
   );
 }
 
-/** Honest placeholder for monitoring data the backend does not produce yet. */
-export function Pending({ title, children }) {
-  return (
-    <div className="rounded-lg border border-dashed border-[#2c3b5c] bg-[#0f1729] p-4 text-sm">
-      <p className="flex items-center gap-2 font-semibold text-slate-200"><Pill tone="idle">Pending backend</Pill>{title}</p>
-      {children && <p className="mt-2 text-xs leading-5 text-slate-400">{children}</p>}
-    </div>
-  );
-}
-
 export function StatCard({ label, value, valueClass = 'text-slate-500', sub, badge }) {
   return (
     <div className="rounded-xl border border-[#22304d] bg-[#121b2f] p-4">

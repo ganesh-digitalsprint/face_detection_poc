@@ -77,8 +77,47 @@ export function formatSeconds(seconds) {
   return h ? `${h}h ${m}m` : `${m}m ${String(s).padStart(2, '0')}s`;
 }
 
-/** Calibration thresholds are seconds; show them compactly or say they are not configured. */
-export const formatThreshold = (seconds) => (seconds == null ? 'not set' : formatSeconds(seconds));
+/** Dashboard timer display: mm:ss, or h:mm:ss past an hour. Missing values show the empty-state 00:00. */
+export function formatClock(seconds) {
+  const total = Number.isFinite(Number(seconds)) && seconds != null ? Math.max(0, Math.floor(Number(seconds))) : 0;
+  const h = Math.floor(total / 3600);
+  const mm = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+  const ss = String(total % 60).padStart(2, '0');
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/**
+ * Empty dashboard snapshot. These are presentation defaults, not measurements: no backend stage produces gate
+ * state, crossings, mesh counts, monitoring events or Grill Gate alerts yet. A future monitoring API should
+ * return this same shape so the dashboard renders real values without a redesign.
+ */
+export const EMPTY_MONITORING = Object.freeze({
+  status: 'INACTIVE',
+  gateState: 'UNKNOWN',
+  gateOpenSeconds: 0,
+  secondsSinceCrossing: 0,
+  entryCount: 0,
+  exitCount: 0,
+  meshPeopleCount: 0,
+  meshGatheringSeconds: 0,
+  crossings: [],
+  alerts: [],
+  events: [],
+});
+
+/** What the dashboard's camera preview should say for the selected assignment's worker. */
+export function previewState(connection) {
+  if (connection.key === 'unknown') return { key: 'unknown', title: 'Camera status unavailable', detail: connection.detail, canConnect: false };
+  if (connection.key === 'checking') return { key: 'checking', title: 'Checking camera…', detail: '', canConnect: false };
+  if (['starting', 'reconnecting', 'stopping'].includes(connection.key)) return { key: 'busy', title: `${connection.label}…`, detail: connection.detail, canConnect: false };
+  if (['connected', 'stale'].includes(connection.key)) {
+    return { key: 'connected', title: connection.key === 'stale' ? 'Camera feed is stale' : 'Camera connected', detail: 'The backend does not provide a video stream for Grill Gate yet, so no image is shown.', canConnect: false };
+  }
+  return {
+    key: 'empty', title: 'No Camera Connected', canConnect: true,
+    detail: connection.key === 'failed' ? `${connection.detail} Connect again to retry.` : 'Connect a camera to start Grill Gate Monitoring.',
+  };
+}
 
 const REQUIRED_CALIBRATION_KEYS = ['reference_frame', 'sliding_gate', 'directional_crossing', 'calibrated_at'];
 

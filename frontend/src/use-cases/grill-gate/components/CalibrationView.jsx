@@ -1,12 +1,9 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Crosshair, ExternalLink, RotateCcw, Save } from 'lucide-react';
+import { Crosshair, RotateCcw, Save } from 'lucide-react';
 import { describeError } from '../../../utils/errors.js';
 import { saveAssignmentCalibration } from '../api/grillGate.js';
-import {
-  calibrationStatus, calibrationToForm, formLine, formToCalibration, zoneColor, zoneCoverage,
-} from '../grillGateModel.js';
-import CameraPanel from './CameraPanel.jsx';
+import { calibrationStatus, calibrationToForm, formLine, formToCalibration } from '../grillGateModel.js';
+import CameraStage, { ZoneOverlay } from './CameraStage.jsx';
 import { btnGhost, btnPrimary, Card, ErrorNote, Pill } from './ui.jsx';
 
 const input = 'mt-1 min-h-9 w-full rounded-md border border-[#2c3b5c] bg-[#0f1729] px-2.5 text-sm text-slate-100 outline-none focus:border-[#5b7cfa] focus:ring-2 focus:ring-[#5b7cfa]/30';
@@ -42,38 +39,7 @@ function Fieldset({ title, hint, children }) {
   );
 }
 
-function ZoneCoverage({ zoneTypes, zones, loading, error, editorHref }) {
-  const rows = zoneCoverage(zoneTypes, zones);
-  return (
-    <Card title="Zones" aside={<Link to={editorHref} className="inline-flex items-center gap-1 font-semibold text-[#8aa2ff] hover:underline">Edit in Regions &amp; Zones <ExternalLink size={12} aria-hidden /></Link>}>
-      <p className="mb-3 text-xs leading-5 text-slate-400">
-        Zones are created, edited and deleted in the common Regions &amp; Zones editor (normalized raw-frame polygons).
-        The gate_crossing polygon is the corridor; the directional virtual line is part of calibration below.
-      </p>
-      <ErrorNote>{error}</ErrorNote>
-      <ul className="divide-y divide-[#22304d]">
-        {rows.map((row) => (
-          <li key={row.key} className="flex items-start justify-between gap-3 py-2.5">
-            <span className="min-w-0">
-              <span className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-                <span className="h-2.5 w-2.5 rounded-sm" style={{ background: zoneColor(row.key) }} aria-hidden />{row.label}
-                <code className="text-[11px] font-normal text-slate-500">{row.key}</code>
-              </span>
-              <span className="mt-0.5 block text-xs text-slate-400">
-                {row.zones.length ? row.zones.map((zone) => `${zone.name}${zone.enabled === false ? ' (disabled)' : ''}`).join(', ') : row.description}
-              </span>
-            </span>
-            <Pill tone={row.zones.some((zone) => zone.enabled !== false) ? 'ok' : 'idle'}>
-              {loading ? '…' : row.zones.length ? `${row.zones.length} configured` : 'none'}
-            </Pill>
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
-export default function ConfigurationView({ item, worker, zones, zonesLoading, zonesError, zoneTypes, onSaved, cameraPanelProps }) {
+export default function CalibrationView({ item, worker, zones, onSaved }) {
   const assignment = item.assignment;
   const saved = assignment.calibration;
   const [form, setForm] = useState(() => calibrationToForm(saved, worker));
@@ -83,7 +49,8 @@ export default function ConfigurationView({ item, worker, zones, zonesLoading, z
   const [notice, setNotice] = useState('');
   const status = calibrationStatus(saved, { worker, zones });
   const line = formLine(form);
-  const editorHref = `/regions?use_case=grill_gate&location_id=${encodeURIComponent(item.camera?.location_id ?? '')}&camera_id=${encodeURIComponent(assignment.camera_id)}`;
+  const frameWidth = Number(form.width) || worker?.width;
+  const frameHeight = Number(form.height) || worker?.height;
 
   const setField = (name, value) => setForm((current) => {
     const next = { ...current, [name]: value };
@@ -117,10 +84,16 @@ export default function ConfigurationView({ item, worker, zones, zonesLoading, z
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(380px,520px)]">
-      <div className="space-y-5">
-        <CameraPanel {...cameraPanelProps} line={line} pickTarget={pickTarget} onPick={pick} />
-        <ZoneCoverage zoneTypes={zoneTypes} zones={zones} loading={zonesLoading} error={zonesError} editorHref={editorHref} />
-      </div>
+      <Card title="Calibration preview" aside={pickTarget ? <Pill tone="info">Click to set line {pickTarget}</Pill> : null} className="self-start">
+        <CameraStage aspect={frameWidth && frameHeight ? frameWidth / frameHeight : 16 / 9} onPick={pickTarget ? pick : null}
+          label="Calibration preview: configured zones and the directional virtual line">
+          <ZoneOverlay zones={zones} line={line} />
+        </CameraStage>
+        <p className="mt-3 text-xs leading-5 text-slate-400">
+          Shows configured zones and the virtual line in normalized raw-frame coordinates. No camera image is available from the backend,
+          so use the zone outlines as the reference when picking line points.
+        </p>
+      </Card>
 
       <Card title="Calibration" aside={<Pill tone={status.tone}>{status.label}</Pill>}>
         {saved && <p className="mb-2 text-xs text-slate-400">Saved {new Date(saved.calibrated_at).toLocaleString()} · reference {saved.reference_frame?.width}×{saved.reference_frame?.height} · {saved.coordinate_system}</p>}

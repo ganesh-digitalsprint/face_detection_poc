@@ -1,76 +1,108 @@
-import { formatThreshold } from '../grillGateModel.js';
-import { Card, Pending, Pill, StatCard } from './ui.jsx';
+import { ArrowDownLeft, ArrowUpRight, BellOff, History, Users } from 'lucide-react';
+import { formatClock, GATE_STATES } from '../grillGateModel.js';
+import { Card, Pill, StatCard } from './ui.jsx';
 
 /**
- * Monitoring surfaces from the reference design. The current backend stage has a capture worker only: no gate
- * state, crossing, mesh, monitoring-event or Grill Gate alert producer. These panels show configured thresholds
- * (real calibration data) and say plainly that live values are pending; they never synthesize values.
+ * Dashboard monitoring panels. They render a monitoring snapshot (see EMPTY_MONITORING); today no backend stage
+ * supplies one, so the page passes the empty snapshot and these show neutral zero/empty states. Lists expect items
+ * already normalized by a future API adapter: `{ id, ... }` with stable backend ids as React keys.
  */
 
-export function MonitoringStats({ monitoring }) {
+const timeOf = (iso) => (iso ? new Date(iso).toLocaleTimeString() : '');
+
+function EmptyState({ icon: Icon, children }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <StatCard label="Gate state" value="Pending" sub="Gate-state detection is not implemented in the backend yet." />
-      <StatCard label="Gate open duration" value="--:--"
-        sub={`Needs backend gate state · limit ${formatThreshold(monitoring?.maximum_continuous_open_seconds)}`} />
-      <StatCard label="Time since last crossing" value="--:--"
-        sub={`Needs crossing detection · inactivity ${formatThreshold(monitoring?.crossing_inactivity_seconds)}`} />
-      <StatCard label="People in mesh area" value="—"
-        sub={`Mesh detection not implemented · threshold ${monitoring?.minimum_mesh_gathering_count ?? 'not set'}`} />
+    <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+      <Icon size={22} className="text-slate-500" aria-hidden />
+      <p className="text-sm text-slate-400">{children}</p>
     </div>
   );
 }
 
-export function CrossingEventsPanel({ line }) {
+export function MonitoringStats({ monitoring }) {
+  const gate = GATE_STATES[monitoring.gateState] ?? GATE_STATES.UNKNOWN;
   return (
-    <Card title="Recent Crossing Events" aside={<Pill tone="idle">No event source</Pill>}>
-      <Pending title="ENTRY / EXIT detection">
-        Directional crossing detection is a future backend stage, so there are no ENTRY or EXIT events to list.
-        {line ? ' The virtual line is calibrated and ready for it.' : ' The directional virtual line is not calibrated yet.'}
-      </Pending>
-    </Card>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <StatCard label="Gate state" value={gate.label} valueClass={monitoring.gateState === 'UNKNOWN' ? 'text-slate-400' : gate.tone}
+        badge={<span className="flex items-center gap-1.5 text-xs text-slate-400"><span className="h-2 w-2 rounded-full bg-slate-500" aria-hidden />No gate state reported</span>} />
+      <StatCard label="Gate open duration" value={formatClock(monitoring.gateOpenSeconds)} valueClass="text-slate-100" sub="Continuous open duration" />
+      <StatCard label="Time since last crossing" value={formatClock(monitoring.secondsSinceCrossing)} valueClass="text-slate-100" sub="Since last ENTRY/EXIT" />
+      <StatCard label="People in mesh area" value={monitoring.meshPeopleCount} valueClass="text-slate-100" sub="Current detected people" />
+    </div>
   );
 }
 
-export function AlertsPanel() {
+export function CrossingEventsPanel({ monitoring }) {
   return (
-    <Card title="Active Alerts" aside="0 from backend">
-      <Pending title="No Grill Gate alert producer">
-        The existing alerts API (/api/v1/alerts) serves Vault Room alerts only. No backend service raises gate-open,
-        crossing-inactivity, gathering or Grill Gate camera-feed alerts yet, so none are shown here.
-      </Pending>
-    </Card>
-  );
-}
-
-export function MeshPanel({ monitoring, meshZones }) {
-  const enabled = meshZones.filter((zone) => zone.enabled !== false);
-  return (
-    <Card title="Mesh Area Monitoring" aside={<Pill tone="idle">Pending</Pill>}>
-      <dl className="grid grid-cols-3 gap-3">
-        <div><dt className="text-xs text-slate-400">Current people</dt><dd className="mt-1 text-2xl font-bold text-slate-500">—</dd></div>
-        <div><dt className="text-xs text-slate-400">Threshold</dt><dd className="mt-1 text-2xl font-bold text-slate-100">{monitoring?.minimum_mesh_gathering_count ?? '—'}</dd></div>
-        <div><dt className="text-xs text-slate-400">Gathering after</dt><dd className="mt-1 text-2xl font-bold text-slate-100">{monitoring?.mesh_gathering_seconds != null ? formatThreshold(monitoring.mesh_gathering_seconds) : '—'}</dd></div>
-      </dl>
-      <ul className="mt-4 space-y-1.5 text-xs text-slate-400">
-        <li>Mesh zone: {enabled.length ? <span className="text-violet-300">{enabled.map((zone) => zone.name).join(', ')}</span> : <span className="text-amber-300">not configured</span>}</li>
-        <li>Suspicious activity after: <span className="text-slate-200">{formatThreshold(monitoring?.suspicious_activity_seconds)}</span></li>
-        <li>Thresholds status: <span className="text-slate-200">{monitoring?.thresholds_status ?? 'unset'}</span></li>
-      </ul>
-      <div className="mt-4">
-        <Pending title="Person counting">Mesh-area person detection and gathering rules are not implemented in the backend.</Pending>
+    <Card title="Recent Crossing Events" aside={`${monitoring.crossings.length} events`}>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg bg-[#0f1729] p-3 ring-1 ring-[#22304d]">
+          <p className="flex items-center gap-1.5 text-xs text-slate-400"><ArrowDownLeft size={13} className="text-emerald-300" aria-hidden />ENTRY</p>
+          <p className="mt-1 text-2xl font-bold text-slate-100">{monitoring.entryCount}</p>
+        </div>
+        <div className="rounded-lg bg-[#0f1729] p-3 ring-1 ring-[#22304d]">
+          <p className="flex items-center gap-1.5 text-xs text-slate-400"><ArrowUpRight size={13} className="text-sky-300" aria-hidden />EXIT</p>
+          <p className="mt-1 text-2xl font-bold text-slate-100">{monitoring.exitCount}</p>
+        </div>
       </div>
+      {monitoring.crossings.length ? (
+        <ul className="mt-2 divide-y divide-[#22304d]">
+          {monitoring.crossings.map((event) => (
+            <li key={event.id} className="flex items-center gap-3 py-3">
+              <Pill tone={event.direction === 'ENTRY' ? 'ok' : 'info'}>{event.direction}</Pill>
+              <span className="font-semibold text-slate-100">{timeOf(event.at)}</span>
+              {event.details && <span className="min-w-0 truncate text-xs text-slate-400">{event.details}</span>}
+              <span className="ml-auto text-xs text-slate-400">{event.cameraLabel}</span>
+            </li>
+          ))}
+        </ul>
+      ) : <EmptyState icon={History}>No crossing events yet</EmptyState>}
     </Card>
   );
 }
 
-export function TimelinePanel() {
+export function AlertsPanel({ monitoring }) {
+  return (
+    <Card title="Active Alerts" aside={`${monitoring.alerts.length} open`}>
+      {monitoring.alerts.length ? (
+        <ul className="space-y-2">
+          {monitoring.alerts.map((alert) => (
+            <li key={alert.id} className="rounded-lg border-l-2 border-amber-400 bg-[#0f1729] p-3">
+              <p className="flex items-center gap-2 text-sm font-semibold text-slate-100"><Pill tone="warn">{alert.severity}</Pill>{alert.type}<span className="ml-auto text-xs font-normal text-slate-400">{timeOf(alert.at)}</span></p>
+              {alert.message && <p className="mt-1 text-xs text-slate-400">{alert.message}</p>}
+            </li>
+          ))}
+        </ul>
+      ) : <EmptyState icon={BellOff}>No active alerts</EmptyState>}
+    </Card>
+  );
+}
+
+export function MeshPanel({ monitoring }) {
+  return (
+    <Card title="Mesh Area Monitoring" aside={<Pill tone={monitoring.status === 'INACTIVE' ? 'idle' : 'purple'}>{monitoring.status}</Pill>}>
+      <dl className="grid grid-cols-2 gap-3">
+        <div><dt className="text-xs text-slate-400">Current people</dt><dd className="mt-1 text-2xl font-bold text-slate-100">{monitoring.meshPeopleCount}</dd></div>
+        <div><dt className="text-xs text-slate-400">Gathering duration</dt><dd className="mt-1 text-2xl font-bold text-slate-100">{formatClock(monitoring.meshGatheringSeconds)}</dd></div>
+      </dl>
+      {monitoring.status === 'INACTIVE' && <EmptyState icon={Users}>Waiting for monitoring data.</EmptyState>}
+    </Card>
+  );
+}
+
+export function TimelinePanel({ monitoring }) {
   return (
     <Card title="Monitoring Event Timeline">
-      <Pending title="No monitoring event records">
-        The backend does not persist or stream Grill Gate monitoring events yet. Worker health above comes from live
-        status checks and is not an event history.
-      </Pending>
+      {monitoring.events.length ? (
+        <ol className="flex gap-6 overflow-x-auto pb-1">
+          {monitoring.events.map((event) => (
+            <li key={event.id} className="min-w-[150px] border-t-2 border-[#5b7cfa] pt-2">
+              <p className="text-sm font-semibold text-slate-100">{event.title}</p>
+              <p className="text-xs text-slate-400">{timeOf(event.at)}</p>
+            </li>
+          ))}
+        </ol>
+      ) : <EmptyState icon={History}>No monitoring events available</EmptyState>}
     </Card>
   );
 }

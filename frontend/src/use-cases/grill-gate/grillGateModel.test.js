@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  calibrationStatus, calibrationToForm, connectionView, formLine, formToCalibration, workerForAssignment,
-  workerIsActive, workerPollDelay, zoneCoverage,
+  calibrationStatus, calibrationToForm, connectionView, EMPTY_MONITORING, formatClock, formLine, formToCalibration,
+  previewState, workerForAssignment, workerIsActive, workerPollDelay, zoneCoverage,
 } from './grillGateModel.js';
 
 // Shapes copied from GrillGateCameraWorker.status() and GrillGateCalibration (backend Stage 1).
@@ -79,4 +79,29 @@ test('zone coverage lists every type and keeps unknown types visible', () => {
   const rows = zoneCoverage([{ key: 'mesh_area', label: 'Mesh' }], [{ id: 'a', zone_type: 'mesh_area' }, { id: 'b', zone_type: 'legacy' }]);
   assert.equal(rows[0].zones.length, 1);
   assert.equal(rows.at(-1).key, '__other');
+});
+
+test('dashboard empty state uses neutral defaults and no fabricated records', () => {
+  assert.equal(EMPTY_MONITORING.status, 'INACTIVE');
+  assert.equal(EMPTY_MONITORING.gateState, 'UNKNOWN');
+  for (const key of ['gateOpenSeconds', 'secondsSinceCrossing', 'entryCount', 'exitCount', 'meshPeopleCount', 'meshGatheringSeconds']) {
+    assert.equal(EMPTY_MONITORING[key], 0, key);
+  }
+  for (const key of ['crossings', 'alerts', 'events']) assert.deepEqual(EMPTY_MONITORING[key], [], key);
+});
+
+test('timers format as mm:ss and default to 00:00', () => {
+  assert.equal(formatClock(0), '00:00');
+  assert.equal(formatClock(null), '00:00');
+  assert.equal(formatClock(342), '05:42');
+  assert.equal(formatClock(3725), '1:02:05');
+});
+
+test('camera preview offers Connect only when no worker is running', () => {
+  assert.equal(previewState(connectionView(null)).title, 'No Camera Connected');
+  assert.ok(previewState(connectionView(null)).canConnect);
+  assert.ok(previewState(connectionView(worker('failed'))).canConnect);
+  assert.equal(previewState(connectionView(worker('connected'))).canConnect, false);
+  assert.equal(previewState(connectionView(worker('connecting'))).key, 'busy');
+  assert.equal(previewState(connectionView(null, { statusError: 'down' })).key, 'unknown');
 });
