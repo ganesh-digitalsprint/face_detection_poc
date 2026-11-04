@@ -380,6 +380,55 @@ def _active_assignment(db: Session, assignment_id: str):
     return row
 
 
+def grill_gate_assignment_camera(db: Session, assignment_id: str, *, allow_inactive: bool = False):
+    """Resolve a Grill Gate assignment identity without returning source data."""
+    row = db.get(CameraUseCaseAssignment, assignment_id)
+    if row is None or row.use_case != "grill_gate":
+        raise RegistryError(404, "Grill Gate assignment not found")
+    camera = db.get(RegistryCamera, row.camera_id)
+    if not camera:
+        raise RegistryError(404, "Grill Gate camera not found")
+    if not allow_inactive:
+        location = db.get(RegistryLocation, camera.location_id)
+        if not row.is_active or not camera.is_active or not location or not location.is_active:
+            raise RegistryError(409, "Assignment, camera or location is inactive")
+    return str(row.id), str(row.camera_id)
+
+
+def resolve_grill_gate_assignment_source(db: Session, assignment_id: str):
+    """Resolve an active Grill Gate assignment and its server-side capture source."""
+    from app.services.grill_gate_camera_worker import CaptureSource
+
+    assignment = _active_assignment(db, assignment_id)
+    if assignment.use_case != "grill_gate":
+        raise RegistryError(404, "Grill Gate assignment not found")
+    source_id = (assignment.configuration or {}).get("source_id")
+    if not source_id:
+        raise RegistryError(409, "Grill Gate assignment has no configured camera source")
+    source = db.get(CameraSource, str(source_id))
+    if not source or str(source.camera_id) != str(assignment.camera_id) or not source.is_active:
+        raise RegistryError(409, "Grill Gate camera source is unavailable")
+    try:
+        value = resolve_connection_ref(source.source_type, source.connection_ref)
+    except ValueError as exc:
+        raise RegistryError(409, "Grill Gate camera source is not configured") from exc
+    if source.source_type == "browser_webcam":
+        raise RegistryError(422, "Browser webcams cannot be captured by the backend")
+    if source.source_type == "server_webcam":
+        try:
+            value = int(value.split(":", 1)[1])
+        except (IndexError, ValueError) as exc:
+            raise RegistryError(422, "Server webcam source is invalid") from exc
+        capture_type = "webcam"
+    elif source.source_type in {"rtsp", "nvr_channel", "http_stream", "video_file"}:
+        capture_type = "rtsp"
+    else:
+        raise RegistryError(422, "Unsupported Grill Gate camera source type")
+    return str(assignment.id), str(assignment.camera_id), CaptureSource(
+        source_type=source.source_type, capture_type=capture_type, value=value
+    )
+
+
 def _vault_file_path():
     return ZoneFile().path
 

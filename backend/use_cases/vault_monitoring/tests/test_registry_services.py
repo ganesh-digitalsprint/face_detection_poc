@@ -79,6 +79,32 @@ def test_registry_assignments_are_exclusive_and_zone_keys_are_assignment_scoped(
             polygon=polygon), "test-operator")
 
 
+def test_grill_gate_capture_source_is_assignment_scoped_and_internal(db, monkeypatch):
+    monkeypatch.setattr(service, "_active_vault_identity", lambda: None)
+    location = service.create_location(db, RegistryLocationCreate(code="worker-site", name="Worker site"), "operator")
+    camera = service.create_camera(db, RegistryCameraCreate(location_id=location["id"],
+        code="worker-cam", name="Worker camera"), "operator")
+    source = service.create_source(db, CameraSourceCreate(camera_id=camera["id"],
+        source_type="server_webcam", connection_ref="device:3"), "operator")
+    assignment = service.create_assignment(db, CameraUseCaseAssignmentCreate(camera_id=camera["id"],
+        use_case="grill_gate", configuration={"source_id": source["id"]}), "operator")
+    assignment_id, camera_id, resolved = service.resolve_grill_gate_assignment_source(db, assignment["id"])
+    assert (assignment_id, camera_id) == (assignment["id"], camera["id"])
+    assert (resolved.source_type, resolved.capture_type, resolved.value) == ("server_webcam", "webcam", 3)
+    assert "device:3" not in repr(resolved)
+
+    other_location = service.create_location(db, RegistryLocationCreate(code="worker-other", name="Other"), "operator")
+    other_camera = service.create_camera(db, RegistryCameraCreate(location_id=other_location["id"],
+        code="other-cam", name="Other camera"), "operator")
+    other_source = service.create_source(db, CameraSourceCreate(camera_id=other_camera["id"],
+        source_type="server_webcam", connection_ref="device:4"), "operator")
+    db.get(CameraUseCaseAssignment, assignment["id"]).configuration = {"source_id": other_source["id"]}
+    with pytest.raises(service.RegistryError, match="source is unavailable"):
+        service.resolve_grill_gate_assignment_source(db, assignment["id"])
+    with pytest.raises(service.RegistryError, match="not found"):
+        service.resolve_grill_gate_assignment_source(db, "not-a-grill-assignment")
+
+
 def test_registry_config_uses_configured_zone_types_and_no_fake_records(db):
     use_cases = {entry["id"] for entry in list_use_cases()}
     assert use_cases == {"vault_room", "branch_exterior", "grill_gate"}

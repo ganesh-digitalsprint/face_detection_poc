@@ -100,6 +100,14 @@ class Settings(BaseSettings):
     RTSP_RECONNECT_ATTEMPTS: int = Field(default=5, ge=0)
     RTSP_RECONNECT_DELAY_SECONDS: float = Field(default=2.0, ge=0.1)
     RTSP_READ_TIMEOUT_MS: int = Field(default=5000, ge=100)
+    # Grill Gate capture workers are in-memory only. Validate the cap against
+    # deployment hardware before raising the four-camera limit.
+    GRILL_GATE_MAX_WORKERS: int = Field(default=4, ge=1, le=4)
+    GRILL_GATE_FRAME_STALE_SECONDS: float = Field(default=5.0, ge=0.1, le=60.0)
+    GRILL_GATE_RECONNECT_ATTEMPTS: int = Field(default=5, ge=0, le=20)
+    GRILL_GATE_RECONNECT_DELAY_SECONDS: float = Field(default=0.5, ge=0.01, le=10.0)
+    GRILL_GATE_RECONNECT_MAX_DELAY_SECONDS: float = Field(default=8.0, ge=0.01, le=30.0)
+    GRILL_GATE_SHUTDOWN_TIMEOUT_SECONDS: float = Field(default=7.0, ge=1.0, le=15.0)
     MAX_VIDEO_UPLOAD_MB: int = Field(default=500, ge=1)
 
     # ------------------------------------------------------------------

@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import alerts, evidence, incidents, liveness_test, video, regions
+from app.api.routes import alerts, evidence, incidents, liveness_test, video, regions, grill_gate
 from app.api.routes import vault_room
 from app.api.errors import install_error_handlers
 from app.core.config import settings
@@ -30,6 +30,7 @@ from app.services.dual_control import get_dual_control_session_manager
 from app.services.vault_room_manager import get_vault_room_manager
 from app.services.vault_room_camera import get_vault_room_camera_manager
 from app.services.cloudinary_evidence import get_evidence_capture_queue
+from app.services.grill_gate_camera_worker import get_grill_gate_camera_worker_manager
 from app.api.routes import detection, employees, health, recognition, registration, streams, vault_authorization
 
 logger = get_logger(__name__)
@@ -68,8 +69,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("FastAPI application startup completed: %s v%s", settings.APP_NAME, settings.APP_VERSION)
     get_vault_room_manager().start()
     get_evidence_capture_queue().start()
+    get_grill_gate_camera_worker_manager().start_accepting()
     yield
     streams.stream_manager.stop_all()
+    get_grill_gate_camera_worker_manager().stop_all()
     get_vault_room_camera_manager().stop_all()
     get_vault_room_manager().stop()
     get_evidence_capture_queue().stop()
@@ -97,6 +100,7 @@ def create_app() -> FastAPI:
     app.include_router(vault_authorization.router)
     app.include_router(vault_room.router)
     app.include_router(regions.router)
+    app.include_router(grill_gate.router)
     app.include_router(evidence.router)
     app.include_router(alerts.router)
     app.include_router(incidents.router)
