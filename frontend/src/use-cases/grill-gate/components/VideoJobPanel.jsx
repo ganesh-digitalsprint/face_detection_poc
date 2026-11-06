@@ -190,7 +190,7 @@ export default function VideoJobPanel({ file, item, zones, upload, videoJob, sel
             )}
           </div>
           {actionError && <div className="mt-3"><ErrorNote>{actionError}</ErrorNote></div>}
-          {jobCanStart(job) ? <p className="mt-2 text-xs text-[#55607A]">Ready to process. A video can be processed once, because the server deletes its copy afterwards.</p> : <JobProgress videoJob={videoJob} />}
+          {jobCanStart(job) ? <p className="mt-2 text-xs text-[#55607A]">Ready to process. A video can be processed once.</p> : <JobProgress videoJob={videoJob} />}
         </>
       )}
 

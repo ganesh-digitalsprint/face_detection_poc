@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  calibrationStatus, calibrationToForm, connectionView, EMPTY_MONITORING, formatClock, formLine, formToCalibration,
+  calibrationStatus, calibrationToForm, connectionView, EMPTY_MONITORING, formatClock, formLine, formToCalibration, mergeAssignmentConfiguration,
   previewState, workerForAssignment, workerIsActive, workerPollDelay, zoneCoverage,
 } from './grillGateModel.js';
 
@@ -22,6 +22,13 @@ const calibration = {
   monitoring: { thresholds_status: 'unset', maximum_continuous_open_seconds: null, crossing_inactivity_seconds: null,
     minimum_mesh_gathering_count: null, mesh_gathering_seconds: null, suspicious_activity_seconds: null },
 };
+
+test('changing the assignment source keeps its alert rules', () => {
+  const rules = { gate_open_enabled: true, max_gate_open_seconds: 120 };
+  assert.deepEqual(mergeAssignmentConfiguration({ source_id: 'old', grill_gate_alerts: rules }, { source_id: 'new' }),
+    { source_id: 'new', grill_gate_alerts: rules });
+  assert.deepEqual(mergeAssignmentConfiguration(null, { source_id: 'new' }), { source_id: 'new' });
+});
 
 test('workers are matched by assignment, not just camera', () => {
   assert.equal(workerForAssignment([worker('connected')], 'asg-1').status, 'connected');

@@ -223,6 +223,8 @@ class GrillGateFrameProcessor:
             result = dict(self._status)
             result["mesh"] = {key: value for key, value in result["mesh"].items()
                               if key != "occupied_track_ids"}
+            result["gate_open_seconds"] = (self._alerts.gate_open_seconds(self._current_packet.captured_at)
+                                           if self._alerts is not None and self._current_packet is not None else None)
             return result
 
     def mesh_status(self) -> dict:

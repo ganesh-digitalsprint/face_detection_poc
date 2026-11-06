@@ -22,6 +22,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
+from collections import deque
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -45,7 +46,7 @@ class GrillGateStateDetector:
     def __init__(self, camera_id: str, assignment_id: str, subscription: FrameSource, config_loader: Callable[[], GateDetectorConfig],
                  *, on_state_change: Callable[[dict], None] | None = None, max_fps: float = 15.0,
                  config_reload_seconds: float = 5.0, no_frame_unknown_seconds: float = 3.0,
-                 machine_overrides: dict | None = None, frame_processor=None,
+                 machine_overrides: dict | None = None, frame_processor=None, transition_history: int = 50,
                  clock: Callable[[], float] = time.monotonic):
         self.camera_id, self.assignment_id = str(camera_id), str(assignment_id)
         self._sub = subscription
@@ -59,6 +60,8 @@ class GrillGateStateDetector:
         self._clock = clock
         self._stop = threading.Event()
         self._lock = threading.Lock()
+        # In memory only: a live session's recent transitions are lost on restart.
+        self._transitions: deque[dict] = deque(maxlen=transition_history)
         self._status: dict = {"camera_id": self.camera_id, "assignment_id": self.assignment_id, "state": "UNKNOWN",
                               "since": None, "progress": None, "progress_smooth": None, "velocity": None,
                               "confidence": 0.0, "sequence_number": None, "last_frame_at": None,
@@ -83,8 +86,10 @@ class GrillGateStateDetector:
     def status(self) -> dict:
         with self._lock:
             result = dict(self._status)
+            result["recent_transitions"] = list(self._transitions)
         if self._frame_processor is not None:
             result["processing"] = self._frame_processor.status()
+            result["gate_open_seconds"] = result["processing"].get("gate_open_seconds")
         return result
 
     def mesh_status(self) -> dict:
@@ -109,6 +114,8 @@ class GrillGateStateDetector:
             event.update(source_type="UPLOADED_VIDEO", video_job_id=pkt.video_job_id,
                          video_time_seconds=pkt.video_time_seconds,
                          template_assignment_id=pkt.template_assignment_id)
+        with self._lock:
+            self._transitions.append(event)
         self._set(state=tr.to_state, since=event["at"], last_transition=event)
         if self._on_change:
             try:

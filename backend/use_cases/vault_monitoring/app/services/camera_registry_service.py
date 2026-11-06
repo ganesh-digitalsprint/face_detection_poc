@@ -377,6 +377,10 @@ def update_assignment(db: Session, assignment_id: str, data, actor_id: str):
         source = db.get(CameraSource, source_id) if source_id else None
         if source is None or not source.is_active or str(source.camera_id) != str(row.camera_id):
             raise RegistryError(409, "Assignment configuration.source_id must reference an active source of this camera")
+        # PATCH replaces the document; a source change must not silently drop configured alert rules.
+        existing_rules = (row.configuration or {}).get("grill_gate_alerts")
+        if row.use_case == "grill_gate" and existing_rules is not None:
+            payload["configuration"].setdefault("grill_gate_alerts", existing_rules)
     if "calibration" in payload and row.use_case == "grill_gate":
         try:
             payload["calibration"] = validate_grill_gate_calibration(payload["calibration"])

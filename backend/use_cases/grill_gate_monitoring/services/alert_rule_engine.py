@@ -45,6 +45,11 @@ class GrillGateAlertRuleEngine:
     def configure(self, config: GrillGateAlertConfig) -> None:
         self._config = config
 
+    def gate_open_seconds(self, at: datetime) -> float:
+        """Read-only view of the open-duration timer: it accumulates while OPEN and resets on CLOSED."""
+        running = max(0.0, (_utc(at) - self._open_since).total_seconds()) if self._open_since else 0.0
+        return round(self._open_elapsed_seconds + running, 3)
+
     def update_source_context(self, **context) -> None:
         self._source_context.update({key: value for key, value in context.items() if value is not None})
 

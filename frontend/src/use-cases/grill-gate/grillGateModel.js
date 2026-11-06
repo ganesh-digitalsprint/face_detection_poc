@@ -144,6 +144,9 @@ export function calibrationStatus(calibration, { worker = null, zones = [] } = {
   return { key: 'ready', tone: 'ok', label: calibration.monitoring?.thresholds_status === 'approved' ? 'Calibrated · approved' : 'Calibrated · provisional', issues: [] };
 }
 
+/** PATCH /assignments replaces `configuration`, so changing one key must carry the rest (e.g. grill_gate_alerts). */
+export const mergeAssignmentConfiguration = (current, changes) => ({ ...(current ?? {}), ...changes });
+
 /** Group configured zones under every backend zone type, keeping unknown types visible. */
 export function zoneCoverage(zoneTypes, zones) {
   const list = Array.isArray(zones) ? zones : [];

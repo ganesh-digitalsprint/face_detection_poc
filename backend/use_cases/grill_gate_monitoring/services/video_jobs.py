@@ -1,27 +1,54 @@
 """Bounded local scheduler and isolated worker for Grill Gate video jobs."""
 from __future__ import annotations
 
+import json
 import logging
 import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 import cv2
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from app.db.database import SessionLocal
-from app.db.models import GrillGateVideoJob
+from app.db.models import GrillGateEvent, GrillGateVideoJob
 from grill_gate_monitoring.services.gate_state_detector import GateDetectorConfig, GrillGateStateDetector
 from grill_gate_monitoring.services.video_frame_source import VideoFrameSource
 from grill_gate_monitoring.services.gate_geometry import pick_gate_leaf_zone
 
 logger = logging.getLogger(__name__)
 
+ACTIVE_STATUSES = ("QUEUED", "PROCESSING", "CANCEL_REQUESTED")
+EVENT_FLUSH_TIMEOUT_SECONDS = 120.0
+# A job reports every gate transition in its results; a live session only keeps the detector's default.
+JOB_TRANSITION_HISTORY = 1000
+
 
 class VideoJobCapacityError(RuntimeError):
     pass
+
+
+class EventsNotPersistedError(RuntimeError):
+    pass
+
+
+def monitoring_summary(status: dict) -> dict:
+    """The JSON-safe gate and mesh values shown for a job, live or after it has finished."""
+    processing = status.get("processing") or {}
+    mesh = processing.get("mesh") or {}
+    transition = status.get("last_transition") or {}
+    state = status.get("state")
+    if state == "UNKNOWN" and transition.get("reason") == "video ended":
+        # The end of the file is not a gate observation; report the last state seen before it.
+        state = transition.get("from_state") or state
+    summary = {"state": state, "since": status.get("since"), "progress": status.get("progress"),
+               "confidence": status.get("confidence"), "gate_open_seconds": status.get("gate_open_seconds"),
+               "processed_frames": status.get("processed_frames"), "last_transition": transition or None,
+               "transitions": status.get("recent_transitions") or [], "error": status.get("error"),
+               "mesh": {"occupancy_count": mesh.get("occupancy_count", 0), "occupied": bool(mesh.get("occupied")),
+                        "last_updated_at": mesh.get("last_updated_at"), "config_status": mesh.get("config_status")}}
+    return json.loads(json.dumps(summary, default=str))
 
 
 class GrillGateVideoJobs:
@@ -34,13 +61,13 @@ class GrillGateVideoJobs:
         self._slots = threading.BoundedSemaphore(max_concurrent)
         self._cancel: dict[str, threading.Event] = {}
         self._sources: dict[str, VideoFrameSource] = {}
+        self._detectors: dict[str, GrillGateStateDetector] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._closed = False
 
     def recover(self):
         with SessionLocal() as db:
-            rows = db.scalars(select(GrillGateVideoJob).where(GrillGateVideoJob.status.in_(
-                ("PROCESSING", "QUEUED", "CANCEL_REQUESTED")))).all()
+            rows = db.scalars(select(GrillGateVideoJob).where(GrillGateVideoJob.status.in_(ACTIVE_STATUSES))).all()
             for row in rows:
                 row.status = "FAILED"
                 row.error_code = "PROCESS_INTERRUPTED"
@@ -52,12 +79,12 @@ class GrillGateVideoJobs:
             return sum(thread.is_alive() for thread in self._threads.values())
 
     def save(self, path: Path, *, original_filename: str, config: dict,
-             template_assignment_id: str | None) -> str:
+             template_assignment_id: str | None, metadata: dict | None = None) -> str:
         """Persist an uploaded video as an UPLOADED job; processing waits for an explicit start()."""
         job_id = str(uuid4())
         job = GrillGateVideoJob(id=job_id, original_filename=original_filename[:255],
             storage_path=str(path), status="UPLOADED",
-            template_assignment_id=template_assignment_id, config_snapshot=config)
+            template_assignment_id=template_assignment_id, config_snapshot={**config, "video": metadata or {}})
         with SessionLocal() as db:
             db.add(job)
             db.commit()
@@ -72,7 +99,8 @@ class GrillGateVideoJobs:
             if active >= self.max_concurrent + self.max_queued:
                 raise VideoJobCapacityError("Video processing queue is full")
             with SessionLocal() as db:
-                # Conditional update: a duplicate request can never start a second worker.
+                # Conditional update: a duplicate request can never start a second worker. It also ends
+                # editing, so the config read below is the immutable snapshot this run uses.
                 claimed = db.execute(update(GrillGateVideoJob).where(GrillGateVideoJob.id == job_id,
                     GrillGateVideoJob.status == "UPLOADED").values(status="QUEUED"))
                 db.commit()
@@ -100,17 +128,13 @@ class GrillGateVideoJobs:
         with self._lock:
             event = self._cancel.get(job_id)
             if event is None:
-                # Saved but never started: no worker exists, so finish it here and free the file.
+                # Saved but never started: no worker exists, so finish it here. The file stays until Delete.
                 with SessionLocal() as db:
-                    row = db.get(GrillGateVideoJob, job_id)
-                    if row is None or row.status != "UPLOADED":
-                        return None
-                    row.status = "CANCELLED"
-                    row.completed_at = datetime.now(timezone.utc)
-                    path = Path(row.storage_path)
+                    result = db.execute(update(GrillGateVideoJob).where(GrillGateVideoJob.id == job_id,
+                        GrillGateVideoJob.status == "UPLOADED").values(status="CANCELLED",
+                        completed_at=datetime.now(timezone.utc)))
                     db.commit()
-                path.unlink(missing_ok=True)
-                return "CANCELLED"
+                return "CANCELLED" if result.rowcount == 1 else None
             event.set()
             source = self._sources.get(job_id)
             if source:
@@ -121,6 +145,31 @@ class GrillGateVideoJobs:
                     row.status = "CANCEL_REQUESTED"
                     db.commit()
             return "CANCEL_REQUESTED"
+
+    def delete(self, job_id: str) -> bool:
+        """Remove a job that is not running, with its events and stored video. False means it is still active."""
+        with SessionLocal() as db:
+            row = db.get(GrillGateVideoJob, job_id)
+            if row is None:
+                return False
+            path = Path(row.storage_path)
+            removed = db.execute(delete(GrillGateVideoJob).where(GrillGateVideoJob.id == job_id,
+                GrillGateVideoJob.status.not_in(ACTIVE_STATUSES)))
+            if removed.rowcount != 1:
+                db.rollback()
+                return False
+            db.execute(delete(GrillGateEvent).where(GrillGateEvent.video_job_id == job_id))
+            db.commit()
+        path.unlink(missing_ok=True)
+        with self._lock:
+            self._threads.pop(job_id, None)
+        return True
+
+    def monitoring(self, job_id: str) -> dict | None:
+        """Current gate and mesh values of a running job, or None when no detector is running for it."""
+        with self._lock:
+            detector = self._detectors.get(job_id)
+        return monitoring_summary(detector.status()) if detector is not None else None
 
     def shutdown(self, timeout: float = 15):
         with self._lock:
@@ -168,13 +217,26 @@ class GrillGateVideoJobs:
             detector = GrillGateStateDetector(job_id, job_id, source, lambda: cfg,
                 max_fps=1_000_000, config_reload_seconds=3600,
                 frame_processor=processor,
-                machine_overrides={})
+                machine_overrides={}, transition_history=JOB_TRANSITION_HISTORY)
+            with self._lock:
+                self._detectors[job_id] = detector
             detector.start()
             detector._thread.join()
             state = detector.status()
             cancelled = cancel.is_set()
-            self.event_writer.flush(timeout=10)
+            # A terminal status promises that this job's events are stored, so it waits on this job alone.
+            persisted = self.event_writer.flush_job(job_id, timeout=EVENT_FLUSH_TIMEOUT_SECONDS)
             self.alert_publisher.flush(timeout=10)
+            with SessionLocal() as db:
+                job = db.get(GrillGateVideoJob, job_id)
+                if job:
+                    # Reassigned, not mutated: SQLAlchemy does not track changes inside a JSON value.
+                    job.config_snapshot = {**(job.config_snapshot or {}), "final_status": monitoring_summary(state)}
+                    job.frame_count = source._sequence
+                    job.progress_seconds = max(0.0, source._last_video_seconds)
+                    db.commit()
+            if not cancelled and not persisted:
+                raise EventsNotPersistedError("EVENTS_NOT_PERSISTED")
             if not cancelled and (state.get("error") or
                     (state.get("processing") or {}).get("processing_error")):
                 raise RuntimeError("VIDEO_PIPELINE_FAILED")
@@ -182,20 +244,21 @@ class GrillGateVideoJobs:
                 job = db.get(GrillGateVideoJob, job_id)
                 if job:
                     job.status = "CANCELLED" if cancelled else "COMPLETED"
-                    job.frame_count = source._sequence
-                    job.progress_seconds = max(0.0, source._last_video_seconds)
                     job.completed_at = datetime.now(timezone.utc)
                     db.commit()
         except Exception as exc:
             logger.exception("Grill Gate video job failed id=%s", job_id)
+            code = str(exc) if isinstance(exc, EventsNotPersistedError) else "VIDEO_PIPELINE_FAILED"
             with SessionLocal() as db:
                 job = db.get(GrillGateVideoJob, job_id)
                 if job:
                     job.status = "CANCELLED" if cancel.is_set() else "FAILED"
-                    job.error_code = "VIDEO_PIPELINE_FAILED" if not cancel.is_set() else None
+                    job.error_code = code if not cancel.is_set() else None
                     job.completed_at = datetime.now(timezone.utc)
                     db.commit()
         finally:
+            with self._lock:
+                self._detectors.pop(job_id, None)
             if detector is not None:
                 detector.stop()
             elif source is not None:
@@ -205,10 +268,11 @@ class GrillGateVideoJobs:
                 self._cancel.pop(job_id, None)
             if acquired:
                 self._slots.release()
-            Path(path).unlink(missing_ok=True)
+            self.event_writer.forget_job(job_id)
 
 
-def validate_video(path: Path, filename: str) -> None:
+def validate_video(path: Path, filename: str) -> dict:
+    """Reject anything but a readable MP4/AVI and return its decoded facts."""
     extension = Path(filename).suffix.lower()
     if extension not in {".mp4", ".avi"}:
         raise ValueError("Only MP4 and AVI uploads are supported")
@@ -227,5 +291,28 @@ def validate_video(path: Path, filename: str) -> None:
             raise ValueError("Video contains no readable frames")
         if frame.shape[0] <= 0 or frame.shape[1] <= 0:
             raise ValueError("Video frame dimensions are invalid")
+        # Size comes from the decoded frame, the same pixels the detector and the reference frame use.
+        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0)
+        fps = fps if fps > 0 and fps == fps else None
+        total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        total = total if total > 0 else None
+        return {"width": int(frame.shape[1]), "height": int(frame.shape[0]), "fps": fps, "total_frames": total,
+                "duration_seconds": round(total / fps, 3) if fps and total else None}
+    finally:
+        capture.release()
+
+
+def read_frame_at(path: Path, seconds: float):
+    """Decode the frame at a video time. Raises ValueError when the file has no frame there."""
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            raise ValueError("Stored video could not be opened")
+        if seconds > 0:
+            capture.set(cv2.CAP_PROP_POS_MSEC, float(seconds) * 1000.0)
+        ok, frame = capture.read()
+        if not ok or frame is None or frame.size == 0:
+            raise ValueError(f"No frame could be read at {seconds:.2f} s")
+        return frame
     finally:
         capture.release()

@@ -38,19 +38,32 @@ them through the same gate detector and frame processor used for live camera fra
 its own tracker, crossing/mesh state and alert rule engine. A template is read-only; no camera
 worker is connected or changed.
 
-An upload only saves the video and its configuration snapshot as an `UPLOADED` job. Processing begins
-when `POST .../start` is called; each job can be started once, because the stored video is deleted when
-its worker finishes. Zone or calibration edits made after the upload do not affect a saved job.
+An upload saves the video as an `UPLOADED` job; zones and calibration are optional at that point and
+are set on the job afterwards. Processing begins when `POST .../start` is called and the job is ready. Each
+job can be started once. Starting locks its configuration, so later edits cannot change a running or
+finished job. The stored video stays until the job is deleted, and a finished job is not reprocessed. The
+video's size, fps, duration and frame count and the job's final status are kept in `config_snapshot`.
 
 Endpoints:
 
 - `POST /api/v1/grill-gate/videos` — multipart upload; saves an `UPLOADED` job without processing it.
-- `POST /api/v1/grill-gate/videos/{job_id}/start` — start a saved job (`409` if not `UPLOADED`,
-  `429` if the queue is full).
+  `template_assignment_id` or `configuration` are optional.
+- `POST /api/v1/grill-gate/videos/{job_id}/start` — start a saved job (`409` if not `UPLOADED` or not
+  ready, listing what is missing; `429` if the queue is full).
+- `GET`/`PUT /api/v1/grill-gate/videos/{job_id}/config` — the job's zones, tuning, calibration and alert
+  rules. A calibration must match the video's decoded frame size. `PUT` returns `409` after start.
+- `POST /api/v1/grill-gate/videos/{job_id}/config/copy` — copy from `source_job_id` or
+  `source_assignment_id`, only when frame sizes match.
+- `GET /api/v1/grill-gate/videos/{job_id}/frame?t=&max_width=` — downscaled JPEG at a video time.
+- `POST /api/v1/grill-gate/videos/{job_id}/measure-endpoints` — `closed_t` and `open_t`; returns the four
+  endpoint fractions without saving them.
+- `GET /api/v1/grill-gate/videos/{job_id}/preview?t=&max_width=` — JPEG from the processed part of the
+  video only; the newest processed frame when `t` is omitted (`409` before any frame is processed).
+- `DELETE /api/v1/grill-gate/videos/{job_id}` — remove a job that is not running, with its events and video.
 - `GET /api/v1/grill-gate/videos` — list jobs (`status`, `limit`, `offset`).
 - `GET /api/v1/grill-gate/videos/{job_id}` — status and progress.
 - `POST /api/v1/grill-gate/videos/{job_id}/cancel` — request cancellation; a job that was never
-  started becomes `CANCELLED` immediately and its stored video is deleted.
+  started becomes `CANCELLED` immediately. Its video stays until Delete.
 - `GET /api/v1/grill-gate/videos/{job_id}/results` — persisted crossing/mesh events and
   matching shared Alert Service alerts.
 
@@ -58,6 +71,9 @@ The runner defaults to one concurrent decode/inference job and three queued jobs
 `GRILL_GATE_VIDEO_MAX_CONCURRENT`, `GRILL_GATE_VIDEO_MAX_QUEUED`,
 `GRILL_GATE_VIDEO_UPLOAD_DIR` and `MAX_VIDEO_UPLOAD_MB` in the host environment to tune it.
 Interrupted jobs are marked `FAILED` with `PROCESS_INTERRUPTED` during startup recovery.
+
+Results also include `transitions`, the job's gate-state changes with video times. Live gate-state status
+keeps its recent transitions in memory only, so they are lost when the server restarts.
 
 Apply `migrations/20261107_grill_gate_video_jobs.sql` with the existing manual SQL migration
 workflow before running against a database that already has `grill_gate_events`. The paired
