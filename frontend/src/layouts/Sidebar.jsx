@@ -29,7 +29,7 @@ function Tag({ children, pink = false }) {
   );
 }
 
-function NavItem({ item, pathname, collapsed, muted, sub = false, badgeText, onNavigate }) {
+function NavItem({ item, pathname, search, collapsed, muted, sub = false, badgeText, onNavigate }) {
   const { icon: Icon, label } = item;
   const title = collapsed ? label : undefined;
   const icon = Icon && <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden />;
@@ -44,7 +44,7 @@ function NavItem({ item, pathname, collapsed, muted, sub = false, badgeText, onN
     );
   }
 
-  const active = isItemActive(item, pathname);
+  const active = isItemActive(item, pathname, search);
   return (
     <Link
       to={item.to}
@@ -61,10 +61,10 @@ function NavItem({ item, pathname, collapsed, muted, sub = false, badgeText, onN
   );
 }
 
-function NavGroup({ item, pathname, collapsed, muted, open, onToggle, badgeText, onNavigate }) {
+function NavGroup({ item, pathname, search, collapsed, muted, open, onToggle, badgeText, onNavigate }) {
   const { icon: Icon, label } = item;
   const panelId = `nav-group-${item.id}`;
-  const active = isItemActive(item, pathname);
+  const active = isItemActive(item, pathname, search);
   const showOpen = open && !collapsed;
   return (
     <div>
@@ -89,7 +89,7 @@ function NavGroup({ item, pathname, collapsed, muted, open, onToggle, badgeText,
       {!collapsed && (
         <div id={panelId} hidden={!showOpen} className="ml-5 mt-0.5 flex flex-col gap-0.5 border-l border-white/10 pl-2">
           {item.children.map((child) => (
-            <NavItem key={child.id} item={child} sub pathname={pathname} collapsed={false} muted={muted} onNavigate={onNavigate} />
+            <NavItem key={child.id} item={child} sub pathname={pathname} search={search} collapsed={false} muted={muted} onNavigate={onNavigate} />
           ))}
         </div>
       )}
@@ -117,11 +117,11 @@ function Brand({ collapsed }) {
 }
 
 /** Open groups: starts from `defaultOpen`/active route; manual toggles are remembered; navigating opens the owner group. */
-function useOpenGroups(sections, pathname) {
-  const [open, setOpen] = useState(() => new Set(openGroupIds(sections, pathname)));
-  const activeKey = openGroupIds(sections, pathname).join('|');
+function useOpenGroups(sections, pathname, search) {
+  const [open, setOpen] = useState(() => new Set(openGroupIds(sections, pathname, search)));
+  const activeKey = openGroupIds(sections, pathname, search).join('|');
   useEffect(() => {
-    const active = sections.flatMap((s) => s.items).filter((i) => i.children && isItemActive(i, pathname)).map((i) => i.id);
+    const active = sections.flatMap((s) => s.items).filter((i) => i.children && isItemActive(i, pathname, search)).map((i) => i.id);
     if (active.length) setOpen((prev) => (active.every((id) => prev.has(id)) ? prev : new Set([...prev, ...active])));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the route's owning groups only
   }, [activeKey]);
@@ -145,9 +145,9 @@ function useOpenGroups(sections, pathname) {
  * `onNavigate` fires only when a link is clicked (never for group toggles); `onExpand` expands a collapsed rail.
  */
 export default function Sidebar({ collapsed = false, devEnabled = false, badges = {}, onNavigate, onExpand }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const sections = useMemo(() => visibleSections(NAV_SECTIONS, { devEnabled }), [devEnabled]);
-  const { open, toggle, show } = useOpenGroups(sections, pathname);
+  const { open, toggle, show } = useOpenGroups(sections, pathname, search);
 
   const onGroup = (id) => {
     if (collapsed) {
@@ -171,6 +171,7 @@ export default function Sidebar({ collapsed = false, devEnabled = false, badges 
                 key={item.id}
                 item={item}
                 pathname={pathname}
+                search={search}
                 collapsed={collapsed}
                 muted={section.muted}
                 open={open.has(item.id)}
@@ -179,7 +180,7 @@ export default function Sidebar({ collapsed = false, devEnabled = false, badges 
                 onNavigate={onNavigate}
               />
             ) : (
-              <NavItem key={item.id} item={item} pathname={pathname} collapsed={collapsed} muted={section.muted} badgeText={badgeText} onNavigate={onNavigate} />
+              <NavItem key={item.id} item={item} pathname={pathname} search={search} collapsed={collapsed} muted={section.muted} badgeText={badgeText} onNavigate={onNavigate} />
             );
           })}
         </div>

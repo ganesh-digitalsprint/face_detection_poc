@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.zones import REFERENCES, ZoneConfigError, validate_polygon
-from app.schemas.grill_gate_calibration import validate_grill_gate_calibration
+from grill_gate_monitoring.schemas.calibration import validate_grill_gate_calibration
 
 CODE_PATTERN = re.compile(r"^[a-z0-9_-]{1,39}$")
 ZONE_KEY_PATTERN = re.compile(r"^[a-z0-9_-]{1,40}$")

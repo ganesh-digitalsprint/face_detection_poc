@@ -1,27 +1,27 @@
-/** Dark surface primitives matching the Grill Gate reference design. */
+/** Shared Grill Gate UI primitives using the Vault Access light palette. */
 
 export const TONES = {
-  ok: 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/30',
-  warn: 'bg-amber-500/15 text-amber-300 ring-amber-400/30',
-  bad: 'bg-rose-500/15 text-rose-300 ring-rose-400/30',
-  info: 'bg-sky-500/15 text-sky-300 ring-sky-400/30',
-  idle: 'bg-slate-500/20 text-slate-300 ring-slate-400/20',
-  purple: 'bg-violet-500/20 text-violet-300 ring-violet-400/30',
+  ok: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
+  warn: 'bg-amber-50 text-amber-800 ring-amber-200',
+  bad: 'bg-rose-50 text-rose-800 ring-rose-200',
+  info: 'bg-sky-50 text-sky-800 ring-sky-200',
+  idle: 'bg-slate-100 text-slate-700 ring-slate-200',
+  purple: 'bg-violet-50 text-violet-800 ring-violet-200',
 };
 const DOTS = { ok: 'bg-emerald-400', warn: 'bg-amber-400', bad: 'bg-rose-400', info: 'bg-sky-400', idle: 'bg-slate-400', purple: 'bg-violet-400' };
 
 export const btn = 'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40';
-export const btnPrimary = `${btn} bg-[#3c5ba4] text-white hover:bg-[#4a6bbb]`;
-export const btnDanger = `${btn} bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/30 hover:bg-rose-500/25`;
-export const btnGhost = `${btn} bg-white/5 text-slate-200 ring-1 ring-white/10 hover:bg-white/10`;
+export const btnPrimary = `${btn} bg-[#34479B] text-white hover:bg-[#293B86]`;
+export const btnDanger = `${btn} bg-rose-50 text-rose-800 ring-1 ring-rose-200 hover:bg-rose-100`;
+export const btnGhost = `${btn} bg-white text-[#34479B] ring-1 ring-[#E3E7F0] hover:bg-[#F4F6FB]`;
 
 export function Card({ title, aside, className = '', children }) {
   return (
-    <section className={`rounded-xl border border-[#22304d] bg-[#121b2f] p-4 sm:p-5 ${className}`}>
+    <section className={`rounded-xl border border-[#E3E7F0] bg-white p-4 sm:p-5 ${className}`}>
       {(title || aside) && (
         <header className="mb-3 flex items-center justify-between gap-3">
-          {title && <h2 className="text-[15px] font-semibold text-slate-100">{title}</h2>}
-          {aside && <div className="flex shrink-0 items-center gap-2 text-xs text-slate-400">{aside}</div>}
+          {title && <h2 className="text-[15px] font-semibold text-[#0F1B3D]">{title}</h2>}
+          {aside && <div className="flex shrink-0 items-center gap-2 text-xs text-[#55607A]">{aside}</div>}
         </header>
       )}
       {children}
@@ -40,16 +40,16 @@ export function Pill({ tone = 'idle', dot = false, children, className = '' }) {
 
 export function StatCard({ label, value, valueClass = 'text-slate-500', sub, badge }) {
   return (
-    <div className="rounded-xl border border-[#22304d] bg-[#121b2f] p-4">
-      <p className="text-xs text-slate-400">{label}</p>
+    <div className="rounded-xl border border-[#E3E7F0] bg-white p-4">
+      <p className="text-xs text-[#55607A]">{label}</p>
       <p className={`mt-1 text-[28px] font-bold leading-tight ${valueClass}`}>{value}</p>
       {badge && <div className="mt-1">{badge}</div>}
-      {sub && <p className="mt-1 text-xs leading-5 text-slate-400">{sub}</p>}
+      {sub && <p className="mt-1 text-xs leading-5 text-[#55607A]">{sub}</p>}
     </div>
   );
 }
 
 export function ErrorNote({ children }) {
   if (!children) return null;
-  return <p role="alert" className="rounded-lg bg-rose-500/10 p-3 text-sm text-rose-200 ring-1 ring-rose-400/30">{children}</p>;
+  return <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800 ring-1 ring-rose-200">{children}</p>;
 }

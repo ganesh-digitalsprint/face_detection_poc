@@ -31,7 +31,7 @@ class Point2D(StrictModel):
 
 
 class GatePositionThresholds(StrictModel):
-    """Normalized image-space tolerance around the closed/open references."""
+    """Normalized progress-space tolerance around the closed/open references."""
 
     closed_tolerance: UnitInterval
     open_tolerance: UnitInterval
@@ -46,6 +46,14 @@ class GateStateConfirmation(StrictModel):
 
 
 class SlidingGateCalibration(StrictModel):
+    """Calibration values for the normalized gate progress measurement.
+
+    Geometry-based detection treats 0.0 and 1.0 as closed/open progress endpoints,
+    not image coordinates. Position tolerances are fractions of that span. A 0.5
+    confidence threshold accepts a single-leaf measurement. For the bi-parting door,
+    ``left_to_right`` means combined progress increases as it opens.
+    """
+
     gate_roi_zone_key: Literal["gate_leaf_roi"] = "gate_leaf_roi"
     closed_reference_position: UnitInterval
     open_reference_position: UnitInterval

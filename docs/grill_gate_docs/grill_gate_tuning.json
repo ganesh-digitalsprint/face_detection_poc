@@ -1,0 +1,11 @@
+{
+  "strip_rows": [0.39, 0.41, 0.43],
+  "strip_half_height_px": 3,
+  "win_left": [0.08, 0.45],
+  "win_right": [0.30, 0.72],
+  "xL_closed": 0.37,
+  "xL_open": 0.19,
+  "xR_closed": 0.37,
+  "xR_open": 0.63,
+  "anchors": []
+}

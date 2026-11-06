@@ -20,7 +20,8 @@ from app.core.ml_config import get_vault_room_config
 from app.core.zones.vault_room_zone import Zone, ZoneFile, ZoneConfigError, load_zones, save_zones, zone_from_dict
 from app.services.vault_zone_provider import active_vault_assignment
 from app.services.registry_config import annotate_zone_type, load_zone_types
-from app.schemas.grill_gate_calibration import validate_grill_gate_calibration
+from grill_gate_monitoring.schemas.calibration import validate_grill_gate_calibration
+from grill_gate_monitoring.schemas.geometry import validate_gate_geometry_tuning
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,36 @@ class RegistryError(Exception):
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
+
+
+def _validate_gate_leaf_config(assignment, zone_type: str | None, properties: dict | None) -> None:
+    if assignment.use_case != "grill_gate" or zone_type != "gate_leaf_roi" or not properties:
+        return
+    try:
+        validate_gate_geometry_tuning(properties)
+    except ValidationError as exc:
+        issues = "; ".join(
+            f"{'.'.join(str(part) for part in issue['loc'])}: {issue['msg']}"
+            for issue in exc.errors(include_url=False)
+        )
+        raise RegistryError(422, f"Invalid gate_geometry tuning: {issues}") from exc
+
+
+def _ensure_single_enabled_gate_leaf(db: Session, assignment, zone_type: str | None, enabled: bool, *, exclude_id=None) -> None:
+    if assignment.use_case != "grill_gate" or zone_type != "gate_leaf_roi" or not enabled:
+        return
+    # Serialize concurrent creates/enables for the same assignment on PostgreSQL.
+    db.scalar(select(CameraUseCaseAssignment).where(
+        CameraUseCaseAssignment.id == assignment.id).with_for_update())
+    stmt = select(RegistryZone.id).where(
+        RegistryZone.assignment_id == assignment.id,
+        RegistryZone.zone_type == "gate_leaf_roi",
+        RegistryZone.enabled.is_(True),
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(RegistryZone.id != exclude_id)
+    if db.scalar(stmt) is not None:
+        raise RegistryError(409, "Only one enabled gate_leaf_roi zone is allowed per Grill Gate assignment")
 
 
 def _audit(db: Session, actor_id: str, action: str, entity_type: str, entity_id: str, before=None, after=None):
@@ -397,7 +428,7 @@ def grill_gate_assignment_camera(db: Session, assignment_id: str, *, allow_inact
 
 def resolve_grill_gate_assignment_source(db: Session, assignment_id: str):
     """Resolve an active Grill Gate assignment and its server-side capture source."""
-    from app.services.grill_gate_camera_worker import CaptureSource
+    from grill_gate_monitoring.services.camera_worker import CaptureSource
 
     assignment = _active_assignment(db, assignment_id)
     if assignment.use_case != "grill_gate":
@@ -536,6 +567,8 @@ def create_zone(db: Session, assignment_id: str, data, actor_id: str):
     assignment, path = _vault_file_assignment(db, assignment_id)
     if assignment.use_case == "grill_gate" and data.coordinate_system != "normalized_raw":
         raise RegistryError(422, "Grill Gate zones must use normalized_raw coordinates")
+    _validate_gate_leaf_config(assignment, data.zone_type, data.properties)
+    _ensure_single_enabled_gate_leaf(db, assignment, data.zone_type, data.enabled)
     if assignment.use_case == "vault_room" and get_vault_room_config().zones_source == "file":
         if data.zone_type or data.description or data.properties or data.calibration:
             raise RegistryError(422, "Vault JSON zones support id, name, reference, polygon and enabled only")
@@ -592,6 +625,11 @@ def update_zone(db: Session, assignment_id: str, zone_id: str, data, actor_id: s
     row = db.scalar(select(RegistryZone).where(RegistryZone.assignment_id == assignment.id,
         (RegistryZone.id == zone_id) | (RegistryZone.zone_key == zone_id)))
     if row is None: raise RegistryError(404, "Zone not found for assignment")
+    next_zone_type = payload.get("zone_type", row.zone_type)
+    next_enabled = payload.get("enabled", row.enabled)
+    next_properties = payload.get("properties", row.properties)
+    _validate_gate_leaf_config(assignment, next_zone_type, next_properties)
+    _ensure_single_enabled_gate_leaf(db, assignment, next_zone_type, next_enabled, exclude_id=row.id)
     if assignment.use_case == "grill_gate":
         coordinate_system = payload.get("coordinate_system", row.coordinate_system)
         if coordinate_system != "normalized_raw":

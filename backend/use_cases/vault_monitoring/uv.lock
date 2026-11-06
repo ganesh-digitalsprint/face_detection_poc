@@ -604,12 +604,18 @@ dependencies = [
     { name = "werkzeug" },
 ]
 
+[package.optional-dependencies]
+offline = [
+    { name = "matplotlib" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "cloudinary", specifier = ">=1.46,<2" },
     { name = "deepface", extras = ["tensorflow"] },
     { name = "fastapi" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "matplotlib", marker = "extra == 'offline'" },
     { name = "mediapipe", specifier = "==1.1.0" },
     { name = "numpy" },
     { name = "opencv-contrib-python", specifier = ">=5.0.0.93" },
@@ -630,6 +636,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"] },
     { name = "werkzeug", specifier = ">=3.0" },
 ]
+provides-extras = ["offline"]
 
 [[package]]
 name = "fastapi"

@@ -32,7 +32,7 @@ export function ZoneOverlay({ zones = [], line = null }) {
         );
       })}
       {line && (
-        <span className="pointer-events-none absolute translate-x-2 text-[11px] font-bold text-slate-100"
+        <span className="pointer-events-none absolute translate-x-2 text-[11px] font-bold text-white"
           style={{ left: `${line.end.x * 100}%`, top: `${line.end.y * 100}%` }}>Virtual line</span>
       )}
     </>
@@ -53,10 +53,10 @@ export default function CameraStage({ aspect = 16 / 9, caption, streamUrl = null
   };
   return (
     <div ref={ref} onClick={onPick ? pick : undefined} role="img" aria-label={label}
-      className={`relative overflow-hidden rounded-lg border border-[#22304d] bg-[#0a101d] ${onPick ? 'cursor-crosshair' : ''}`}
+      className={`relative overflow-hidden rounded-lg border border-[#E3E7F0] bg-[#18202E] ${onPick ? 'cursor-crosshair' : ''}`}
       style={{ aspectRatio: String(aspect) }}>
       {streamUrl && <img src={streamUrl} alt="" className="absolute inset-0 h-full w-full object-fill" />}
-      {caption && <div className="absolute left-3 top-2 font-mono text-[11px] text-slate-400">{caption}</div>}
+      {caption && <div className="absolute left-3 top-2 font-mono text-[11px] text-slate-200">{caption}</div>}
       {children}
     </div>
   );

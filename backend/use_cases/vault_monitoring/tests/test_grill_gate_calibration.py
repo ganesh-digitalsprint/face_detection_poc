@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.grill_gate_calibration import GrillGateCalibration
+from grill_gate_monitoring.schemas.calibration import GrillGateCalibration
 from app.services.registry_config import load_zone_types
 
 

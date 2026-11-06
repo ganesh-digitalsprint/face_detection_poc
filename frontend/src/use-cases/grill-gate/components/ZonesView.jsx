@@ -17,20 +17,20 @@ export default function ZonesView({ item, zones, loading, error, zoneTypes }) {
           <ZoneOverlay zones={zones} />
           {!zones.length && <p className="absolute inset-0 flex items-center justify-center text-sm text-slate-500">{loading ? 'Loading zones…' : 'No zones configured'}</p>}
         </CameraStage>
-        <p className="mt-3 text-xs leading-5 text-slate-400">
+        <p className="mt-3 text-xs leading-5 text-[#55607A]">
           Polygons use normalized raw-frame coordinates. The gate_crossing polygon is the corridor; the directional virtual line is set under Calibration.
         </p>
       </Card>
       <Card title="Zone types">
         {error && <div className="mb-3"><ErrorNote>{error}</ErrorNote></div>}
-        <ul className="divide-y divide-[#22304d]">
+        <ul className="divide-y divide-[#E3E7F0]">
           {rows.map((row) => (
             <li key={row.key} className="flex items-start justify-between gap-3 py-2.5">
               <span className="min-w-0">
-                <span className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+                <span className="flex items-center gap-2 text-sm font-semibold text-[#0F1B3D]">
                   <span className="h-2.5 w-2.5 rounded-sm" style={{ background: zoneColor(row.key) }} aria-hidden />{row.label}
                 </span>
-                <span className="mt-0.5 block text-xs text-slate-400">
+                <span className="mt-0.5 block text-xs text-[#55607A]">
                   {row.zones.length ? row.zones.map((zone) => `${zone.name}${zone.enabled === false ? ' (disabled)' : ''}`).join(', ') : row.description}
                 </span>
               </span>

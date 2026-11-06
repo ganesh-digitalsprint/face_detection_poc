@@ -129,6 +129,7 @@ def create_zone(assignment_id: str, payload: RegistryZoneCreate, db: Db, caller:
 
 @router.patch("/assignments/{assignment_id}/zones/{zone_id}")
 def update_zone(assignment_id: str, zone_id: str, payload: RegistryZoneUpdate, db: Db, caller: Caller):
+    """Patch a zone; supplying ``properties`` replaces the entire properties object."""
     return _call(registry.update_zone, db, assignment_id, zone_id, payload, caller.id)
 
 

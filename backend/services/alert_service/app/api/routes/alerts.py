@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Alert, AlertAudit, NotificationOutbox
 from app.db.repositories import (Conflict, alert_dict, audit_for, ingest, list_alerts,
-                                 summary, transition, update_source)
+                                 resolve_source, summary, transition, update_source)
 from app.deps import (OperatorIdentity, ProducerIdentity, get_db, get_operator,
                       get_producer, require_scope)
-from app.schemas.alert import AlertStatus, CanonicalSeverity, LifecycleAction, ProducerAlert, canonical_severity
+from app.schemas.alert import (AlertStatus, CanonicalSeverity, LifecycleAction, ProducerAlert,
+                               SourceResolution, canonical_severity)
 
 router = APIRouter(prefix="/api/v1", tags=["alerts"])
 
@@ -104,10 +105,26 @@ def update_alert(source_event_id: str, payload: ProducerAlert, request: Request,
     return alert_dict(alert)
 
 
+@router.post("/alerts/source-events/{source_event_id}/resolution")
+def resolve_source_alert(source_event_id: str, body: SourceResolution, request: Request,
+                         producer: ProducerIdentity = Depends(get_producer), db: Session = Depends(get_db)):
+    """Let a producer resolve only alerts created by that same producer/use case."""
+    try:
+        row = resolve_source(db, use_case=producer.use_case, producer=producer.producer,
+            source_event_id=source_event_id, expected_source_version=body.expected_source_version,
+            note=body.note, request_id=_request_id(request))
+    except LookupError as exc:
+        raise HTTPException(404, detail={"code": "SOURCE_EVENT_NOT_FOUND", "message": str(exc)}) from exc
+    except Conflict as exc:
+        _raise_conflict(exc)
+    return alert_dict(row)
+
+
 @router.get("/alerts")
 def get_alerts(use_case: str | None = None, producer: str | None = None, status: AlertStatus | None = None,
                severity: CanonicalSeverity | None = None, source_event_type: str | None = None,
                source_event_id: str | None = None, category: str | None = None,
+               assignment_id: str | None = None, camera_id: str | None = None,
                from_at: datetime | None = Query(default=None, alias="from"),
                to_at: datetime | None = Query(default=None, alias="to"),
                sort: Literal["newest", "oldest"] = "newest", limit: int = Query(default=25, ge=1, le=100),
@@ -131,6 +148,7 @@ def get_alerts(use_case: str | None = None, producer: str | None = None, status:
 def get_summary(use_case: str | None = None, producer: str | None = None, status: AlertStatus | None = None,
                 severity: CanonicalSeverity | None = None, source_event_type: str | None = None,
                 source_event_id: str | None = None, category: str | None = None,
+                assignment_id: str | None = None, camera_id: str | None = None,
                 from_at: datetime | None = Query(default=None, alias="from"),
                 to_at: datetime | None = Query(default=None, alias="to"),
                 operator: OperatorIdentity = Depends(get_operator), db: Session = Depends(get_db)):
@@ -143,7 +161,8 @@ def get_summary(use_case: str | None = None, producer: str | None = None, status
         raise HTTPException(422, detail={"code": "INVALID_TIME_RANGE", "message": "from must be before to"})
     return summary(db, scopes=list(operator.use_cases), filters={"use_case": use_case, "producer": producer,
         "status": status, "severity": severity, "source_event_type": source_event_type,
-        "source_event_id": source_event_id, "category": category, "from_at": from_at, "to_at": to_at})
+        "source_event_id": source_event_id, "category": category, "assignment_id": assignment_id,
+        "camera_id": camera_id, "from_at": from_at, "to_at": to_at})
 
 
 @router.get("/alerts/meta")

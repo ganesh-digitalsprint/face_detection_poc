@@ -6,8 +6,8 @@ import { calibrationStatus, calibrationToForm, formLine, formToCalibration } fro
 import CameraStage, { ZoneOverlay } from './CameraStage.jsx';
 import { btnGhost, btnPrimary, Card, ErrorNote, Pill } from './ui.jsx';
 
-const input = 'mt-1 min-h-9 w-full rounded-md border border-[#2c3b5c] bg-[#0f1729] px-2.5 text-sm text-slate-100 outline-none focus:border-[#5b7cfa] focus:ring-2 focus:ring-[#5b7cfa]/30';
-const label = 'block text-xs text-slate-400';
+const input = 'mt-1 min-h-9 w-full rounded-md border border-[#D0D7E6] bg-white px-2.5 text-sm text-[#1C2B4D] outline-none focus:border-[#34479B] focus:ring-2 focus:ring-[#34479B]/20';
+const label = 'block text-xs text-[#55607A]';
 
 function NumberField({ form, setField, name, text, step = 'any', min, max }) {
   return (
@@ -31,9 +31,9 @@ function SelectField({ form, setField, name, text, options }) {
 
 function Fieldset({ title, hint, children }) {
   return (
-    <fieldset className="border-t border-[#22304d] pt-4 first:border-t-0 first:pt-0">
-      <legend className="text-sm font-semibold text-slate-100">{title}</legend>
-      {hint && <p className="mt-1 text-xs leading-5 text-slate-400">{hint}</p>}
+    <fieldset className="border-t border-[#E3E7F0] pt-4 first:border-t-0 first:pt-0">
+      <legend className="text-sm font-semibold text-[#0F1B3D]">{title}</legend>
+      {hint && <p className="mt-1 text-xs leading-5 text-[#55607A]">{hint}</p>}
       <div className="mt-3 grid gap-3 sm:grid-cols-2">{children}</div>
     </fieldset>
   );
@@ -89,14 +89,14 @@ export default function CalibrationView({ item, worker, zones, onSaved }) {
           label="Calibration preview: configured zones and the directional virtual line">
           <ZoneOverlay zones={zones} line={line} />
         </CameraStage>
-        <p className="mt-3 text-xs leading-5 text-slate-400">
+        <p className="mt-3 text-xs leading-5 text-[#55607A]">
           Shows configured zones and the virtual line in normalized raw-frame coordinates. No camera image is available from the backend,
           so use the zone outlines as the reference when picking line points.
         </p>
       </Card>
 
       <Card title="Calibration" aside={<Pill tone={status.tone}>{status.label}</Pill>}>
-        {saved && <p className="mb-2 text-xs text-slate-400">Saved {new Date(saved.calibrated_at).toLocaleString()} · reference {saved.reference_frame?.width}×{saved.reference_frame?.height} · {saved.coordinate_system}</p>}
+        {saved && <p className="mb-2 text-xs text-[#55607A]">Saved {new Date(saved.calibrated_at).toLocaleString()} · reference {saved.reference_frame?.width}×{saved.reference_frame?.height} · {saved.coordinate_system}</p>}
         {status.issues.length > 0 && (
           <ul className="mb-4 space-y-1 rounded-lg bg-amber-500/10 p-3 text-xs leading-5 text-amber-200 ring-1 ring-amber-400/30">
             {status.issues.map((issue) => <li key={issue}>• {issue}</li>)}

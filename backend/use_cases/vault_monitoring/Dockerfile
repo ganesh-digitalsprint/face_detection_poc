@@ -25,6 +25,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY backend/use_cases/vault_monitoring/app ./app
 COPY backend/use_cases/vault_monitoring/config ./config
+COPY backend/use_cases/grill_gate_monitoring ./grill_gate_monitoring
 COPY backend/shared /opt/fedbank/shared
 COPY config/inference.yaml /opt/fedbank/config/inference.yaml
 

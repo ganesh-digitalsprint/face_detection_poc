@@ -6,7 +6,7 @@ import time
 import numpy as np
 import pytest
 
-from app.services.grill_gate_camera_worker import (
+from grill_gate_monitoring.services.camera_worker import (
     CaptureSource,
     GrillGateCameraWorker,
     GrillGateCameraWorkerManager,

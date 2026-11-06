@@ -106,8 +106,10 @@ export function useAssignmentZones(assignmentId) {
     try {
       const zones = await listAssignmentZones(assignmentId);
       if (request === requestRef.current) setState({ zones, loading: false, error: '' });
+      return zones;
     } catch (error) {
       if (request === requestRef.current) setState({ zones: [], loading: false, error: describeError(error).message });
+      return null;
     }
   }, [assignmentId]);
 

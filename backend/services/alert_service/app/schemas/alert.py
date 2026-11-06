@@ -86,6 +86,13 @@ class LifecycleAction(BaseModel):
     note: str | None = Field(default=None, max_length=500)
 
 
+class SourceResolution(BaseModel):
+    """Condition recovery reported by the producer that owns the alert source."""
+    model_config = ConfigDict(extra="forbid")
+    expected_source_version: int = Field(ge=1)
+    note: str = Field(min_length=1, max_length=500)
+
+
 def canonical_severity(use_case: str, value: str) -> str:
     key = value.strip().lower()
     if use_case == "branch_exterior":

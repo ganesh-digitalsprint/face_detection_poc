@@ -1,0 +1,16 @@
+[
+  {
+    "id": "gate_leaf_roi_mw3bxka6",
+    "zone_key": "gate_leaf_roi_mw3bxka6",
+    "name": "Sliding gate leaf",
+    "zone_type": "gate_leaf_roi",
+    "description": "Polygon around the physical sliding gate leaf; used as its visual reference region.",
+    "polygon": [
+      {"x": 0.3069, "y": 0.3344}, {"x": 0.5166, "y": 0.2607}, {"x": 0.5154, "y": 0.8168},
+      {"x": 0.5012, "y": 0.8315}, {"x": 0.5, "y": 0.9263}, {"x": 0.3069, "y": 0.7662},
+      {"x": 0.3057, "y": 0.3323}
+    ],
+    "enabled": true,
+    "coordinate_system": "normalized_raw"
+  }
+]

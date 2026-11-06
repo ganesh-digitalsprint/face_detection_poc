@@ -29,3 +29,6 @@ dependencies = [
     "opencv-contrib-python>=5.0.0.93",
     "rfdetr==1.11.2",
 ]
+
+[project.optional-dependencies]
+offline = ["matplotlib"]

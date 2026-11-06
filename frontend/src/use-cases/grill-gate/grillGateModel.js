@@ -23,7 +23,7 @@ export const GATE_STATES = {
   OPEN: { label: 'OPEN', tone: 'text-amber-300' },
   PARTIALLY_OPEN: { label: 'PARTIALLY OPEN', tone: 'text-amber-300' },
   CLOSING: { label: 'CLOSING', tone: 'text-sky-300' },
-  UNKNOWN: { label: 'UNKNOWN', tone: 'text-slate-300' },
+  UNKNOWN: { label: 'UNKNOWN', tone: 'text-[#69758F]' },
 };
 
 /** Worker statuses come from GrillGateCameraWorker.status(); the backend already flips connected -> stale. */

@@ -19,10 +19,12 @@ The sample credential strings above are placeholders; configure actual tokens th
 
 Producer credentials are a JSON object keyed by bearer token, each value containing exactly one `use_case` and `producer`. Operator credentials are a separate JSON object keyed by bearer token, each value containing `actor_id` and a `use_cases` list. Missing credentials fail closed for protected routes. Configure `ALERT_NOTIFICATION_WEBHOOK_URL` only when the fixed Branch-compatible webhook should receive new-alert notices; it is never accepted from requests. The durable outbox retries transient/permanent failures with bounded attempts.
 
+For Grill Gate, add a producer credential scoped to `grill_gate` and an operator credential scoped to `grill_gate` (or reuse an appropriately scoped operator). Set the producer token as `ALERT_SERVICE_TOKEN` and the operator token as `ALERT_SERVICE_OPERATOR_TOKEN` in the Vault Monitoring process. Grill Gate duration and occupancy thresholds are opt-in under each assignment's `configuration.grill_gate_alerts`; all are disabled or unset by default.
+
 ## API surface
 
 - `GET /health`
-- Producer: `POST /api/v1/alerts`, `PUT /api/v1/alerts/source-events/{source_event_id}`
+- Producer: `POST /api/v1/alerts`, `PUT /api/v1/alerts/source-events/{source_event_id}`, `POST /api/v1/alerts/source-events/{source_event_id}/resolution`
 - Operator: `GET /api/v1/alerts`, `/summary`, `/meta`, `/{alert_id}`, `/{alert_id}/audit`
 - Operator lifecycle: `POST /api/v1/alerts/{alert_id}/acknowledgements`, `/resolution`, `/dismissal`
 - Operator delivery status: `GET /api/v1/notifications/{delivery_id}`

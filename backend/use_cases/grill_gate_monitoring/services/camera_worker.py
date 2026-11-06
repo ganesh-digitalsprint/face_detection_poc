@@ -16,8 +16,6 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from app.core.config import settings
-
 logger = logging.getLogger(__name__)
 
 
@@ -54,6 +52,10 @@ class FramePacket:
     width: int
     height: int
     frame: np.ndarray = field(repr=False, compare=False)
+    source_type: str = "LIVE_CAMERA"
+    video_job_id: str | None = None
+    video_time_seconds: float | None = None
+    template_assignment_id: str | None = None
 
 
 def _copy_packet(packet: FramePacket) -> FramePacket:
@@ -71,6 +73,12 @@ class FrameSubscription:
         self._queue: queue.Queue[FramePacket | None] = queue.Queue(maxsize=1)
         self._lock = threading.Lock()
         self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """Whether the worker has closed this consumer's mailbox."""
+        with self._lock:
+            return self._closed
 
     def _offer(self, packet: FramePacket) -> None:
         with self._lock:
@@ -425,19 +433,23 @@ class GrillGateCameraWorker:
 class GrillGateCameraWorkerManager:
     """Thread-safe owner of at most one capture worker per camera ID."""
 
-    def __init__(self, *, max_workers: int | None = None, **worker_options):
-        self._max_workers = settings.GRILL_GATE_MAX_WORKERS if max_workers is None else int(max_workers)
+    def __init__(self, *, max_workers: int = 4, read_timeout_ms: int = 5000,
+                 reconnect_attempts: int = 5, reconnect_delay_seconds: float = 0.5,
+                 reconnect_max_delay_seconds: float = 8.0, stale_after_seconds: float = 5.0,
+                 shutdown_timeout_seconds: float = 7.0, **worker_options):
+        self._max_workers = int(max_workers)
         if not 1 <= self._max_workers <= 4:
             raise ValueError("max_workers must be between 1 and 4")
         self._worker_options = {
-            "read_timeout_ms": settings.RTSP_READ_TIMEOUT_MS,
-            "reconnect_attempts": settings.GRILL_GATE_RECONNECT_ATTEMPTS,
-            "reconnect_delay_seconds": settings.GRILL_GATE_RECONNECT_DELAY_SECONDS,
-            "reconnect_max_delay_seconds": settings.GRILL_GATE_RECONNECT_MAX_DELAY_SECONDS,
-            "stale_after_seconds": settings.GRILL_GATE_FRAME_STALE_SECONDS,
-            "shutdown_timeout_seconds": settings.GRILL_GATE_SHUTDOWN_TIMEOUT_SECONDS,
+            "read_timeout_ms": read_timeout_ms,
+            "reconnect_attempts": reconnect_attempts,
+            "reconnect_delay_seconds": reconnect_delay_seconds,
+            "reconnect_max_delay_seconds": reconnect_max_delay_seconds,
+            "stale_after_seconds": stale_after_seconds,
+            "shutdown_timeout_seconds": shutdown_timeout_seconds,
             **worker_options,
         }
+        self._shutdown_timeout_seconds = float(shutdown_timeout_seconds)
         self._workers: dict[str, GrillGateCameraWorker] = {}
         self._lock = threading.RLock()
         self._closing = False
@@ -458,7 +470,7 @@ class GrillGateCameraWorkerManager:
                 return existing.status(), False
             if existing is not None:
                 existing.request_stop()
-                existing.join(self._worker_options.get("shutdown_timeout_seconds", settings.GRILL_GATE_SHUTDOWN_TIMEOUT_SECONDS))
+                existing.join(self._shutdown_timeout_seconds)
                 if existing._thread.is_alive():
                     raise GrillGateWorkerConflictError("The previous camera worker is still shutting down")
                 self._workers.pop(key, None)
@@ -479,7 +491,7 @@ class GrillGateCameraWorkerManager:
             if worker.assignment_id != str(assignment_id):
                 raise GrillGateWorkerConflictError("This camera worker belongs to another assignment")
             worker.request_stop()
-        worker.join(self._worker_options.get("shutdown_timeout_seconds", settings.GRILL_GATE_SHUTDOWN_TIMEOUT_SECONDS))
+        worker.join(self._shutdown_timeout_seconds)
         return worker.status()
 
     def subscribe(self, camera_id: str, consumer_id: str) -> FrameSubscription:
@@ -505,13 +517,8 @@ class GrillGateCameraWorkerManager:
             workers = list(self._workers.values())
         for worker in workers:
             worker.request_stop()
-        deadline = time.monotonic() + settings.GRILL_GATE_SHUTDOWN_TIMEOUT_SECONDS
+        deadline = time.monotonic() + self._shutdown_timeout_seconds
         for worker in workers:
             worker.join(max(0.0, deadline - time.monotonic()))
 
 
-_manager = GrillGateCameraWorkerManager()
-
-
-def get_grill_gate_camera_worker_manager() -> GrillGateCameraWorkerManager:
-    return _manager

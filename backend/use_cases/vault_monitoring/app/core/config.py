@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     # Optional server-to-server publication. These credentials never reach the browser.
     ALERT_SERVICE_BASE_URL: str | None = None
     ALERT_SERVICE_TOKEN: SecretStr = SecretStr("")
+    ALERT_SERVICE_OPERATOR_TOKEN: SecretStr = SecretStr("")
+    GRILL_GATE_ALERT_OUTBOX_DIR: str = "var/grill-gate-alert-outbox"
     ALERT_SERVICE_TIMEOUT_SECONDS: float = Field(default=3.0, ge=0.1, le=10.0)
     ALERT_SERVICE_POLL_SECONDS: float = Field(default=2.0, ge=0.2, le=60.0)
 
@@ -108,7 +110,15 @@ class Settings(BaseSettings):
     GRILL_GATE_RECONNECT_DELAY_SECONDS: float = Field(default=0.5, ge=0.01, le=10.0)
     GRILL_GATE_RECONNECT_MAX_DELAY_SECONDS: float = Field(default=8.0, ge=0.01, le=30.0)
     GRILL_GATE_SHUTDOWN_TIMEOUT_SECONDS: float = Field(default=7.0, ge=1.0, le=15.0)
+    GRILL_GATE_STATE_MAX_FPS: float = Field(default=15.0, gt=0.0, le=60.0)
+    GRILL_GATE_STATE_CONFIG_RELOAD_SECONDS: float = Field(default=5.0, gt=0.0, le=300.0)
+    GRILL_GATE_STATE_NO_FRAME_SECONDS: float = Field(default=3.0, gt=0.0, le=60.0)
+    GRILL_GATE_STATE_MOTION_THRESHOLD_PER_SECOND: float = Field(default=0.10, gt=0.0, le=2.0)
+    GRILL_GATE_STATE_UNKNOWN_AFTER_SECONDS: float = Field(default=2.0, gt=0.0, le=60.0)
     MAX_VIDEO_UPLOAD_MB: int = Field(default=500, ge=1)
+    GRILL_GATE_VIDEO_UPLOAD_DIR: Path = Path("uploads/grill-gate-videos")
+    GRILL_GATE_VIDEO_MAX_CONCURRENT: int = Field(default=1, ge=1, le=4)
+    GRILL_GATE_VIDEO_MAX_QUEUED: int = Field(default=3, ge=0, le=20)
 
     # ------------------------------------------------------------------
     # Developer tools
@@ -135,6 +145,7 @@ class Settings(BaseSettings):
         self.TEST_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         self.VIDEO_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         self.VIDEO_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        self.GRILL_GATE_VIDEO_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

@@ -231,6 +231,36 @@ def transition(db: Session, *, alert_id: str, target: str, action: str, actor_id
     return alert
 
 
+def resolve_source(db: Session, *, use_case: str, producer: str, source_event_id: str,
+                   expected_source_version: int, note: str, request_id: str) -> Alert:
+    """Resolve an alert only when its owning producer confirms its source condition cleared."""
+    alert = db.scalar(select(Alert).where(Alert.use_case == use_case, Alert.producer == producer,
+                                          Alert.source_event_id == source_event_id))
+    if alert is None:
+        raise LookupError("Source event not found")
+    if alert.status == "RESOLVED":
+        return alert
+    if alert.status not in {"OPEN", "ACKNOWLEDGED"}:
+        raise Conflict("INVALID_TRANSITION", "Dismissed alerts cannot be source-resolved")
+    if alert.source_event_version != expected_source_version:
+        raise Conflict("SOURCE_VERSION_CONFLICT", "Source version did not match")
+    before, now = alert.status, utcnow()
+    result = db.execute(update(Alert).where(Alert.id == alert.id, Alert.row_version == alert.row_version,
+        Alert.status == before).values(status="RESOLVED", resolved_at=now,
+        resolved_by=f"{use_case}/{producer}", resolution_note=note,
+        resolution_source="SOURCE", updated_at=now, row_version=Alert.row_version + 1))
+    if result.rowcount != 1:
+        db.rollback()
+        raise Conflict("VERSION_CONFLICT", "Alert was changed concurrently")
+    db.expire(alert)
+    db.refresh(alert)
+    audit(db, alert, "SOURCE_RESOLVED", "producer", f"{use_case}/{producer}", request_id,
+          before, "RESOLVED", {"note": note, "source_event_id": source_event_id})
+    db.commit()
+    db.refresh(alert)
+    return alert
+
+
 def alert_dict(alert: Alert) -> dict:
     def iso(value):
         if value is None:
@@ -266,6 +296,9 @@ def list_alerts(db: Session, *, scopes: list[str], filters: dict, sort: str, lim
                      ("category", Alert.category)):
         if filters.get(key) is not None:
             stmt = stmt.where(col == filters[key])
+    for key in ("assignment_id", "camera_id"):
+        if filters.get(key) is not None:
+            stmt = stmt.where(Alert.resource_refs[key].as_string() == filters[key])
     if filters.get("from_at"):
         stmt = stmt.where(Alert.occurred_at >= filters["from_at"])
     if filters.get("to_at"):
@@ -293,6 +326,9 @@ def summary(db: Session, *, scopes: list[str], filters: dict) -> dict:
                      ("category", Alert.category)):
         if filters.get(key) is not None:
             stmt = stmt.where(col == filters[key])
+    for key in ("assignment_id", "camera_id"):
+        if filters.get(key) is not None:
+            stmt = stmt.where(Alert.resource_refs[key].as_string() == filters[key])
     if filters.get("from_at"):
         stmt = stmt.where(Alert.occurred_at >= filters["from_at"])
     if filters.get("to_at"):

@@ -9,7 +9,7 @@ from app.db.models.camera_registry import CameraSource, CameraUseCaseAssignment,
 from app.db.models.vault_room import VaultAuditEvent
 from app.schemas.camera_registry import (
     CameraSourceCreate, CameraUseCaseAssignmentCreate, CameraUseCaseAssignmentUpdate, RegistryCameraCreate, RegistryLocationCreate,
-    RegistryZoneCreate,
+    RegistryZoneCreate, RegistryZoneUpdate,
 )
 from app.services import camera_registry_service as service
 from app.services.registry_config import list_use_cases, load_zone_types
@@ -147,7 +147,7 @@ def test_assignment_calibration_is_optional_and_validated_only_for_grill_gate(db
         service.update_assignment(db, grill_assignment["id"], invalid, "test-operator")
 
     # Synthetic values exercise validation; they are not stored as a sample assignment.
-    from app.schemas.grill_gate_calibration import GrillGateCalibration
+    from grill_gate_monitoring.schemas.calibration import GrillGateCalibration
     calibration = GrillGateCalibration.model_validate({
         "reference_frame": {"width": 1920, "height": 1080},
         "calibrated_at": "2026-01-01T00:00:00Z",
@@ -186,6 +186,32 @@ def test_grill_zones_reject_cropped_coordinate_system(db, monkeypatch):
         service.create_zone(db, assignment["id"], RegistryZoneCreate(zone_key="wrong-coordinates", name="Wrong",
             zone_type="gate_leaf_roi", coordinate_system="normalized_cropped_analysis",
             polygon=[[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]]), "test-operator")
+
+
+def test_gate_geometry_properties_are_validated_and_only_one_enabled_roi_is_allowed(db, monkeypatch):
+    monkeypatch.setattr(service, "_active_vault_identity", lambda: None)
+    _location, _camera, _source, assignment = create_assigned_camera(
+        db, use_case="grill_gate", code="gate-geometry-camera", connection="browser:terminal-a:gate-geometry-camera")
+    polygon = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]]
+    tuning = {"strip_rows": [0.39, 0.41, 0.43], "win_left": [0.08, 0.45], "win_right": [0.30, 0.72],
+              "xL_closed": 0.37, "xL_open": 0.19, "xR_closed": 0.37, "xR_open": 0.63,
+              "max_run_fraction": 0.12, "strip_half_height_px": 3, "anchors": []}
+    saved = service.create_zone(db, assignment["id"], RegistryZoneCreate(
+        zone_key="gate-leaf", name="Gate leaf", zone_type="gate_leaf_roi", polygon=polygon,
+        properties={"gate_geometry": tuning}), "test-operator")
+    assert saved["zone_type"] == "gate_leaf_roi"
+    with pytest.raises(service.RegistryError, match="Only one enabled gate_leaf_roi"):
+        service.create_zone(db, assignment["id"], RegistryZoneCreate(
+            zone_key="gate-leaf-2", name="Second leaf", zone_type="gate_leaf_roi", polygon=polygon), "test-operator")
+    with pytest.raises(service.RegistryError, match="gate_geometry"):
+        service.create_zone(db, assignment["id"], RegistryZoneCreate(
+            zone_key="bad-unknown", name="Bad", zone_type="gate_leaf_roi", polygon=polygon,
+            properties={"gate_geometry": {**tuning, "mystery": 1}}), "test-operator")
+    with pytest.raises(service.RegistryError, match="xL_open"):
+        service.update_zone(db, assignment["id"], saved["id"], RegistryZoneUpdate(properties={
+            "gate_geometry": {**tuning, "xL_open": 0.4}}), "test-operator")
+    changed = service.update_zone(db, assignment["id"], saved["id"], RegistryZoneUpdate(properties={"source": "manual"}), "test-operator")
+    assert changed["properties"] == {"source": "manual"}
 
 
 def test_vault_json_is_created_on_first_save_and_restored_if_registry_commit_fails(db, tmp_path, monkeypatch):

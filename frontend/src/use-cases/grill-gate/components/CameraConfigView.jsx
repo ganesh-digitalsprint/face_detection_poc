@@ -14,7 +14,7 @@ export default function CameraConfigView({ items, selectedId, onSelect, workers,
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
-      <Card title="Camera assignments" aside={<Link to="/regions?use_case=grill_gate" className="font-semibold text-[#8aa2ff] hover:underline">Manage in Regions &amp; Zones</Link>}>
+      <Card title="Camera assignments" aside={<Link to="/regions?use_case=grill_gate" className="font-semibold text-[#34479B] hover:underline">Manage in Regions &amp; Zones</Link>}>
         <ul className="space-y-2">
           {items.map((item) => {
             const state = connectionView(workerForAssignment(workers.workers, item.assignment.id), { statusError: workers.error, loaded: workers.loaded });
@@ -22,12 +22,12 @@ export default function CameraConfigView({ items, selectedId, onSelect, workers,
             return (
               <li key={item.assignment.id}>
                 <button type="button" onClick={() => onSelect(item.assignment.id)} aria-pressed={current}
-                  className={`w-full rounded-lg p-3 text-left ring-1 transition ${current ? 'bg-[#1b2a52] ring-[#5b7cfa]' : 'bg-[#0f1729] ring-[#22304d] hover:ring-[#3c5ba4]'}`}>
+                  className={`w-full rounded-lg p-3 text-left ring-1 transition ${current ? 'bg-[#EEF1FA] ring-[#34479B]' : 'bg-white ring-[#E3E7F0] hover:ring-[#9AA8C8]'}`}>
                   <span className="flex items-center justify-between gap-2">
-                    <b className="text-sm text-slate-100">{item.camera?.code?.toUpperCase() ?? 'CAMERA'} · {item.camera?.name ?? item.assignment.camera_id}</b>
+                    <b className="text-sm text-[#0F1B3D]">{item.camera?.code?.toUpperCase() ?? 'CAMERA'} · {item.camera?.name ?? item.assignment.camera_id}</b>
                     <Pill tone={state.tone}>{state.label}</Pill>
                   </span>
-                  <span className="mt-1 block text-xs text-slate-400">
+                  <span className="mt-1 block text-xs text-[#55607A]">
                     {item.location?.name ?? 'Unknown location'} · {item.camera?.sources?.[0]?.masked_source ?? 'No active source'}
                   </span>
                 </button>
@@ -49,10 +49,10 @@ export default function CameraConfigView({ items, selectedId, onSelect, workers,
             </button>
           )}
           <button type="button" className={btnGhost} onClick={workers.refresh}><RefreshCw size={14} aria-hidden /> Refresh status</button>
-          <span className="text-xs text-slate-400">{connection.detail}</span>
+          <span className="text-xs text-[#55607A]">{connection.detail}</span>
         </div>
         {actionError && <div className="mt-3"><ErrorNote>{actionError}</ErrorNote></div>}
-        <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-[#22304d] pt-4 text-xs sm:grid-cols-4">
+        <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-[#E3E7F0] pt-4 text-xs sm:grid-cols-4">
           {[
             ['Worker status', worker?.status ?? (workers.error ? 'unknown' : 'not started')],
             ['Last frame', timeOf(worker?.last_frame_at)],
@@ -63,10 +63,10 @@ export default function CameraConfigView({ items, selectedId, onSelect, workers,
             ['Consumers', worker?.consumer_count ?? '—'],
             ['Source type', worker?.source_type ?? selected?.camera?.sources?.[0]?.source_type ?? '—'],
           ].map(([label, value]) => (
-            <div key={label}><dt className="text-slate-400">{label}</dt><dd className="mt-0.5 font-semibold text-slate-100">{String(value)}</dd></div>
+            <div key={label}><dt className="text-[#55607A]">{label}</dt><dd className="mt-0.5 font-semibold text-[#0F1B3D]">{String(value)}</dd></div>
           ))}
         </dl>
-        <p className="mt-4 text-[11px] text-slate-500">
+        <p className="mt-4 text-[11px] text-[#69758F]">
           {workers.error ? `Last status check failed: ${workers.error}` : workers.checkedAt ? `Status checked ${workers.checkedAt.toLocaleTimeString()}` : 'Checking worker status…'}
         </p>
       </Card>

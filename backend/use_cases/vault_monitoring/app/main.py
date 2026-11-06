@@ -11,6 +11,14 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
+import sys
+
+# The Grill Gate package is a sibling use case. Add the common use-case root for
+# the documented local command, which runs with ``vault_monitoring`` as cwd.
+_USE_CASES_ROOT = str(Path(__file__).resolve().parents[2])
+if _USE_CASES_ROOT not in sys.path:
+    sys.path.insert(0, _USE_CASES_ROOT)
 
 from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
@@ -30,7 +38,11 @@ from app.services.dual_control import get_dual_control_session_manager
 from app.services.vault_room_manager import get_vault_room_manager
 from app.services.vault_room_camera import get_vault_room_camera_manager
 from app.services.cloudinary_evidence import get_evidence_capture_queue
-from app.services.grill_gate_camera_worker import get_grill_gate_camera_worker_manager
+from app.services.grill_gate_runtime import (
+    get_grill_gate_camera_worker_manager, get_grill_gate_event_writer,
+    get_grill_gate_state_detector_manager, get_grill_gate_alert_publisher,
+    get_grill_gate_video_jobs,
+)
 from app.api.routes import detection, employees, health, recognition, registration, streams, vault_authorization
 
 logger = get_logger(__name__)
@@ -69,10 +81,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("FastAPI application startup completed: %s v%s", settings.APP_NAME, settings.APP_VERSION)
     get_vault_room_manager().start()
     get_evidence_capture_queue().start()
+    get_grill_gate_event_writer().start()
+    get_grill_gate_alert_publisher().start()
+    get_grill_gate_video_jobs().recover()
     get_grill_gate_camera_worker_manager().start_accepting()
+    get_grill_gate_state_detector_manager().start_accepting()
     yield
     streams.stream_manager.stop_all()
+    get_grill_gate_state_detector_manager().stop_all()
     get_grill_gate_camera_worker_manager().stop_all()
+    get_grill_gate_video_jobs().shutdown()
+    get_grill_gate_event_writer().stop()
+    get_grill_gate_alert_publisher().stop()
     get_vault_room_camera_manager().stop_all()
     get_vault_room_manager().stop()
     get_evidence_capture_queue().stop()

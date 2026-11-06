@@ -177,6 +177,38 @@ def test_lifecycle_transitions_notes_versions_and_audit(configured):
     assert audit.json()[-1]["actor_id"] == "operator-17"
 
 
+def test_producer_resolves_own_condition_and_cannot_resolve_other_producers_alert(configured):
+    client, app = configured
+    alert = create(client, payload(resource_refs={"camera_id": "cam", "assignment_id": "a"})).json()
+    ack = client.post(f"/api/v1/alerts/{alert['id']}/acknowledgements", headers={"Authorization": OPERATOR},
+                      json={"expected_version": 1})
+    assert ack.json()["status"] == "ACKNOWLEDGED"
+    resolved = client.post("/api/v1/alerts/source-events/event-abc/resolution",
+        headers={"Authorization": PRODUCER}, json={"expected_source_version": 1, "note": "Gate closed"})
+    assert resolved.status_code == 200
+    assert resolved.json()["status"] == "RESOLVED"
+    assert resolved.json()["resolution_source"] == "SOURCE"
+    with app.state.session_factory() as db:
+        actions = [row.action for row in db.query(AlertAudit).order_by(AlertAudit.created_at).all()]
+    assert "SOURCE_RESOLVED" in actions
+    assert client.post("/api/v1/alerts/source-events/event-abc/resolution",
+        headers={"Authorization": "Bearer unrelated"},
+        json={"expected_source_version": 1, "note": "wrong producer"}).status_code == 401
+
+
+def test_generic_assignment_camera_filters_are_optional_and_scoped(configured):
+    client, _ = configured
+    create(client, payload(resource_refs={"camera_id": "cam-1", "assignment_id": "assignment-1"}))
+    create(client, payload(source_event_id="other", resource_refs={"camera_id": "cam-2", "assignment_id": "assignment-2"}),
+           key="request-2")
+    headers = {"Authorization": OPERATOR}
+    response = client.get("/api/v1/alerts?use_case=branch_exterior&assignment_id=assignment-1&camera_id=cam-1",
+                          headers=headers)
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 1
+    assert response.json()["items"][0]["resource_refs"]["assignment_id"] == "assignment-1"
+
+
 def test_list_cursor_summary_and_notification_delivery_use_mock_receiver(configured):
     client, app = configured
     first = create(client).json()

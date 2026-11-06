@@ -61,6 +61,8 @@ from app.db.models.vault_room import (  # noqa: E402
 from app.db.models.camera_registry import (  # noqa: E402
     CameraSource, CameraUseCaseAssignment, RegistryCamera, RegistryLocation, RegistryZone,
 )
+from grill_gate_monitoring.models.event import GrillGateEvent  # noqa: E402
+from grill_gate_monitoring.models.video_job import GrillGateVideoJob  # noqa: E402
 
 __all__ = [
     "AuthorizedEmployee",
@@ -81,4 +83,6 @@ __all__ = [
     "CameraSource",
     "CameraUseCaseAssignment",
     "RegistryZone",
+    "GrillGateEvent",
+    "GrillGateVideoJob",
 ]

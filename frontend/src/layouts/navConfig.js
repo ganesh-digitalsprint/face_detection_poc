@@ -51,7 +51,17 @@ export const NAV_SECTIONS = [
         icon: Video,
         children: [{ id: 'branch-live', label: 'Live monitoring', to: '/branch-exterior/live' }],
       },
-      { id: 'gate-mesh', label: 'Gate & Mesh', icon: DoorClosed, to: '/grill-gate' },
+      {
+        id: 'gate-mesh', label: 'Gate & Mesh', icon: DoorClosed,
+        children: [
+          { id: 'gate-mesh-overview', label: 'Overview', to: '/grill-gate', end: true, searchParam: ['view', null] },
+          { id: 'gate-mesh-camera', label: 'Camera', to: '/grill-gate?view=camera', searchParam: ['view', 'camera'] },
+          { id: 'gate-mesh-zones', label: 'Regions & Zones', to: '/grill-gate?view=zones', searchParam: ['view', 'zones'] },
+          { id: 'gate-mesh-calibration', label: 'Calibration', to: '/grill-gate?view=calibration', searchParam: ['view', 'calibration'] },
+          { id: 'gate-mesh-alerts', label: 'Alerts', to: '/grill-gate?view=alerts', searchParam: ['view', 'alerts'] },
+          { id: 'gate-mesh-events', label: 'Event History', to: '/grill-gate?view=events', searchParam: ['view', 'events'] },
+        ],
+      },
       { id: 'face-concealment', label: 'Face Concealment', icon: EyeOff, soon: true },
     ],
   },
@@ -89,16 +99,20 @@ const trimSlash = (path) => (path.length > 1 ? path.replace(/\/+$/, '') : path);
 
 /** Same matching rule as React Router's NavLink: exact when `end`, otherwise the path or any descendant. */
 export function pathMatches(target, pathname, end = false) {
-  const t = trimSlash(target);
+  const t = trimSlash(target.split('?')[0]);
   const p = trimSlash(pathname);
   if (t === '/') return end ? p === '/' : true;
   return p === t || (!end && p.startsWith(`${t}/`));
 }
 
 /** True when the item (or, for a group, any child) owns the current path. */
-export function isItemActive(item, pathname) {
+export function isItemActive(item, pathname, search = '') {
   if (item.soon) return false;
-  if (item.children?.some((child) => isItemActive(child, pathname))) return true;
+  if (item.children?.some((child) => isItemActive(child, pathname, search))) return true;
+  if (item.searchParam) {
+    const [key, value] = item.searchParam;
+    if (new URLSearchParams(search).get(key) !== value) return false;
+  }
   if (item.to && pathMatches(item.to, pathname, item.end)) return true;
   return (item.match ?? []).some((prefix) => pathMatches(prefix, pathname));
 }
@@ -111,10 +125,10 @@ export function visibleSections(sections, { devEnabled = false } = {}) {
 }
 
 /** Ids of groups that should be open: flagged `defaultOpen`, or holding the active route. */
-export function openGroupIds(sections, pathname) {
+export function openGroupIds(sections, pathname, search = '') {
   return sections
     .flatMap((section) => section.items)
-    .filter((item) => item.children && (item.defaultOpen || isItemActive(item, pathname)))
+    .filter((item) => item.children && (item.defaultOpen || isItemActive(item, pathname, search)))
     .map((item) => item.id);
 }
 
