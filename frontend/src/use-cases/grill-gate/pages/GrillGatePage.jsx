@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { describeError } from '../../../utils/errors.js';
 import { connectGrillGateAssignment, disconnectGrillGateAssignment } from '../api/grillGate.js';
 import { connectionView, EMPTY_MONITORING, workerForAssignment } from '../grillGateModel.js';
 import { useAssignmentZones, useGrillGateRegistry, useGrillGateWorkers } from '../hooks/useGrillGate.js';
+import { useVideoJob, useVideoUpload } from '../hooks/useVideoJob.js';
+import { videoMonitoring } from '../videoJobModel.js';
 import CalibrationView from '../components/CalibrationView.jsx';
 import CameraConfigView from '../components/CameraConfigView.jsx';
 import { AlertsView, EventHistoryView } from '../components/HistoryViews.jsx';
 import LiveFeedPanel from '../components/LiveFeedPanel.jsx';
-import { AlertsPanel, CrossingEventsPanel, GateStatePanel, MeshPanel, MonitoringStats, TimelinePanel } from '../components/MonitoringPanels.jsx';
+import { AlertsPanel, CrossingEventsPanel, GateStatePanel, MeshPanel, MonitoringStats, TimelinePanel, VideoGateStatePanel } from '../components/MonitoringPanels.jsx';
 import ZonesView from '../components/ZonesView.jsx';
 import { ErrorNote, Pill } from '../components/ui.jsx';
 
@@ -22,8 +24,8 @@ const VIEWS = [
   ['events', 'Event History'],
 ];
 const VIEW_IDS = new Set(VIEWS.map(([id]) => id));
-// No backend stage supplies gate state, crossings, mesh counts, events or alerts yet: show the empty snapshot.
-const monitoring = EMPTY_MONITORING;
+// The live dashboard has no snapshot source yet: crossings, mesh and alerts stay on the empty snapshot.
+const LIVE_MONITORING = EMPTY_MONITORING;
 
 function Clock() {
   const [now, setNow] = useState(() => new Date());
@@ -45,18 +47,26 @@ export default function GrillGatePage() {
   const connection = connectionView(worker, { statusError: workers.error, loaded: workers.loaded });
 
   const [busy, setBusy] = useState(null);
-  const [sourceMode, setSourceMode] = useState('live');
+  // Explicit monitoring source. Only Uploaded Video reads a job, so its data can never reach the live dashboard.
+  const [sourceMode, setSourceMode] = useState(() => (params.get('job') ? 'video' : 'live'));
   const [testFile, setTestFile] = useState(null);
   const [actionError, setActionError] = useState('');
   const selectedRef = useRef(assignmentId);
   selectedRef.current = assignmentId;
   useEffect(() => { setActionError(''); }, [assignmentId]);
 
+  const selectedJobId = sourceMode === 'video' ? params.get('job') : null;
+  const videoJob = useVideoJob(selectedJobId);
+  const upload = useVideoUpload();
+  const { job, events, alerts, alertsAvailable } = videoJob;
+  const monitoring = useMemo(() => (sourceMode === 'video'
+    ? videoMonitoring({ job, events, alerts, alertsAvailable }) : LIVE_MONITORING), [sourceMode, job, events, alerts, alertsAvailable]);
+
   const setParam = (name, value) => setParams((current) => {
     const next = new URLSearchParams(current);
     if (name === 'view' && value === 'monitor') next.delete('view'); else next.set(name, value);
     return next;
-  }, { replace: name === 'assignment' });
+  }, { replace: name === 'assignment' || name === 'job' });
 
   /** Results for an assignment the operator has since moved away from are dropped. */
   const runAction = async (kind, call) => {
@@ -100,8 +110,8 @@ export default function GrillGatePage() {
         )}
         <span className="flex items-center gap-2 text-xs text-[#55607A]">Camera <Pill tone={item ? connection.tone : 'idle'} dot>{item ? connection.label : 'Not connected'}</Pill></span>
         <span className="flex items-center gap-2 text-xs text-[#55607A]"
-          title="Gate, crossing and mesh monitoring are not provided by the backend yet.">
-          Monitoring <Pill tone="idle" dot>{monitoring.status}</Pill>
+          title={sourceMode === 'video' ? 'Status of the selected uploaded-video job.' : 'Gate, crossing and mesh monitoring are not provided by the backend yet.'}>
+          {sourceMode === 'video' ? 'Video job' : 'Monitoring'} <Pill tone={monitoring.statusTone ?? 'idle'} dot>{monitoring.status}</Pill>
         </span>
         <div className="ml-auto"><Clock /></div>
       </header>
@@ -122,7 +132,8 @@ export default function GrillGatePage() {
             <LiveFeedPanel item={item} worker={worker} connection={connection} statusError={workers.error} {...actions}
               sourceMode={sourceMode} onSourceModeChange={setSourceMode} testFile={testFile} onTestFileChange={setTestFile}
               zones={zones.zones} zoneTypes={registry.zoneTypes} reloadZones={zones.reload}
-              onCalibrationSaved={registry.replaceAssignment} />
+              onCalibrationSaved={registry.replaceAssignment}
+              upload={upload} videoJob={videoJob} selectedJobId={selectedJobId} onSelectJob={(id) => setParam('job', id)} />
             {!registry.loading && !registry.error && !registry.items.length && (
               <p className="text-sm text-[#55607A]">No camera is assigned to Grill Gate yet. Assign one under the <button type="button" className="font-semibold text-[#34479B] hover:underline" onClick={() => setParam('view', 'camera')}>Camera</button> tab.</p>
             )}
@@ -130,7 +141,9 @@ export default function GrillGatePage() {
             <TimelinePanel monitoring={monitoring} />
           </div>
           <div className="space-y-5">
-            <GateStatePanel assignmentId={assignmentId} worker={worker} />
+            {sourceMode === 'video'
+              ? <VideoGateStatePanel monitoring={monitoring} job={job} />
+              : <GateStatePanel assignmentId={assignmentId} worker={worker} />}
             <CrossingEventsPanel monitoring={monitoring} />
             <AlertsPanel monitoring={monitoring} />
             <MeshPanel monitoring={monitoring} />

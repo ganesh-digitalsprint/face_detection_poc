@@ -20,6 +20,27 @@ export const disconnectGrillGateAssignment = (assignmentId) =>
 export const getGateState = (assignmentId) =>
   client.get(`${root}/assignments/${encodeURIComponent(assignmentId)}/gate-state`, { headers, timeout: 5000 }).then((r) => r.data);
 
+/** Uploaded-video jobs (grill_gate_monitoring/api/grill_gate.py). Upload saves the job; start begins processing. */
+export const uploadGrillGateVideo = (file, templateAssignmentId, { onProgress, signal } = {}) => {
+  const body = new FormData();
+  body.append('video', file, file.name);
+  body.append('template_assignment_id', templateAssignmentId);
+  return client.post(`${root}/videos`, body, {
+    headers, signal, onUploadProgress: (event) => onProgress?.(event.total ? event.loaded / event.total : null),
+  }).then((r) => r.data);
+};
+export const startGrillGateVideoJob = (jobId) =>
+  client.post(`${root}/videos/${encodeURIComponent(jobId)}/start`, undefined, { headers, timeout: 15000 }).then((r) => r.data);
+export const cancelGrillGateVideoJob = (jobId) =>
+  client.post(`${root}/videos/${encodeURIComponent(jobId)}/cancel`, undefined, { headers, timeout: 15000 }).then((r) => r.data);
+export const getGrillGateVideoJob = (jobId, signal) =>
+  client.get(`${root}/videos/${encodeURIComponent(jobId)}`, { headers, signal, timeout: 10000 }).then((r) => r.data);
+export const listGrillGateVideoJobs = (params = { limit: 25 }) =>
+  client.get(`${root}/videos`, { params, headers, timeout: 10000 }).then((r) => r.data);
+/** Events for this job only, plus alerts matched server-side on resource_refs.video_job_id. */
+export const getGrillGateVideoResults = (jobId, params, signal) =>
+  client.get(`${root}/videos/${encodeURIComponent(jobId)}/results`, { params, headers, signal, timeout: 30000 }).then((r) => r.data);
+
 /** Common registry reads scoped to Grill Gate (backend routes/regions.py). */
 export const listGrillGateLocations = () => regionsRegistryApi.get(`/locations?use_case=${USE_CASE}`);
 export const listGrillGateCameras = () => regionsRegistryApi.get(`/cameras?use_case=${USE_CASE}`);

@@ -38,12 +38,19 @@ them through the same gate detector and frame processor used for live camera fra
 its own tracker, crossing/mesh state and alert rule engine. A template is read-only; no camera
 worker is connected or changed.
 
+An upload only saves the video and its configuration snapshot as an `UPLOADED` job. Processing begins
+when `POST .../start` is called; each job can be started once, because the stored video is deleted when
+its worker finishes. Zone or calibration edits made after the upload do not affect a saved job.
+
 Endpoints:
 
-- `POST /api/v1/grill-gate/videos` — multipart upload and queue a job.
+- `POST /api/v1/grill-gate/videos` — multipart upload; saves an `UPLOADED` job without processing it.
+- `POST /api/v1/grill-gate/videos/{job_id}/start` — start a saved job (`409` if not `UPLOADED`,
+  `429` if the queue is full).
 - `GET /api/v1/grill-gate/videos` — list jobs (`status`, `limit`, `offset`).
 - `GET /api/v1/grill-gate/videos/{job_id}` — status and progress.
-- `POST /api/v1/grill-gate/videos/{job_id}/cancel` — request cancellation.
+- `POST /api/v1/grill-gate/videos/{job_id}/cancel` — request cancellation; a job that was never
+  started becomes `CANCELLED` immediately and its stored video is deleted.
 - `GET /api/v1/grill-gate/videos/{job_id}/results` — persisted crossing/mesh events and
   matching shared Alert Service alerts.
 

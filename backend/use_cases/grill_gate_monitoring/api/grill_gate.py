@@ -9,6 +9,7 @@ from typing import Literal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, File, Form
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -42,11 +43,14 @@ Db = Annotated[Session, Depends(get_db)]
 Caller = Annotated[Operator, Depends(get_operator)]
 
 
-@router.post("/videos", status_code=202)
+@router.post("/videos", status_code=201)
 def upload_video(video: UploadFile, db: Db, caller: Caller,
                  template_assignment_id: str | None = Form(default=None),
                  configuration: str | None = Form(default=None)):
-    """Queue an isolated uploaded-video job; configuration is explicit or copied from a template."""
+    """Save an isolated uploaded-video job; configuration is explicit or copied from a template.
+
+    Processing does not begin until POST /videos/{job_id}/start.
+    """
     if (template_assignment_id is None) == (configuration is None):
         raise HTTPException(422, "Provide exactly one of template_assignment_id or configuration")
     snapshot = {}
@@ -90,11 +94,11 @@ def upload_video(video: UploadFile, db: Db, caller: Caller,
         if not written:
             raise HTTPException(400, "Uploaded video is empty")
         validate_video(path, video.filename or "")
-        job_id = get_grill_gate_video_jobs().submit(path, original_filename=Path(video.filename or "video").name,
-            config=snapshot, template_assignment_id=template)
-        return {"job_id": job_id, "status": "QUEUED"}
-    except VideoJobCapacityError as exc:
-        raise HTTPException(429, str(exc)) from exc
+        filename = Path(video.filename or "video").name
+        job_id = get_grill_gate_video_jobs().save(path, original_filename=filename,
+            # Registry zone dicts carry datetimes; the snapshot is stored as JSON.
+            config=jsonable_encoder(snapshot), template_assignment_id=template)
+        return {"job_id": job_id, "filename": filename, "status": "UPLOADED"}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     finally:
@@ -127,6 +131,20 @@ def get_video_job(job_id: str, db: Db, caller: Caller):
     return _job_dict(row)
 
 
+@router.post("/videos/{job_id}/start", status_code=202)
+def start_video_job(job_id: str, db: Db, caller: Caller):
+    """Begin processing a saved job. Only UPLOADED jobs are eligible; finished jobs cannot restart."""
+    if db.get(GrillGateVideoJob, job_id) is None:
+        raise HTTPException(404, "Video job not found")
+    try:
+        status = get_grill_gate_video_jobs().start(job_id)
+    except VideoJobCapacityError as exc:
+        raise HTTPException(429, str(exc)) from exc
+    if status is None:
+        raise HTTPException(409, "Video job has already been started or is finished")
+    return {"job_id": job_id, "status": status}
+
+
 @router.post("/videos/{job_id}/cancel")
 def cancel_video_job(job_id: str, db: Db, caller: Caller):
     row = db.get(GrillGateVideoJob, job_id)
@@ -134,9 +152,10 @@ def cancel_video_job(job_id: str, db: Db, caller: Caller):
         raise HTTPException(404, "Video job not found")
     if row.status in {"COMPLETED", "FAILED", "CANCELLED"}:
         raise HTTPException(409, "Video job is already finished")
-    if not get_grill_gate_video_jobs().cancel(job_id):
+    status = get_grill_gate_video_jobs().cancel(job_id)
+    if status is None:
         raise HTTPException(409, "Video job cannot be cancelled")
-    return {"job_id": job_id, "status": "CANCEL_REQUESTED"}
+    return {"job_id": job_id, "status": status}
 
 
 @router.get("/videos/{job_id}/results")

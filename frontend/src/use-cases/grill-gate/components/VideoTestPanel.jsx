@@ -274,7 +274,7 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-[#0F1B3D]">Video Test Mode</p>
-          <p className="text-xs text-[#55607A]">Local playback only. No camera worker or monitoring is started.</p>
+          <p className="text-xs text-[#55607A]">Local playback for drawing zones. No camera worker is started; processing runs only from Process Video.</p>
         </div>
         <Pill tone="info" dot>VIDEO TEST MODE</Pill>
       </div>
@@ -283,14 +283,14 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
         <label className="flex min-h-44 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[#C7D0E2] bg-[#F7F8FC] px-5 text-center hover:border-[#34479B] hover:bg-[#EEF1FA]">
           <Upload size={25} className="text-[#34479B]" aria-hidden />
           <span className="font-semibold text-[#0F1B3D]">Upload a CCTV video to start testing</span>
-          <span className="text-xs text-[#55607A]">Drop a video here or choose a file (MP4, WebM, MOV; browser support varies).</span>
-          <input className="sr-only" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" onChange={(event) => onFile(event.target.files?.[0] ?? null)} />
+          <span className="text-xs text-[#55607A]">Drop a video here or choose a file (MP4 or AVI to process; WebM and MOV preview only; browser support varies).</span>
+          <input className="sr-only" type="file" accept="video/mp4,video/x-msvideo,video/avi,video/webm,video/quicktime,.mp4,.avi,.webm,.mov" onChange={(event) => onFile(event.target.files?.[0] ?? null)} />
         </label>
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E3E7F0] bg-[#F7F8FC] px-3 py-2">
             <span className="flex min-w-0 items-center gap-2 text-sm text-[#0F1B3D]"><Video size={16} className="shrink-0 text-[#34479B]" aria-hidden /><span className="truncate" title={videoLabel}>{videoLabel}</span></span>
-            <label className={btnGhost}><Upload size={13} aria-hidden /> Replace video<input className="sr-only" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" onChange={(event) => onFile(event.target.files?.[0] ?? null)} /></label>
+            <label className={btnGhost}><Upload size={13} aria-hidden /> Replace video<input className="sr-only" type="file" accept="video/mp4,video/x-msvideo,video/avi,video/webm,video/quicktime,.mp4,.avi,.webm,.mov" onChange={(event) => onFile(event.target.files?.[0] ?? null)} /></label>
             <button type="button" className={btnGhost} onClick={() => onFile(null)}><X size={13} aria-hidden /> Remove video</button>
           </div>
 
@@ -397,7 +397,7 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
             {error && <div className="mt-3"><ErrorNote>{error}</ErrorNote></div>}
             {notice && <p role="status" className="mt-3 rounded-lg bg-[#EEF1FA] p-2 text-xs text-[#34479B]">{notice}</p>}
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#E3E7F0] pt-3">
-              <p className="text-xs text-[#55607A]">Video playback does not run gate, crossing, mesh, or alert monitoring.</p>
+              <p className="text-xs text-[#55607A]">Playback here does not run gate, crossing, mesh, or alert monitoring.</p>
               <span className="flex gap-2">
                 <button type="button" className={btnGhost} disabled={!dirty || saving} onClick={cancelChanges}>Cancel</button>
                 <button type="button" className={btnPrimary} disabled={!dirty || saving} onClick={saveChanges}><Save size={13} aria-hidden /> {saving ? 'Saving…' : 'Save changes'}</button>
@@ -414,11 +414,18 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
 /** Browser-local video test UI; files never enter the camera source registry or worker API. */
 export default function VideoTestPanel({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, file, onFile, onFrameDimensions }) {
   const [dragging, setDragging] = useState(false);
-  const objectUrl = useMemo(() => file ? URL.createObjectURL(file) : null, [file]);
-  useEffect(() => () => { if (objectUrl) URL.revokeObjectURL(objectUrl); }, [objectUrl]);
+  const [preview, setPreview] = useState(null);
+  // The URL is tied to its file, so neither a remount nor a replaced file can render a revoked URL.
+  const objectUrl = preview?.file === file ? preview.url : null;
+  useEffect(() => {
+    if (!file) { setPreview(null); return undefined; }
+    const url = URL.createObjectURL(file);
+    setPreview({ file, url });
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
   const acceptFile = (candidate) => {
     if (!candidate) return;
-    if (!candidate.type.startsWith('video/')) return;
+    if (!candidate.type.startsWith('video/') && !/\.(mp4|avi|webm|mov)$/i.test(candidate.name)) return;
     onFile(candidate);
   };
 
@@ -434,10 +441,10 @@ export default function VideoTestPanel({ item, zones, zoneTypes, reloadZones, on
         <div className="flex min-h-44 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[#C7D0E2] bg-[#F7F8FC] px-5 text-center">
           <Upload size={25} className="text-[#34479B]" aria-hidden />
           <span className="font-semibold text-[#0F1B3D]">Upload a CCTV video to start testing</span>
-          <span className="text-xs text-[#55607A]">Drop MP4, WebM or MOV here, or choose a local file.</span>
+          <span className="text-xs text-[#55607A]">Drop an MP4 or AVI to process, or WebM/MOV to preview only.</span>
           <label className={btnPrimary}>
             <Upload size={13} aria-hidden /> Choose video
-            <input className="sr-only" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" onChange={(event) => acceptFile(event.target.files?.[0])} />
+            <input className="sr-only" type="file" accept="video/mp4,video/x-msvideo,video/avi,video/webm,video/quicktime,.mp4,.avi,.webm,.mov" onChange={(event) => acceptFile(event.target.files?.[0])} />
           </label>
         </div>
       )}

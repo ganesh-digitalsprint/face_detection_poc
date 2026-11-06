@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import cv2
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.db.database import SessionLocal
 from app.db.models import GrillGateVideoJob
@@ -51,34 +51,66 @@ class GrillGateVideoJobs:
         with self._lock:
             return sum(thread.is_alive() for thread in self._threads.values())
 
-    def submit(self, path: Path, *, original_filename: str, config: dict,
-               template_assignment_id: str | None) -> str:
+    def save(self, path: Path, *, original_filename: str, config: dict,
+             template_assignment_id: str | None) -> str:
+        """Persist an uploaded video as an UPLOADED job; processing waits for an explicit start()."""
+        job_id = str(uuid4())
+        job = GrillGateVideoJob(id=job_id, original_filename=original_filename[:255],
+            storage_path=str(path), status="UPLOADED",
+            template_assignment_id=template_assignment_id, config_snapshot=config)
+        with SessionLocal() as db:
+            db.add(job)
+            db.commit()
+        return job_id
+
+    def start(self, job_id: str) -> str | None:
+        """Start a saved job once and return its new status; None means it is not (or no longer) eligible."""
         with self._lock:
             if self._closed:
                 raise VideoJobCapacityError("Video processing is shutting down")
             active = sum(thread.is_alive() for thread in self._threads.values())
             if active >= self.max_concurrent + self.max_queued:
                 raise VideoJobCapacityError("Video processing queue is full")
-            job_id = str(uuid4())
-            job = GrillGateVideoJob(id=job_id, original_filename=original_filename[:255],
-                storage_path=str(path), status="QUEUED" if active >= self.max_concurrent else "UPLOADED",
-                template_assignment_id=template_assignment_id, config_snapshot=config)
             with SessionLocal() as db:
-                db.add(job)
+                # Conditional update: a duplicate request can never start a second worker.
+                claimed = db.execute(update(GrillGateVideoJob).where(GrillGateVideoJob.id == job_id,
+                    GrillGateVideoJob.status == "UPLOADED").values(status="QUEUED"))
                 db.commit()
+                if claimed.rowcount != 1:
+                    return None
+                job = db.get(GrillGateVideoJob, job_id)
+                path = Path(job.storage_path)
+                config, template_id = job.config_snapshot, job.template_assignment_id
+                if not path.exists():
+                    job.status = "FAILED"
+                    job.error_code = "VIDEO_FILE_MISSING"
+                    job.completed_at = datetime.now(timezone.utc)
+                    db.commit()
+                    return "FAILED"
             cancel = threading.Event()
             self._cancel[job_id] = cancel
             thread = threading.Thread(target=self._run, args=(job_id, path, config,
-                template_assignment_id, cancel), name=f"grill-gate-video-{job_id[:8]}", daemon=True)
+                template_id, cancel), name=f"grill-gate-video-{job_id[:8]}", daemon=True)
             self._threads[job_id] = thread
             thread.start()
-            return job_id
+            return "QUEUED"
 
-    def cancel(self, job_id: str) -> bool:
+    def cancel(self, job_id: str) -> str | None:
+        """Return the job's resulting status, or None when it cannot be cancelled."""
         with self._lock:
             event = self._cancel.get(job_id)
             if event is None:
-                return False
+                # Saved but never started: no worker exists, so finish it here and free the file.
+                with SessionLocal() as db:
+                    row = db.get(GrillGateVideoJob, job_id)
+                    if row is None or row.status != "UPLOADED":
+                        return None
+                    row.status = "CANCELLED"
+                    row.completed_at = datetime.now(timezone.utc)
+                    path = Path(row.storage_path)
+                    db.commit()
+                path.unlink(missing_ok=True)
+                return "CANCELLED"
             event.set()
             source = self._sources.get(job_id)
             if source:
@@ -88,7 +120,7 @@ class GrillGateVideoJobs:
                 if row and row.status in {"QUEUED", "UPLOADED", "PROCESSING"}:
                     row.status = "CANCEL_REQUESTED"
                     db.commit()
-            return True
+            return "CANCEL_REQUESTED"
 
     def shutdown(self, timeout: float = 15):
         with self._lock:

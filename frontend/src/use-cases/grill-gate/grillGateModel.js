@@ -18,11 +18,11 @@ export const zoneColor = (type) => ZONE_COLORS[type] ?? '#94a3b8';
 
 /** Gate states the future backend gate-state service will report; rendered only when supplied. */
 export const GATE_STATES = {
-  CLOSED: { label: 'CLOSED', tone: 'text-emerald-300' },
-  OPENING: { label: 'OPENING', tone: 'text-sky-300' },
-  OPEN: { label: 'OPEN', tone: 'text-amber-300' },
-  PARTIALLY_OPEN: { label: 'PARTIALLY OPEN', tone: 'text-amber-300' },
-  CLOSING: { label: 'CLOSING', tone: 'text-sky-300' },
+  CLOSED: { label: 'CLOSED', tone: 'text-emerald-700' },
+  OPENING: { label: 'OPENING', tone: 'text-sky-700' },
+  OPEN: { label: 'OPEN', tone: 'text-amber-700' },
+  PARTIALLY_OPEN: { label: 'PARTIALLY OPEN', tone: 'text-amber-700' },
+  CLOSING: { label: 'CLOSING', tone: 'text-sky-700' },
   UNKNOWN: { label: 'UNKNOWN', tone: 'text-[#69758F]' },
 };
 
