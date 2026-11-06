@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { createVideoJobPoller } from './videoJobPoller.js';
 import {
   formatVideoTime, jobCanCancel, jobCanStart, jobIsActive, jobProgressPercent, mergeEvents, processingFps,
-  templateBlocker, validateVideoFile, videoMonitoring,
+  templateBlocker, validateVideoFile, videoMonitoring, localVideoConfiguration, videoUploadConfiguration,
 } from './videoJobModel.js';
 
 // Shapes copied from _job_dict and GET /videos/{job_id}/results in grill_gate_monitoring/api/grill_gate.py.
@@ -136,11 +136,29 @@ test('upload validation mirrors the backend extension rule', () => {
 });
 
 test('a template needs an assignment, a calibration and an enabled gate zone', () => {
-  assert.match(templateBlocker(null), /Assign a camera/);
+  assert.equal(templateBlocker(null), '');
   assert.match(templateBlocker({ assignment: { id: 'a', calibration: null } }), /calibration/);
   const item = { assignment: { id: 'a', calibration: {} } };
   assert.match(templateBlocker(item, [{ zone_type: 'gate_leaf_roi', enabled: false }]), /gate_leaf_roi/);
   assert.equal(templateBlocker(item, [{ zone_type: 'gate_leaf_roi', enabled: true }]), '');
+});
+
+test('a video can be uploaded and processed without a camera assignment using its local zones and line', () => {
+  const file = { name: 'gate.mp4', size: 12, lastModified: 34 };
+  const key = `grill-gate-video-zones:${encodeURIComponent(file.name)}:${file.size}:${file.lastModified}:1920x1080`;
+  const saved = {
+    frame: { width: 1920, height: 1080 },
+    zones: [{ id: 'gate_leaf_roi', zone_key: 'gate_leaf_roi', zone_type: 'gate_leaf_roi', enabled: true,
+      polygon: [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }] }],
+    line: { start: { x: 0.1, y: 0.5 }, end: { x: 0.9, y: 0.5 } },
+  };
+  const values = new Map([[key, JSON.stringify(saved)]]);
+  const storage = { length: values.size, key: (index) => [...values.keys()][index], getItem: (name) => values.get(name) };
+  const config = localVideoConfiguration(file, storage);
+  assert.equal(config.calibration.reference_frame.width, 1920);
+  assert.deepEqual(config.calibration.directional_crossing.line_start, saved.line.start);
+  assert.equal(videoUploadConfiguration(null, [], file, storage).source, 'video');
+  assert.equal(videoUploadConfiguration(null, [], file, {}).blocker.includes('no camera assignment'), true);
 });
 
 test('video snapshot reports backend values and leaves unreported ones null', () => {

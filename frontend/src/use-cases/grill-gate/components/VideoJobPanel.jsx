@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Ban, CheckCircle2, Play, RefreshCw, Save, Video } from 'lucide-react';
+import { Ban, CheckCircle2, Play, RefreshCw, Upload, Video } from 'lucide-react';
 import { describeError } from '../../../utils/errors.js';
 import { cancelGrillGateVideoJob, listGrillGateVideoJobs, startGrillGateVideoJob } from '../api/grillGate.js';
 import {
   formatVideoTime, jobCanCancel, jobCanStart, jobErrorMessage, jobIsActive, jobProgressPercent,
-  templateBlocker, validateVideoFile, videoJobStatus,
+  validateVideoFile, videoJobStatus, videoUploadConfiguration,
 } from '../videoJobModel.js';
 import { btnDanger, btnGhost, btnPrimary, ErrorNote, Pill } from './ui.jsx';
 
@@ -87,7 +87,8 @@ export default function VideoJobPanel({ file, item, zones, upload, videoJob, sel
 
   const fileKey = videoFileKey(file);
   const fileError = file ? validateVideoFile(file) : '';
-  const blocker = file && !fileError ? templateBlocker(item, zones) : '';
+  const uploadConfiguration = file && !fileError ? videoUploadConfiguration(item, zones, file) : { value: null, blocker: '' };
+  const blocker = uploadConfiguration.blocker;
   const uploading = upload.phase === 'uploading';
   const savedThisFile = upload.phase === 'saved' && upload.fileKey === fileKey;
   const uploadFailed = upload.phase === 'failed' && upload.fileKey === fileKey;
@@ -109,8 +110,19 @@ export default function VideoJobPanel({ file, item, zones, upload, videoJob, sel
 
   const save = async () => {
     if (uploading || fileError || blocker) return;
-    const saved = await upload.upload(file, item.assignment.id, fileKey);
-    if (saved) onSelectJob(saved.job_id);
+    const saved = await upload.upload(file, uploadConfiguration.value, fileKey);
+    if (!saved) return;
+    onSelectJob(saved.job_id);
+    setAction('start'); setActionError('');
+    try {
+      await startGrillGateVideoJob(saved.job_id);
+      setStartedId(saved.job_id);
+    } catch (exception) {
+      setActionError(describeError(exception).message);
+    } finally {
+      setAction(null);
+      videoJob.refresh();
+    }
   };
   const run = async (kind, call) => {
     if (action || !job) return;
@@ -144,10 +156,12 @@ export default function VideoJobPanel({ file, item, zones, upload, videoJob, sel
           <Video size={15} className="shrink-0 text-[#34479B]" aria-hidden />
           <span className="min-w-0 flex-1 truncate text-sm text-[#0F1B3D]" title={file.name}>{file.name}</span>
           <button type="button" className={btnPrimary} onClick={save} disabled={uploading || Boolean(fileError) || Boolean(blocker)}>
-            <Save size={13} aria-hidden /> {uploading ? `Uploading${upload.progress == null ? '…' : ` ${Math.round(upload.progress * 100)}%`}` : 'Save Video'}
+            <Upload size={13} aria-hidden /> {uploading ? `Uploading${upload.progress == null ? '…' : ` ${Math.round(upload.progress * 100)}%`}` : action === 'start' ? 'Starting…' : 'Upload & process'}
           </button>
           {(fileError || blocker) && <p className="w-full text-xs text-amber-800">{fileError || blocker}</p>}
-          {!fileError && !blocker && !uploading && !uploadFailed && <p className="w-full text-xs text-[#55607A]">Saving copies the zones and calibration currently saved on {item?.camera?.name ?? 'this assignment'}. Later edits do not change a saved video, so save zone changes first.</p>}
+          {!fileError && !blocker && !uploading && !uploadFailed && <p className="w-full text-xs text-[#55607A]">{uploadConfiguration.source === 'assignment'
+            ? `Saving copies the zones and calibration currently saved on ${item?.camera?.name ?? 'this assignment'}. Later edits do not change this video.`
+            : 'Saving sends this video’s locally saved zones, line, and a provisional gate calibration. You do not need to assign a camera.'} Save configuration changes before uploading.</p>}
         </div>
       )}
       {uploadFailed && <div className="mt-3"><ErrorNote>Upload failed: {upload.error}</ErrorNote></div>}

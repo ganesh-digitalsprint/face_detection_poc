@@ -77,6 +77,7 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
     setFrame(nextFrame);
     onFrameDimensions?.(nextFrame);
     setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+    let restoredVideoLine = null;
     if (!hasAssignment) {
       const key = `grill-gate-video-zones:${encodeURIComponent(file.name)}:${file.size}:${file.lastModified}:${nextFrame.width}x${nextFrame.height}`;
       try {
@@ -85,8 +86,7 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
           const restored = stored.zones.map(normalizeZone);
           setDraftZones(restored);
           setLocalSavedZones(restored);
-          setLineDraft(stored.line ?? null);
-          setSavedLine(stored.line ?? null);
+          restoredVideoLine = stored.line ?? null;
           setNotice('Restored this video’s locally saved zone configuration.');
         } else {
           setLocalSavedZones(null);
@@ -97,8 +97,9 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
     }
     const compatible = reference && reference.width === nextFrame.width && reference.height === nextFrame.height;
     const nextLine = compatible ? calibrationLine(calibration) : null;
-    setLineDraft(nextLine);
-    setSavedLine(nextLine);
+    const line = hasAssignment ? nextLine : restoredVideoLine;
+    setLineDraft(line);
+    setSavedLine(line);
   };
 
   const pickPoint = (event) => {

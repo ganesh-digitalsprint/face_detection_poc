@@ -20,11 +20,15 @@ export const disconnectGrillGateAssignment = (assignmentId) =>
 export const getGateState = (assignmentId) =>
   client.get(`${root}/assignments/${encodeURIComponent(assignmentId)}/gate-state`, { headers, timeout: 5000 }).then((r) => r.data);
 
-/** Uploaded-video jobs (grill_gate_monitoring/api/grill_gate.py). Upload saves the job; start begins processing. */
-export const uploadGrillGateVideo = (file, templateAssignmentId, { onProgress, signal } = {}) => {
+/** Uploaded-video jobs. Configuration can be a template assignment ID or a self-contained video config. */
+export const uploadGrillGateVideo = (file, configurationOrAssignmentId, { onProgress, signal } = {}) => {
   const body = new FormData();
   body.append('video', file, file.name);
-  body.append('template_assignment_id', templateAssignmentId);
+  if (typeof configurationOrAssignmentId === 'string') {
+    body.append('template_assignment_id', configurationOrAssignmentId);
+  } else {
+    body.append('configuration', JSON.stringify(configurationOrAssignmentId));
+  }
   return client.post(`${root}/videos`, body, {
     headers, signal, onUploadProgress: (event) => onProgress?.(event.total ? event.loaded / event.total : null),
   }).then((r) => r.data);

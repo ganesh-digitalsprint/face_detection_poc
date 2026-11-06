@@ -43,13 +43,13 @@ export function useVideoUpload() {
   const controllerRef = useRef(null);
   useEffect(() => () => controllerRef.current?.abort(), []);
 
-  const upload = useCallback(async (file, templateAssignmentId, fileKey) => {
+  const upload = useCallback(async (file, configurationOrAssignmentId, fileKey) => {
     if (controllerRef.current) return null;
     const controller = new AbortController();
     controllerRef.current = controller;
     setState({ phase: 'uploading', progress: 0, error: '', fileKey });
     try {
-      const saved = await uploadGrillGateVideo(file, templateAssignmentId, {
+      const saved = await uploadGrillGateVideo(file, configurationOrAssignmentId, {
         signal: controller.signal,
         onProgress: (progress) => setState((current) => ({ ...current, progress })),
       });

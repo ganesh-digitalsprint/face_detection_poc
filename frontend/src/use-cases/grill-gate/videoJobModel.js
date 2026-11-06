@@ -42,10 +42,85 @@ export function validateVideoFile(file) {
 
 /** Why the selected assignment cannot supply the job's configuration snapshot; '' when it can. */
 export function templateBlocker(item, zones = []) {
-  if (!item?.assignment?.id) return 'Assign a camera to Grill Gate first: a saved video copies that assignment’s zones and calibration.';
+  if (!item?.assignment?.id) return '';
   if (!item.assignment.calibration) return 'This assignment has no gate calibration. Save one under the Calibration tab first.';
   if (!zones.some((zone) => zone.zone_type === 'gate_leaf_roi' && zone.enabled !== false)) return 'This assignment has no enabled gate_leaf_roi zone. Draw and save one first.';
   return '';
+}
+
+const localConfigPrefix = (file) => file
+  ? `grill-gate-video-zones:${encodeURIComponent(file.name)}:${file.size}:${file.lastModified}:`
+  : '';
+
+/** Read the zone draft saved for this exact video and package it as explicit backend configuration. */
+export function localVideoConfiguration(file, storage = globalThis.localStorage) {
+  if (!file || !storage) return null;
+  const prefix = localConfigPrefix(file);
+  let saved = null;
+  try {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(prefix)) {
+        saved = JSON.parse(storage.getItem(key) || 'null');
+        if (saved?.frame?.width && saved?.frame?.height) break;
+      }
+    }
+  } catch {
+    return null;
+  }
+  const zones = Array.isArray(saved?.zones) ? saved.zones : [];
+  const zone = zones.find((entry) => entry.zone_type === 'gate_leaf_roi' && entry.enabled !== false);
+  const line = saved?.line;
+  if (!saved?.frame?.width || !saved?.frame?.height || !zone || !line?.start || !line?.end) return null;
+  return {
+    zone,
+    zones,
+    calibration: {
+      schema_version: 1,
+      reference_frame: saved.frame,
+      coordinate_system: 'normalized_raw',
+      calibrated_at: new Date().toISOString(),
+      sliding_gate: {
+        gate_roi_zone_key: 'gate_leaf_roi',
+        closed_reference_position: 0,
+        open_reference_position: 1,
+        horizontal_movement_direction: 'left_to_right',
+        position_thresholds: { closed_tolerance: 0.1, open_tolerance: 0.1 },
+        confidence_threshold: 0.5,
+        state_confirmation_durations: {
+          closed_seconds: 0.5, opening_seconds: 0.3, open_seconds: 0.5,
+          partially_open_seconds: 1, closing_seconds: 0.3,
+        },
+        hysteresis_fraction: 0.05,
+      },
+      directional_crossing: {
+        line_start: line.start,
+        line_end: line.end,
+        outside_side: 'left',
+        inside_side: 'right',
+        entry_direction: 'outside_to_inside',
+        exit_direction: 'inside_to_outside',
+        dead_band_fraction: 0.05,
+        minimum_crossing_displacement: 0.02,
+      },
+    },
+    alert_configuration: {},
+  };
+}
+
+/** Pick saved assignment settings when valid; otherwise use the video's own saved local configuration. */
+export function videoUploadConfiguration(item, zones, file, storage) {
+  const assignmentError = templateBlocker(item, zones);
+  if (item?.assignment?.id && !assignmentError) {
+    return { value: item.assignment.id, blocker: '', source: 'assignment' };
+  }
+  const local = localVideoConfiguration(file, storage);
+  if (local) return { value: local, blocker: '', source: 'video' };
+  return {
+    value: null,
+    blocker: 'Draw and save a gate_leaf_roi zone and ENTRY/EXIT line on this video first. The video configuration is saved in this browser and sent with the upload; no camera assignment is needed.',
+    source: null,
+  };
 }
 
 /** Video-relative timestamp, e.g. 01:12.4. The backend's occurred_at for a video is job start plus this offset. */
