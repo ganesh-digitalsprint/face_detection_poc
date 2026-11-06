@@ -25,6 +25,7 @@ export const jobCanStart = (job) => job?.status === 'UPLOADED';
 export const jobCanCancel = (job) => job?.status === 'UPLOADED' || job?.status === 'QUEUED' || job?.status === 'PROCESSING';
 
 const ERROR_CODES = {
+  EVENTS_NOT_PERSISTED: 'Processing finished, but not all of this job\u2019s events could be stored.',
   PROCESS_INTERRUPTED: 'The server restarted while this job was running. The stored video is not reprocessed automatically.',
   VIDEO_PIPELINE_FAILED: 'Video processing failed. Check that the video dimensions match the calibration used for this job.',
   VIDEO_FILE_MISSING: 'The stored video file is no longer on the server, so this job cannot run.',
@@ -155,58 +156,94 @@ function meshOccupancy(events) {
   return inside.size;
 }
 
-function crossingView(event) {
+const videoTime = (event) => formatVideoTime(event.video_time_seconds);
+
+/** `timeOf` differs by source: video-relative for a job, clock time for a live camera. */
+export function crossingView(event, timeOf = videoTime) {
   const route = [event.source_zone, event.destination_zone].filter(Boolean).map(zoneLabel).join(' → ');
   return {
     id: event.event_id, direction: DIRECTION[event.direction] ?? event.direction ?? 'CROSSING',
-    timeLabel: formatVideoTime(event.video_time_seconds), details: route,
+    timeLabel: timeOf(event), details: route,
     cameraLabel: event.track_id == null ? '' : `Track ${event.track_id}`,
   };
 }
 
-function alertView(alert) {
+/** The Alert Service lists the statuses an alert may move to; the UI offers the matching actions. */
+const alertActions = (alert) => (Array.isArray(alert.allowed_actions) ? alert.allowed_actions : [])
+  .map((status) => ({ ACKNOWLEDGED: 'acknowledge', RESOLVED: 'resolve' }[status])).filter(Boolean);
+
+export function alertView(alert, timeLabel) {
   const seconds = alert.domain_data?.video_time_seconds;
   return {
     id: alert.id, title: alert.title, type: alert.source_event_type, severity: alert.severity, status: alert.status,
-    message: alert.summary, timeLabel: seconds == null ? '' : formatVideoTime(seconds), active: ACTIVE_ALERT.has(alert.status),
+    message: alert.summary, timeLabel: timeLabel ?? (seconds == null ? '' : formatVideoTime(seconds)), active: ACTIVE_ALERT.has(alert.status),
+    version: alert.row_version, actions: alertActions(alert),
   };
 }
 
+export function eventTitle(event) {
+  if (event.event_type === 'CROSSING_COMPLETED') {
+    const track = event.track_id == null ? '' : ` · track #${event.track_id}`;
+    return `${DIRECTION[event.direction] === 'EXIT' ? 'Exit' : DIRECTION[event.direction] === 'ENTRY' ? 'Entry' : 'Unknown'} crossing${track}`;
+  }
+  return event.event_type === 'MESH_PERSON_ENTERED' ? 'Person entered mesh area' : 'Person left mesh area';
+}
+
 function timelineView(event) {
-  const title = event.event_type === 'CROSSING_COMPLETED'
-    ? `${DIRECTION[event.direction] ?? 'Crossing'} crossing`
-    : event.event_type === 'MESH_PERSON_ENTERED' ? 'Person entered mesh area' : 'Person left mesh area';
-  return { id: event.event_id, title, timeLabel: formatVideoTime(event.video_time_seconds) };
+  return { id: event.event_id, title: eventTitle(event), timeLabel: videoTime(event) };
+}
+
+const TRANSITION_TITLES = {
+  CLOSED: 'Gate closed', OPENING: 'Gate opening started', OPEN: 'Gate opened', PARTIALLY_OPEN: 'Gate partially open',
+  CLOSING: 'Gate closing started', UNKNOWN: 'Gate state unknown',
+};
+export const transitionTitle = (transition) => TRANSITION_TITLES[transition.to_state] ?? `Gate ${transition.to_state}`;
+const transitionId = (transition) => `gate-${transition.sequence_number ?? transition.at}-${transition.to_state}`;
+
+/** Gate transitions merged with stored events, newest first. `keyOf` gives each row its source timestamp. */
+export function mergeTimeline(events, transitions, { keyOf, labelOf, limit = 30 }) {
+  const rows = [
+    ...events.map((event) => ({ id: event.event_id, title: eventTitle(event), key: keyOf(event), timeLabel: labelOf(event) })),
+    ...transitions.map((item) => ({ id: transitionId(item), title: transitionTitle(item), key: keyOf(item), timeLabel: labelOf(item) })),
+  ];
+  return rows.sort((a, b) => b.key - a.key).slice(0, limit);
 }
 
 /**
  * The dashboard snapshot for one video job, in the same shape as EMPTY_MONITORING. A null value means the backend
  * does not report it for video jobs, which panels show as "—" rather than as zero.
  */
-export function videoMonitoring({ job, events = [], alerts = [], alertsAvailable = true } = {}) {
+export function videoMonitoring({ job, events = [], transitions = [], alerts = [], alertsAvailable = true } = {}) {
   const crossings = events.filter((event) => event.event_type === 'CROSSING_COMPLETED');
   const mesh = events.filter((event) => event.event_type !== 'CROSSING_COMPLETED');
   const lastCrossing = crossings.at(-1);
-  const alertViews = alerts.map(alertView).sort((a, b) => Number(b.active) - Number(a.active));
+  const alertViews = alerts.map((alert) => alertView(alert)).sort((a, b) => Number(b.active) - Number(a.active));
+  const reported = job?.monitoring ?? null;
+  // The end of a file is not a gate observation, so it is left out of the timeline.
+  const gateRows = transitions.filter((item) => item.reason !== 'video ended');
   return {
     source: 'video',
     status: job ? videoJobStatus(job.status).label.toUpperCase() : 'NO VIDEO',
     statusTone: job ? videoJobStatus(job.status).tone : 'idle',
-    gateState: lastCrossing?.metadata?.gate_state ?? null,
-    gateStateTimeLabel: lastCrossing?.metadata?.gate_state ? formatVideoTime(lastCrossing.video_time_seconds) : '',
-    gateOpenSeconds: null,
+    gateState: reported?.state ?? lastCrossing?.metadata?.gate_state ?? null,
+    gateStateTimeLabel: !reported?.state && lastCrossing?.metadata?.gate_state ? formatVideoTime(lastCrossing.video_time_seconds) : '',
+    gateProgress: reported?.progress ?? null,
+    gateConfidence: reported?.confidence ?? null,
+    gateOpenSeconds: reported?.gate_open_seconds ?? null,
     secondsSinceCrossing: lastCrossing ? Math.max(0, (job?.progress_seconds ?? 0) - (lastCrossing.video_time_seconds ?? 0)) : null,
     entryCount: crossings.filter((event) => event.direction === 'OUTSIDE_TO_INSIDE').length,
     exitCount: crossings.filter((event) => event.direction === 'INSIDE_TO_OUTSIDE').length,
-    meshPeopleCount: meshOccupancy(mesh),
+    meshPeopleCount: reported?.mesh?.occupancy_count ?? meshOccupancy(mesh),
     meshGatheringSeconds: null,
     meshEvents: newestFirst(mesh).slice(0, 5).map(timelineView),
     crossingTotal: crossings.length,
-    crossings: newestFirst(crossings).slice(0, 50).map(crossingView),
+    crossings: newestFirst(crossings).slice(0, 50).map((event) => crossingView(event)),
     alerts: alertViews,
     activeAlertCount: alertViews.filter((alert) => alert.active).length,
     alertsAvailable,
-    events: newestFirst(events).slice(0, 30).map(timelineView),
+    events: gateRows.length
+      ? mergeTimeline(events, gateRows, { keyOf: (item) => item.video_time_seconds ?? 0, labelOf: videoTime })
+      : newestFirst(events).slice(0, 30).map(timelineView),
   };
 }
 
@@ -222,5 +259,15 @@ export function processingFps(job, previous, nowMs) {
   return elapsed > 0 && frames > 0 ? frames / elapsed : null;
 }
 
-/** The backend reports processed frames but no total, so a percentage exists only once a job has completed. */
-export const jobProgressPercent = (job) => (job?.status === 'COMPLETED' ? 100 : null);
+/** From the backend's frame totals; a file with no usable frame count reports a percentage only when finished. */
+export const jobProgressPercent = (job) => {
+  if (job?.status === 'COMPLETED') return 100;
+  return Number.isFinite(job?.progress) ? Math.round(job.progress * 100) : null;
+};
+
+/** The status pill text: the job's state, with its percentage while it runs. */
+export function jobPillLabel(job) {
+  if (!job) return 'NONE';
+  const percent = jobProgressPercent(job);
+  return job.status === 'PROCESSING' && percent != null ? `PROCESSING ${percent}%` : job.status;
+}

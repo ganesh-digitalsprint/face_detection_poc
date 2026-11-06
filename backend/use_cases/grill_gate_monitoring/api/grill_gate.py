@@ -286,6 +286,10 @@ def _frame_jpeg(path: Path, seconds: float, max_width: int) -> Response:
         frame = read_frame_at(path, seconds)
     except ValueError as exc:
         raise HTTPException(422, detail={"code": "FRAME_UNAVAILABLE", "message": str(exc)}) from exc
+    return _encode_jpeg(frame, max_width)
+
+
+def _encode_jpeg(frame, max_width: int) -> Response:
     height, width = frame.shape[:2]
     if width > max_width:
         frame = cv2.resize(frame, (max_width, max(1, round(height * max_width / width))), interpolation=cv2.INTER_AREA)
@@ -437,6 +441,16 @@ def disconnect_assignment(assignment_id: str, db: Db, caller: Caller):
 def list_workers(caller: Caller):
     """Return health metadata only; no frame bytes or source references are exposed."""
     return get_grill_gate_camera_worker_manager().statuses()
+
+
+@router.get("/assignments/{assignment_id}/preview")
+def get_live_preview(assignment_id: str, db: Db, caller: Caller, max_width: int = Query(default=1280, ge=64, le=3840)):
+    """The camera worker's latest fresh frame as a downscaled JPEG; never a stale one."""
+    camera_id = _assignment_camera(db, assignment_id)
+    packet = get_grill_gate_camera_worker_manager().latest(camera_id)
+    if packet is None or packet.assignment_id != assignment_id:
+        raise HTTPException(409, detail={"code": "NO_LIVE_FRAME", "message": "This camera has no fresh frame. Connect it first."})
+    return _encode_jpeg(packet.frame, max_width)
 
 
 @router.get("/assignments/{assignment_id}/gate-state")

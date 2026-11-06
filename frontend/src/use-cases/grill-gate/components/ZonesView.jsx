@@ -1,3 +1,4 @@
+/* Unused: replaced by the three-section Grill Gate page. Kept on disk, no longer linked. */
 import { Link } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
 import { zoneColor, zoneCoverage } from '../grillGateModel.js';

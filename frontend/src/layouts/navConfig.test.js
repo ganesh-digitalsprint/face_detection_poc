@@ -62,7 +62,7 @@ test('soon items are never active', () => {
 });
 
 test('Gate & Mesh links to the Grill Gate page', () => {
-  assert.equal(byId('gate-mesh').to, '/grill-gate');
+  assert.deepEqual(byId('gate-mesh').children.map((child) => child.to), ['/grill-gate', '/grill-gate?view=video', '/grill-gate?view=zones']);
   assert.ok(isItemActive(byId('gate-mesh'), '/grill-gate'));
 });
 

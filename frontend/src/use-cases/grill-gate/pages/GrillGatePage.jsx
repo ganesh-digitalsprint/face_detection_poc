@@ -1,36 +1,50 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { describeError } from '../../../utils/errors.js';
 import { connectGrillGateAssignment, disconnectGrillGateAssignment } from '../api/grillGate.js';
-import { connectionView, EMPTY_MONITORING, workerForAssignment } from '../grillGateModel.js';
+import { connectionView, formatClock, workerForAssignment, workerIsActive } from '../grillGateModel.js';
 import { useAssignmentZones, useGrillGateRegistry, useGrillGateWorkers } from '../hooks/useGrillGate.js';
+import { useLiveMonitoring, useVideoJobList } from '../hooks/useSourceData.js';
 import { useVideoJob, useVideoUpload } from '../hooks/useVideoJob.js';
-import { videoMonitoring } from '../videoJobModel.js';
-import CalibrationView from '../components/CalibrationView.jsx';
-import CameraConfigView from '../components/CameraConfigView.jsx';
-import { AlertsView, EventHistoryView } from '../components/HistoryViews.jsx';
-import LiveFeedPanel from '../components/LiveFeedPanel.jsx';
-import { AlertsPanel, CrossingEventsPanel, GateStatePanel, MeshPanel, MonitoringStats, TimelinePanel, VideoGateStatePanel } from '../components/MonitoringPanels.jsx';
-import ZonesView from '../components/ZonesView.jsx';
+import { liveMonitoring } from '../liveMonitoringModel.js';
+import { jobErrorMessage, jobIsActive, jobPillLabel, jobProgressPercent, videoJobStatus, videoMonitoring } from '../videoJobModel.js';
+import LiveCameraSection from '../components/LiveCameraSection.jsx';
+import UploadedVideoSection from '../components/UploadedVideoSection.jsx';
+import ZonesSection from '../components/ZonesSection.jsx';
 import { ErrorNote, Pill } from '../components/ui.jsx';
 
-// The dashboard is the landing view; every other screen opens only when the operator selects its tab.
-const VIEWS = [
-  ['monitor', 'Overview'],
-  ['camera', 'Camera'],
-  ['zones', 'Regions & Zones'],
-  ['calibration', 'Calibration'],
-  ['alerts', 'Alerts'],
-  ['events', 'Event History'],
-];
-const VIEW_IDS = new Set(VIEWS.map(([id]) => id));
-// The live dashboard has no snapshot source yet: crossings, mesh and alerts stay on the empty snapshot.
-const LIVE_MONITORING = EMPTY_MONITORING;
+const TABS = [['live', 'Live Camera'], ['video', 'Uploaded Video Processing'], ['zones', 'Zones & Regions']];
+// Old links keep working: each earlier ?view= value lands on the tab that now holds its content.
+const LEGACY_VIEWS = { monitor: 'live', camera: 'live', alerts: 'live', events: 'live', calibration: 'zones' };
 
-function Clock() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => { const id = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(id); }, []);
-  return <time className="text-sm text-[#55607A]" dateTime={now.toISOString()}>{now.toLocaleString(undefined, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>;
+/** The selected video job's progress on every tab. Numbers come only from the backend's job status. */
+function ProcessingBar({ job, fps }) {
+  if (!job) return null;
+  const percent = jobProgressPercent(job);
+  const active = jobIsActive(job);
+  const headline = job.status === 'PROCESSING' ? `Processing ${job.filename}` : `${videoJobStatus(job.status).label}: ${job.filename}`;
+  const parts = [
+    job.total_frames ? `${job.processed_frames} / ${job.total_frames} frames` : `${job.processed_frames} frames`,
+    (job.processing_fps ?? fps) != null && job.processed_frames > 0 ? `${Number((job.processing_fps ?? fps).toFixed(1))} fps` : null,
+    job.duration_seconds != null ? `video time ${formatClock(job.video_time_seconds)} of ${formatClock(job.duration_seconds)}` : null,
+    active ? 'the live camera keeps running while the video is processed' : null,
+  ].filter(Boolean);
+  const failure = job.status === 'FAILED' ? (jobErrorMessage(job.error_code) || job.error) : '';
+  return (
+    <div className="mt-3">
+      <p className="flex items-center justify-between gap-3 text-sm font-semibold text-[#0F1B3D]">
+        <span className="min-w-0 truncate" title={job.filename}>{headline}</span>
+        {percent != null && <span className="shrink-0 tabular-nums">{percent}%</span>}
+      </p>
+      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#E3E7F0]" role="progressbar" aria-label="Video processing"
+        {...(percent != null ? { 'aria-valuenow': percent, 'aria-valuemin': 0, 'aria-valuemax': 100 } : {})}>
+        <div className={`h-full rounded-full ${job.status === 'FAILED' ? 'bg-rose-500' : 'bg-[#34479B]'} ${percent == null && active ? 'w-full animate-pulse opacity-40' : ''}`}
+          style={percent != null ? { width: `${percent}%` } : undefined} />
+      </div>
+      <p className="mt-1.5 text-xs text-[#55607A]">{parts.join(' · ')}</p>
+      {failure && <p role="alert" className="mt-1 text-xs text-rose-800">{failure}</p>}
+    </div>
+  );
 }
 
 export default function GrillGatePage() {
@@ -39,34 +53,45 @@ export default function GrillGatePage() {
   const requested = params.get('assignment');
   const item = registry.items.find((entry) => entry.assignment.id === requested) ?? registry.items[0] ?? null;
   const assignmentId = item?.assignment.id ?? '';
-  const view = VIEW_IDS.has(params.get('view')) ? params.get('view') : 'monitor';
+  const rawView = params.get('view');
+  const view = rawView === 'video' || rawView === 'zones' ? rawView : LEGACY_VIEWS[rawView] ?? 'live';
 
+  const setParam = (name, value) => setParams((current) => {
+    const next = new URLSearchParams(current);
+    if (value == null || (name === 'view' && value === 'live')) next.delete(name); else next.set(name, value);
+    return next;
+  }, { replace: name !== 'view' });
+
+  useEffect(() => {
+    if (rawView && LEGACY_VIEWS[rawView]) setParam('view', LEGACY_VIEWS[rawView]);
+  }, [rawView]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Two independent sources, each with its own store. A tab only ever reads its own.
   const workers = useGrillGateWorkers(assignmentId);
   const zones = useAssignmentZones(assignmentId);
   const worker = workerForAssignment(workers.workers, assignmentId);
+  const live = useLiveMonitoring(assignmentId, workerIsActive(worker));
   const connection = connectionView(worker, { statusError: workers.error, loaded: workers.loaded });
+  const liveView = useMemo(() => liveMonitoring(live), [live]);
+
+  const upload = useVideoUpload();
+  const [listKey, setListKey] = useState(0);
+  const requestedJob = params.get('job');
+  const selectionList = useVideoJobList(listKey);
+  // Without a choice in the URL, the newest saved video is selected so the top bar can follow it.
+  const selectedJobId = requestedJob ?? selectionList.jobs[0]?.job_id ?? null;
+  const videoJob = useVideoJob(selectedJobId);
+  const { job, events, transitions, alerts, alertsAvailable } = videoJob;
+  const videoView = useMemo(() => videoMonitoring({ job, events, transitions, alerts, alertsAvailable }), [job, events, transitions, alerts, alertsAvailable]);
+  const jobStatus = job?.status;
+  useEffect(() => { setListKey((value) => value + 1); }, [selectedJobId, jobStatus]);
+  useEffect(() => { if (videoJob.notFound && requestedJob) setParam('job', null); }, [videoJob.notFound, requestedJob]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [busy, setBusy] = useState(null);
-  // Explicit monitoring source. Only Uploaded Video reads a job, so its data can never reach the live dashboard.
-  const [sourceMode, setSourceMode] = useState(() => (params.get('job') ? 'video' : 'live'));
-  const [testFile, setTestFile] = useState(null);
   const [actionError, setActionError] = useState('');
   const selectedRef = useRef(assignmentId);
   selectedRef.current = assignmentId;
   useEffect(() => { setActionError(''); }, [assignmentId]);
-
-  const selectedJobId = sourceMode === 'video' ? params.get('job') : null;
-  const videoJob = useVideoJob(selectedJobId);
-  const upload = useVideoUpload();
-  const { job, events, alerts, alertsAvailable } = videoJob;
-  const monitoring = useMemo(() => (sourceMode === 'video'
-    ? videoMonitoring({ job, events, alerts, alertsAvailable }) : LIVE_MONITORING), [sourceMode, job, events, alerts, alertsAvailable]);
-
-  const setParam = (name, value) => setParams((current) => {
-    const next = new URLSearchParams(current);
-    if (name === 'view' && value === 'monitor') next.delete('view'); else next.set(name, value);
-    return next;
-  }, { replace: name === 'assignment' || name === 'job' });
 
   /** Results for an assignment the operator has since moved away from are dropped. */
   const runAction = async (kind, call) => {
@@ -80,88 +105,55 @@ export default function GrillGatePage() {
     } finally {
       setBusy(null);
       workers.refresh();
+      live.refresh();
     }
   };
-  const actions = {
-    busy, actionError,
-    onConnect: () => runAction('connect', connectGrillGateAssignment),
-    onDisconnect: () => runAction('disconnect', disconnectGrillGateAssignment),
-  };
+
+  const liveTone = connection.key === 'connected' ? 'ok' : connection.tone;
+  const liveLabel = item ? connection.label.toUpperCase() : 'NOT CONNECTED';
 
   return (
     <div className="-m-4 min-h-[calc(100vh-4.5rem)] bg-[#F4F6FB] p-4 text-[#1C2B4D] sm:-m-6 sm:p-6">
-      <header className="mb-4 flex flex-wrap items-center gap-3">
-        <h2 className="text-xl font-bold text-[#0F1B3D]">Grill Gate Monitoring</h2>
-        {registry.items.length > 0 && (
-          <label className="flex items-center">
-            <span className="sr-only">Camera assignment</span>
-            <select
-              className="rounded-md border border-[#D0D7E6] bg-white px-2 py-1 text-xs font-semibold text-[#34479B] outline-none focus:border-[#34479B] focus:ring-2 focus:ring-[#34479B]/20"
-              value={assignmentId}
-              onChange={(event) => setParam('assignment', event.target.value)}
-            >
-              {registry.items.map((entry) => (
-                <option key={entry.assignment.id} value={entry.assignment.id}>
-                  {entry.camera?.code?.toUpperCase() ?? 'CAMERA'} · {entry.camera?.name ?? entry.assignment.camera_id}{entry.location ? ` — ${entry.location.name}` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <span className="flex items-center gap-2 text-xs text-[#55607A]">Camera <Pill tone={item ? connection.tone : 'idle'} dot>{item ? connection.label : 'Not connected'}</Pill></span>
-        <span className="flex items-center gap-2 text-xs text-[#55607A]"
-          title={sourceMode === 'video' ? 'Status of the selected uploaded-video job.' : 'Gate, crossing and mesh monitoring are not provided by the backend yet.'}>
-          {sourceMode === 'video' ? 'Video job' : 'Monitoring'} <Pill tone={monitoring.statusTone ?? 'idle'} dot>{monitoring.status}</Pill>
-        </span>
-        <div className="ml-auto"><Clock /></div>
+      <header className="rounded-xl border border-[#E3E7F0] bg-white p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-bold text-[#0F1B3D]">Grill Gate Monitoring</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill tone={liveTone} className="!rounded-full">Live camera · {liveLabel}</Pill>
+            <Pill tone={job ? videoJobStatus(job.status).tone : 'idle'} className="!rounded-full">Video job · {jobPillLabel(job)}</Pill>
+          </div>
+        </div>
+        <ProcessingBar job={job} fps={videoJob.fps} />
       </header>
+
+      <nav className="my-4 flex flex-wrap gap-2" aria-label="Grill Gate sections">
+        {TABS.map(([id, text]) => (
+          <button key={id} type="button" aria-current={view === id ? 'page' : undefined} onClick={() => setParam('view', id)}
+            className={`min-h-10 rounded-lg px-4 text-sm font-semibold transition ${view === id ? 'bg-[#34479B] text-white' : 'bg-white text-[#34479B] ring-1 ring-[#E3E7F0] hover:bg-[#F4F6FB]'}`}>
+            {text}
+          </button>
+        ))}
+      </nav>
 
       {registry.error && <div className="mb-4"><ErrorNote>Could not load Grill Gate camera assignments: {registry.error}</ErrorNote></div>}
       {registry.loading && !registry.items.length && <p className="mb-4 text-sm text-[#55607A]">Loading Grill Gate camera assignments…</p>}
-      {!registry.loading && !registry.error && !registry.items.length && view !== 'monitor' && view !== 'alerts' && view !== 'events' && (
-        <div className="rounded-xl border border-dashed border-[#D0D7E6] bg-white p-8 text-center">
-          <p className="font-semibold text-[#0F1B3D]">No Grill Gate camera is assigned</p>
-          <p className="mt-2 text-sm text-[#55607A]">Register a camera with a server-side source and assign it to Grill Gate Monitoring.</p>
-          <Link to="/regions?use_case=grill_gate" className="mt-4 inline-block rounded-lg bg-[#34479B] px-4 py-2 text-sm font-semibold text-white">Open Regions &amp; Zones</Link>
-        </div>
-      )}
 
-      {view === 'monitor' && (
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(340px,480px)]">
-          <div className="min-w-0 space-y-5">
-            <LiveFeedPanel item={item} worker={worker} connection={connection} statusError={workers.error} {...actions}
-              sourceMode={sourceMode} onSourceModeChange={setSourceMode} testFile={testFile} onTestFileChange={setTestFile}
-              zones={zones.zones} zoneTypes={registry.zoneTypes} reloadZones={zones.reload}
-              onCalibrationSaved={registry.replaceAssignment}
-              upload={upload} videoJob={videoJob} selectedJobId={selectedJobId} onSelectJob={(id) => setParam('job', id)} />
-            {!registry.loading && !registry.error && !registry.items.length && (
-              <p className="text-sm text-[#55607A]">No camera is assigned to Grill Gate yet. Assign one under the <button type="button" className="font-semibold text-[#34479B] hover:underline" onClick={() => setParam('view', 'camera')}>Camera</button> tab.</p>
-            )}
-            <MonitoringStats monitoring={monitoring} />
-            <TimelinePanel monitoring={monitoring} />
-          </div>
-          <div className="space-y-5">
-            {sourceMode === 'video'
-              ? <VideoGateStatePanel monitoring={monitoring} job={job} />
-              : <GateStatePanel assignmentId={assignmentId} worker={worker} />}
-            <CrossingEventsPanel monitoring={monitoring} />
-            <AlertsPanel monitoring={monitoring} />
-            <MeshPanel monitoring={monitoring} />
-          </div>
-        </div>
+      {view === 'live' && (
+        <LiveCameraSection items={registry.items} item={item} worker={worker} connection={connection} statusError={workers.error}
+          busy={busy} actionError={actionError} monitoring={liveView} live={live}
+          onConnect={() => runAction('connect', connectGrillGateAssignment)}
+          onDisconnect={() => runAction('disconnect', disconnectGrillGateAssignment)}
+          onSelect={(id) => setParam('assignment', id)} onRegistryChanged={registry.reload} />
       )}
-
-      {view === 'camera' && registry.items.length > 0 && (
-        <CameraConfigView items={registry.items} selectedId={assignmentId} onSelect={(id) => setParam('assignment', id)} workers={workers} {...actions} />
+      {view === 'video' && (
+        <UploadedVideoSection videoJob={videoJob} jobs={selectionList.jobs} jobsError={selectionList.error} selectedJobId={selectedJobId}
+          onSelectJob={(id) => setParam('job', id)} onJobsChanged={() => setListKey((value) => value + 1)} upload={upload} monitoring={videoView}
+          onOpenZones={() => setParams((current) => { const next = new URLSearchParams(current); next.set('view', 'zones'); next.set('apply', 'video'); return next; })} />
       )}
-      {view === 'zones' && item && (
-        <ZonesView item={item} zones={zones.zones} loading={zones.loading} error={zones.error} zoneTypes={registry.zoneTypes} />
+      {view === 'zones' && (
+        <ZonesSection apply={params.get('apply')} onApplyChange={(value) => setParam('apply', value)} assignmentItem={item} job={job}
+          otherJobs={selectionList.jobs.filter((row) => row.job_id !== job?.job_id)} liveZones={zones.zones} zoneTypes={registry.zoneTypes} worker={worker}
+          reloadLiveZones={zones.reload} onLiveCalibrationSaved={registry.replaceAssignment} onVideoConfigSaved={() => videoJob.refresh()} />
       )}
-      {view === 'calibration' && item && (
-        <CalibrationView key={assignmentId} item={item} worker={worker} zones={zones.zones} onSaved={registry.replaceAssignment} />
-      )}
-      {view === 'alerts' && <AlertsView />}
-      {view === 'events' && <EventHistoryView />}
     </div>
   );
 }

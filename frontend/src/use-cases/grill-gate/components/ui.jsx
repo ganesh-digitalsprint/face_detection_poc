@@ -42,7 +42,7 @@ export function StatCard({ label, value, valueClass = 'text-slate-500', sub, bad
   return (
     <div className="rounded-xl border border-[#E3E7F0] bg-white p-4">
       <p className="text-xs text-[#55607A]">{label}</p>
-      <p className={`mt-1 text-[28px] font-bold leading-tight ${valueClass}`}>{value}</p>
+      <p className={`mt-1 text-[24px] font-bold leading-tight ${valueClass}`}>{value}</p>
       {badge && <div className="mt-1">{badge}</div>}
       {sub && <p className="mt-1 text-xs leading-5 text-[#55607A]">{sub}</p>}
     </div>

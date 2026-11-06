@@ -13,7 +13,7 @@ export function createVideoJobPoller({
   jobId, api, onUpdate, intervalMs = 2000, isVisible = () => true, now = () => Date.now(),
   setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (id) => clearTimeout(id),
 }) {
-  const state = { jobId, job: null, events: [], alerts: [], alertsAvailable: true, fps: null, loading: true, error: '', notFound: false };
+  const state = { jobId, job: null, events: [], transitions: [], alerts: [], alertsAvailable: true, fps: null, loading: true, error: '', notFound: false };
   let stopped = false;
   let inFlight = false;
   let pending = false;
@@ -30,6 +30,7 @@ export function createVideoJobPoller({
       const page = await api.getResults(jobId, { limit: PAGE_SIZE, offset }, signal);
       if (stopped) return;
       state.events = mergeEvents(state.events, page.items);
+      state.transitions = page.transitions ?? [];
       state.alerts = page.alerts ?? [];
       state.alertsAvailable = page.alerts_available !== false;
       if ((page.items?.length ?? 0) < PAGE_SIZE) return;

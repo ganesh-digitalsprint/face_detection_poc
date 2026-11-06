@@ -1,3 +1,4 @@
+/* Unused: replaced by the three-section Grill Gate page. Kept on disk, no longer linked. */
 import { Plug, PlugZap, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { connectionView, formatSeconds, workerForAssignment, workerIsActive } from '../grillGateModel.js';

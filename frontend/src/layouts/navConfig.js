@@ -54,12 +54,9 @@ export const NAV_SECTIONS = [
       {
         id: 'gate-mesh', label: 'Gate & Mesh', icon: DoorClosed,
         children: [
-          { id: 'gate-mesh-overview', label: 'Overview', to: '/grill-gate', end: true, searchParam: ['view', null] },
-          { id: 'gate-mesh-camera', label: 'Camera', to: '/grill-gate?view=camera', searchParam: ['view', 'camera'] },
-          { id: 'gate-mesh-zones', label: 'Regions & Zones', to: '/grill-gate?view=zones', searchParam: ['view', 'zones'] },
-          { id: 'gate-mesh-calibration', label: 'Calibration', to: '/grill-gate?view=calibration', searchParam: ['view', 'calibration'] },
-          { id: 'gate-mesh-alerts', label: 'Alerts', to: '/grill-gate?view=alerts', searchParam: ['view', 'alerts'] },
-          { id: 'gate-mesh-events', label: 'Event History', to: '/grill-gate?view=events', searchParam: ['view', 'events'] },
+          { id: 'gate-mesh-live', label: 'Live Camera', to: '/grill-gate', end: true, searchParam: ['view', null] },
+          { id: 'gate-mesh-video', label: 'Uploaded Video Processing', to: '/grill-gate?view=video', searchParam: ['view', 'video'] },
+          { id: 'gate-mesh-zones', label: 'Zones & Regions', to: '/grill-gate?view=zones', searchParam: ['view', 'zones'] },
         ],
       },
       { id: 'face-concealment', label: 'Face Concealment', icon: EyeOff, soon: true },

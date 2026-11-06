@@ -1,3 +1,4 @@
+/* Unused: replaced by the three-section Grill Gate page. Kept on disk, no longer linked. */
 import { useEffect, useState } from 'react';
 import { Ban, CheckCircle2, Play, RefreshCw, Upload, Video } from 'lucide-react';
 import { describeError } from '../../../utils/errors.js';

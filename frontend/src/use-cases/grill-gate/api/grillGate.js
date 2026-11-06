@@ -26,7 +26,7 @@ export const uploadGrillGateVideo = (file, configurationOrAssignmentId, { onProg
   body.append('video', file, file.name);
   if (typeof configurationOrAssignmentId === 'string') {
     body.append('template_assignment_id', configurationOrAssignmentId);
-  } else {
+  } else if (configurationOrAssignmentId) {
     body.append('configuration', JSON.stringify(configurationOrAssignmentId));
   }
   return client.post(`${root}/videos`, body, {
@@ -44,6 +44,48 @@ export const listGrillGateVideoJobs = (params = { limit: 25 }) =>
 /** Events for this job only, plus alerts matched server-side on resource_refs.video_job_id. */
 export const getGrillGateVideoResults = (jobId, params, signal) =>
   client.get(`${root}/videos/${encodeURIComponent(jobId)}/results`, { params, headers, signal, timeout: 30000 }).then((r) => r.data);
+export const deleteGrillGateVideoJob = (jobId) =>
+  client.delete(`${root}/videos/${encodeURIComponent(jobId)}`, { headers, timeout: 15000 }).then((r) => r.data);
+export const getVideoJobConfig = (jobId) =>
+  client.get(`${root}/videos/${encodeURIComponent(jobId)}/config`, { headers, timeout: 10000 }).then((r) => r.data);
+export const putVideoJobConfig = (jobId, config) =>
+  client.put(`${root}/videos/${encodeURIComponent(jobId)}/config`, config, { headers, timeout: 15000 }).then((r) => r.data);
+export const copyVideoJobConfig = (jobId, source) =>
+  client.post(`${root}/videos/${encodeURIComponent(jobId)}/config/copy`, source, { headers, timeout: 15000 }).then((r) => r.data);
+export const measureVideoJobEndpoints = (jobId, closedT, openT) =>
+  client.post(`${root}/videos/${encodeURIComponent(jobId)}/measure-endpoints`, { closed_t: closedT, open_t: openT }, { headers, timeout: 60000 }).then((r) => r.data);
+
+/** JPEGs go through this authenticated client as blobs; the operator key never appears in a URL. */
+const getJpeg = (path, params, signal) =>
+  client.get(`${root}${path}`, { params, headers, signal, responseType: 'blob', timeout: 30000 }).then((r) => r.data);
+export const getVideoJobFrame = (jobId, t, signal) => getJpeg(`/videos/${encodeURIComponent(jobId)}/frame`, { t }, signal);
+export const getVideoJobPreview = (jobId, signal) => getJpeg(`/videos/${encodeURIComponent(jobId)}/preview`, undefined, signal);
+export const getLivePreview = (assignmentId, signal) => getJpeg(`/assignments/${encodeURIComponent(assignmentId)}/preview`, undefined, signal);
+
+/** Live-camera monitoring reads, scoped to one assignment. */
+const assignmentGet = (assignmentId, path, params, signal) =>
+  client.get(`${root}/assignments/${encodeURIComponent(assignmentId)}/${path}`, { params, headers, signal, timeout: 10000 }).then((r) => r.data);
+export const getLiveGateState = (assignmentId, signal) => assignmentGet(assignmentId, 'gate-state', undefined, signal);
+export const getLiveCrossings = (assignmentId, params, signal) => assignmentGet(assignmentId, 'crossings', params, signal);
+export const getLiveMeshStatus = (assignmentId, signal) => assignmentGet(assignmentId, 'mesh-status', undefined, signal);
+export const getLiveMeshEvents = (assignmentId, params, signal) => assignmentGet(assignmentId, 'mesh-events', params, signal);
+export const getLiveActiveAlerts = (assignmentId, params, signal) => assignmentGet(assignmentId, 'alerts/active', params, signal);
+
+/** Alert lifecycle for live and uploaded-video alerts alike; a resolve needs a note. */
+export const acknowledgeGrillGateAlert = (alertId, expectedVersion) =>
+  client.post(`${root}/alerts/${encodeURIComponent(alertId)}/acknowledge`, { expected_version: expectedVersion }, { headers, timeout: 15000 }).then((r) => r.data);
+export const resolveGrillGateAlert = (alertId, expectedVersion, note) =>
+  client.post(`${root}/alerts/${encodeURIComponent(alertId)}/resolve`, { expected_version: expectedVersion, note }, { headers, timeout: 15000 }).then((r) => r.data);
+
+/** Common registry writes behind the Camera & source form (backend routes/regions.py). */
+export const listAllRegistryLocations = () => regionsRegistryApi.get('/locations');
+export const createRegistryCamera = (camera) => regionsRegistryApi.post('/cameras', camera);
+export const createCameraSource = (source) => regionsRegistryApi.post('/sources', source);
+export const updateCameraSource = (sourceId, source) => regionsRegistryApi.patch(`/sources/${encodeURIComponent(sourceId)}`, source);
+export const createGrillGateAssignment = (cameraId, sourceId) =>
+  regionsRegistryApi.post('/assignments', { camera_id: cameraId, use_case: USE_CASE, configuration: { source_id: sourceId } });
+export const updateAssignmentConfiguration = (assignmentId, configuration) =>
+  regionsRegistryApi.patch(`/assignments/${encodeURIComponent(assignmentId)}`, { configuration });
 
 /** Common registry reads scoped to Grill Gate (backend routes/regions.py). */
 export const listGrillGateLocations = () => regionsRegistryApi.get(`/locations?use_case=${USE_CASE}`);

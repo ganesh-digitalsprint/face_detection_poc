@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createVideoJobPoller } from './videoJobPoller.js';
 import {
-  formatVideoTime, jobCanCancel, jobCanStart, jobIsActive, jobProgressPercent, mergeEvents, processingFps,
+  formatVideoTime, jobCanCancel, jobPillLabel, jobCanStart, jobIsActive, jobProgressPercent, mergeEvents, processingFps,
   templateBlocker, validateVideoFile, videoMonitoring, localVideoConfiguration, videoUploadConfiguration,
 } from './videoJobModel.js';
 
@@ -208,6 +208,34 @@ test('progress is only reported when the backend supports it', () => {
   assert.equal(processingFps(job('PROCESSING', { frame_count: 100 }), { frames: 50, at: 0 }, 2000), 25);
   assert.equal(processingFps(job('PROCESSING', { frame_count: 50 }), null, 2000), null);
   assert.equal(processingFps(job('COMPLETED', { frame_count: 100, started_at: '2026-11-06T05:00:00Z', completed_at: '2026-11-06T05:00:10Z' })), 10);
+});
+
+test('the timeline merges gate transitions with events, leaves out the end of the file and shows real values', () => {
+  const view = videoMonitoring({
+    job: job('PROCESSING', { progress: 0.42, monitoring: { state: 'OPENING', progress: 0.62, confidence: 0.91, gate_open_seconds: 3, mesh: { occupancy_count: 4 } } }),
+    events: [crossing('a', 7.4)],
+    transitions: [
+      { sequence_number: 66, to_state: 'OPENING', video_time_seconds: 2.2 },
+      { sequence_number: 153, to_state: 'OPEN', video_time_seconds: 5.1 },
+      { sequence_number: 300, to_state: 'UNKNOWN', video_time_seconds: 10, reason: 'video ended' },
+    ],
+  });
+  assert.deepEqual(view.events.map((row) => [row.timeLabel, row.title]), [
+    ['00:07.4', 'Entry crossing · track #4'], ['00:05.1', 'Gate opened'], ['00:02.2', 'Gate opening started'],
+  ]);
+  assert.deepEqual([view.gateState, view.gateProgress, view.gateConfidence, view.gateOpenSeconds, view.meshPeopleCount], ['OPENING', 0.62, 0.91, 3, 4]);
+  assert.equal(jobPillLabel(job('PROCESSING', { progress: 0.42 })), 'PROCESSING 42%');
+  assert.equal(jobPillLabel(null), 'NONE');
+});
+
+test('alert buttons follow the statuses the Alert Service allows', () => {
+  const view = videoMonitoring({ job: job('COMPLETED'), alerts: [
+    { id: 'o', status: 'OPEN', row_version: 3, allowed_actions: ['ACKNOWLEDGED', 'DISMISSED', 'RESOLVED'] },
+    { id: 'a', status: 'ACKNOWLEDGED', row_version: 4, allowed_actions: ['DISMISSED', 'RESOLVED'] },
+  ] });
+  assert.deepEqual(view.alerts.map((alert) => [alert.id, alert.version, alert.actions]), [
+    ['o', 3, ['acknowledge', 'resolve']], ['a', 4, ['resolve']],
+  ]);
 });
 
 test('event helpers', () => {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  calibrationStatus, calibrationToForm, connectionView, EMPTY_MONITORING, formatClock, formLine, formToCalibration, mergeAssignmentConfiguration,
+  CALIBRATION_STARTING_VALUES, calibrationFormIsBlank, calibrationFromForm, calibrationStatus, calibrationToForm, connectionView, EMPTY_MONITORING, formatClock, formLine, formToCalibration, mergeAssignmentConfiguration,
   previewState, workerForAssignment, workerIsActive, workerPollDelay, zoneCoverage,
 } from './grillGateModel.js';
 
@@ -28,6 +28,17 @@ test('changing the assignment source keeps its alert rules', () => {
   assert.deepEqual(mergeAssignmentConfiguration({ source_id: 'old', grill_gate_alerts: rules }, { source_id: 'new' }),
     { source_id: 'new', grill_gate_alerts: rules });
   assert.deepEqual(mergeAssignmentConfiguration(null, { source_id: 'new' }), { source_id: 'new' });
+});
+
+test('calibration form: blank stays unsaved, starting values are explicit, reference positions stay fixed', () => {
+  const blank = calibrationToForm(null, { width: 640, height: 360 });
+  assert.ok(calibrationFormIsBlank(blank));
+  assert.equal(calibrationFromForm(blank, { width: 640, height: 360 }), null);
+  const document = calibrationFromForm({ ...blank, ...CALIBRATION_STARTING_VALUES }, { width: 640, height: 360 });
+  assert.deepEqual(document.reference_frame, { width: 640, height: 360 });
+  assert.equal(document.sliding_gate.position_thresholds.closed_tolerance, 0.1);
+  assert.deepEqual(document.sliding_gate.state_confirmation_durations, { closed_seconds: 0.5, opening_seconds: 0.3, open_seconds: 0.5, partially_open_seconds: 1, closing_seconds: 0.3 });
+  assert.deepEqual([document.sliding_gate.closed_reference_position, document.sliding_gate.open_reference_position], [0, 1]);
 });
 
 test('workers are matched by assignment, not just camera', () => {

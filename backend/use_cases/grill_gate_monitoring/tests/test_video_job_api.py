@@ -351,6 +351,21 @@ def test_preview_needs_the_operator_key(harness, real_video):
     assert harness.client.get(f"{BASE}/{real_video}/preview").status_code == 401
 
 
+def test_live_preview_returns_only_this_assignments_fresh_frame(harness, monkeypatch):
+    assignment, camera = str(uuid4()), str(uuid4())
+    monkeypatch.setattr(grill_gate.registry, "grill_gate_assignment_camera", lambda *_a, **_k: (assignment, camera))
+    latest = {"value": None}
+    monkeypatch.setattr(grill_gate, "get_grill_gate_camera_worker_manager", lambda: SimpleNamespace(latest=lambda _camera: latest["value"]))
+    url = f"/api/v1/grill-gate/assignments/{assignment}/preview"
+    assert harness.client.get(url, headers=HEADERS).status_code == 409
+    latest["value"] = SimpleNamespace(assignment_id="another", frame=door_frame(False))
+    assert harness.client.get(url, headers=HEADERS).status_code == 409
+    latest["value"] = SimpleNamespace(assignment_id=assignment, frame=door_frame(False))
+    response = harness.client.get(url, headers=HEADERS, params={"max_width": 320})
+    assert response.status_code == 200 and response.headers["content-type"] == "image/jpeg"
+    assert harness.client.get(url).status_code == 401
+
+
 def test_measure_endpoints_found_and_not_persisted(harness, real_video):
     harness.client.put(f"{BASE}/{real_video}/config", headers=HEADERS, json=config())
     before = harness.client.get(f"{BASE}/{real_video}/config", headers=HEADERS).json()

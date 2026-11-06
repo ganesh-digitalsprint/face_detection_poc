@@ -1,3 +1,4 @@
+/* Unused: replaced by the three-section Grill Gate page. Kept on disk, no longer linked. */
 import { Camera, Plug, PlugZap, Upload } from 'lucide-react';
 import { previewState, workerIsActive } from '../grillGateModel.js';
 import CameraStage from './CameraStage.jsx';

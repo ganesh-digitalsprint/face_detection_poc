@@ -1,3 +1,4 @@
+/* Unused: replaced by the three-section Grill Gate page. Kept on disk, no longer linked. */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CircleHelp, Eye, EyeOff, Maximize, Pause, Pencil, Play, Plus, RotateCcw, Save, Trash2, Undo2, Upload, Video, X } from 'lucide-react';
 import {

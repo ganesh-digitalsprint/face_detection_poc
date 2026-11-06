@@ -147,6 +147,25 @@ export function calibrationStatus(calibration, { worker = null, zones = [] } = {
 /** PATCH /assignments replaces `configuration`, so changing one key must carry the rest (e.g. grill_gate_alerts). */
 export const mergeAssignmentConfiguration = (current, changes) => ({ ...(current ?? {}), ...changes });
 
+/** Reference positions are progress-space endpoints for the geometry detector, not operator settings. */
+const FIXED_GATE_REFERENCE = { closed_reference_position: '0', open_reference_position: '1', horizontal_movement_direction: 'left_to_right' };
+
+/** Values the operator chooses to start from with the visible button; they stay editable and unsaved until Save. */
+export const CALIBRATION_STARTING_VALUES = {
+  closed_tolerance: '0.1', open_tolerance: '0.1', confidence_threshold: '0.5', hysteresis_fraction: '0.05',
+  closed_seconds: '0.5', opening_seconds: '0.3', open_seconds: '0.5', partially_open_seconds: '1', closing_seconds: '0.3',
+  dead_band_fraction: '0.05', minimum_crossing_displacement: '0.02',
+};
+
+const FORM_META_KEYS = new Set(['width', 'height', 'thresholds_status']);
+export const calibrationFormIsBlank = (form) => Object.entries(form).every(([key, value]) => FORM_META_KEYS.has(key) || !String(value ?? '').trim());
+
+/** The calibration document for a source's own frame; nothing is rescaled, and blank forms stay unsaved. */
+export function calibrationFromForm(form, frame) {
+  if (calibrationFormIsBlank(form)) return null;
+  return formToCalibration({ ...form, ...FIXED_GATE_REFERENCE, width: frame?.width ?? form.width, height: frame?.height ?? form.height });
+}
+
 /** Group configured zones under every backend zone type, keeping unknown types visible. */
 export function zoneCoverage(zoneTypes, zones) {
   const list = Array.isArray(zones) ? zones : [];

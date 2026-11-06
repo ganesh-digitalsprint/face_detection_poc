@@ -59,6 +59,8 @@ Endpoints:
   endpoint fractions without saving them.
 - `GET /api/v1/grill-gate/videos/{job_id}/preview?t=&max_width=` — JPEG from the processed part of the
   video only; the newest processed frame when `t` is omitted (`409` before any frame is processed).
+- `GET /api/v1/grill-gate/assignments/{assignment_id}/preview` — the live camera's latest fresh frame as a JPEG
+  (`409` when there is none).
 - `DELETE /api/v1/grill-gate/videos/{job_id}` — remove a job that is not running, with its events and video.
 - `GET /api/v1/grill-gate/videos` — list jobs (`status`, `limit`, `offset`).
 - `GET /api/v1/grill-gate/videos/{job_id}` — status and progress.

@@ -8,7 +8,7 @@ const api = {
   getResults: getGrillGateVideoResults,
   describeError: (error) => describeError(error).message,
 };
-const idle = (jobId) => ({ jobId, job: null, events: [], alerts: [], alertsAvailable: true, fps: null, loading: Boolean(jobId), error: '', notFound: false });
+const idle = (jobId) => ({ jobId, job: null, events: [], transitions: [], alerts: [], alertsAvailable: true, fps: null, loading: Boolean(jobId), error: '', notFound: false });
 
 /** Results of one selected video job. A null id stops polling and clears the data, so nothing leaks to Live Camera. */
 export function useVideoJob(jobId) {
