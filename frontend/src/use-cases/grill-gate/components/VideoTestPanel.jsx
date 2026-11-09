@@ -4,7 +4,7 @@ import { Check, CircleHelp, Eye, EyeOff, Maximize, Pause, Pencil, Play, Plus, Ro
 import {
   createAssignmentZone, deleteAssignmentZone, saveAssignmentCalibration, updateAssignmentZone,
 } from '../api/grillGate.js';
-import { polygonPoints, zoneColor } from '../grillGateModel.js';
+import { polygonPoints, zoneColor, zoneTypesForStrategy } from '../grillGateModel.js';
 import { btnGhost, btnPrimary, Card, ErrorNote, Pill } from './ui.jsx';
 
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -43,7 +43,7 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [draftZones, setDraftZones] = useState(() => zones.map(normalizeZone));
+  const [draftZones, setDraftZones] = useState(() => zones.filter((zone) => !['gate_trigger', 'gate_crossing'].includes(zone.zone_type)).map(normalizeZone));
   const [localSavedZones, setLocalSavedZones] = useState(null);
   const [drawing, setDrawing] = useState(null);
   const [editId, setEditId] = useState(null);
@@ -66,6 +66,7 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
   const zonesChanged = !equal(draftZones, localSavedZones ?? zones.map(normalizeZone));
   const dirty = zonesChanged || lineChanged;
   const editedZone = draftZones.find((zone) => zone.id === editId);
+  const activeZoneTypes = zoneTypesForStrategy(zoneTypes);
 
   useEffect(() => {
     if (!dirty && !saving) setDraftZones(zones.map(normalizeZone));
@@ -359,7 +360,7 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
               <div><p className="text-sm font-semibold text-[#0F1B3D]">Draw zones on this video</p><p className="text-xs text-[#55607A]">Coordinates use the {frame?.width ?? '—'} × {frame?.height ?? '—'} raw frame. The aspect ratio is preserved.</p></div>
               <div className="flex flex-wrap gap-2">
                 <select aria-label="Zone type" value={draftType} onChange={(event) => setDraftType(event.target.value)} className="rounded-md border border-[#D0D7E6] bg-white px-2 py-1.5 text-xs text-[#34479B]">
-                  {zoneTypes.map((type) => <option key={type.key} value={type.key}>{type.label}</option>)}
+                  {activeZoneTypes.map((type) => <option key={type.key} value={type.key}>{type.label}</option>)}
                 </select>
                 <button type="button" className={btnGhost} disabled={!frame} onClick={startPolygon}><Plus size={13} aria-hidden /> Draw polygon</button>
                 <button type="button" className={btnGhost} disabled={!frame} onClick={startLine}><CircleHelp size={13} aria-hidden /> Draw ENTRY/EXIT line</button>
@@ -374,7 +375,7 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
               <button type="button" className={btnGhost} onClick={() => setDrawing(null)}>Cancel</button>
             </div>}
             {drawing === 'line' && <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md bg-[#EEF1FA] p-2 text-xs text-[#34479B]">
-              Click two points for the directional line. This dashed line is separate from the gate_crossing polygon.
+              Click two points for the directional ENTRY/EXIT reference line.
               <button type="button" className={btnGhost} onClick={() => { setDrawing(null); setLineDraft(savedLine); }}>Cancel line</button>
             </div>}
             {editedZone && <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md bg-[#F4F6FB] p-2">
@@ -395,7 +396,7 @@ function ZoneEditor({ item, zones, zoneTypes, reloadZones, onCalibrationSaved, f
               {!draftZones.length && <li className="py-3 text-sm text-[#69758F]">No zones configured for this assignment.</li>}
             </ul>
 
-            {line && <p className="mt-2 text-xs text-[#55607A]">Directional ENTRY/EXIT line is shown dashed. It is a calibration reference, not the gate_crossing polygon.</p>}
+            {line && <p className="mt-2 text-xs text-[#55607A]">Directional ENTRY/EXIT line is shown dashed as a calibration reference.</p>}
             {error && <div className="mt-3"><ErrorNote>{error}</ErrorNote></div>}
             {notice && <p role="status" className="mt-3 rounded-lg bg-[#EEF1FA] p-2 text-xs text-[#34479B]">{notice}</p>}
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#E3E7F0] pt-3">

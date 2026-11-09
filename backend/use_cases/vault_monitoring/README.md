@@ -54,6 +54,16 @@ Startup runs `init_db` (creates the target PostgreSQL database and missing table
 
 Optional and one-way. When `ALERT_SERVICE_BASE_URL` and `ALERT_SERVICE_TOKEN` (the Alert Service producer token for `vault_monitoring`) are set, new Vault alerts are published to `POST /api/v1/alerts` through a durable outbox kept in Vault's audit table, with `Idempotency-Key: vault-alert:<alert id>`. Vault keeps owning alerts, incidents, evidence and its SSE stream, and starts normally if the Alert Service is down.
 
+### Grill Gate alert delivery
+
+Grill Gate uses the same Alert Service Contract v1. Configure the following in the Alert Service environment and Vault Monitoring's `backend/use_cases/vault_monitoring/.env`; do not put credentials in the frontend:
+
+- In the Alert Service's `ALERT_PRODUCER_CREDENTIALS`, map a generated producer token to `{"use_case":"grill_gate","producer":"grill-gate-monitoring"}`.
+- In `ALERT_OPERATOR_CREDENTIALS`, map a separate operator token to an `actor_id` and `"use_cases":["grill_gate"]`.
+- In Vault Monitoring, set `ALERT_SERVICE_BASE_URL` to the Alert Service base URL (for the local launcher, `http://127.0.0.1:8012`), `ALERT_SERVICE_TOKEN` to the producer token above, and `ALERT_SERVICE_OPERATOR_TOKEN` to the scoped operator token above.
+
+The Alert Service credential maps are JSON objects keyed by the actual secret tokens. Keep real tokens in the local environment or secret manager only. The launcher checks for a Grill Gate producer identity, a Grill Gate operator scope, and the three backend values without printing secrets. Transient publish failures use the durable Grill Gate outbox and repeat the same idempotency key; non-retryable authentication/configuration rejections are saved under the outbox's `failed` directory for operator review. The Active Alerts API distinguishes missing local configuration, transport/service outage, operator authentication failure, and missing Grill Gate scope in its backend diagnostics and response status.
+
 ## Tests
 
 ```powershell

@@ -22,6 +22,7 @@ from app.services.vault_zone_provider import active_vault_assignment
 from app.services.registry_config import annotate_zone_type, load_zone_types
 from grill_gate_monitoring.schemas.calibration import validate_grill_gate_calibration
 from grill_gate_monitoring.schemas.geometry import validate_gate_geometry_tuning
+from grill_gate_monitoring.schemas.alerts import GrillGateAlertConfig
 
 logger = logging.getLogger(__name__)
 
@@ -381,6 +382,18 @@ def update_assignment(db: Session, assignment_id: str, data, actor_id: str):
         existing_rules = (row.configuration or {}).get("grill_gate_alerts")
         if row.use_case == "grill_gate" and existing_rules is not None:
             payload["configuration"].setdefault("grill_gate_alerts", existing_rules)
+        supplied_rules = payload["configuration"].get("grill_gate_alerts")
+        if row.use_case == "grill_gate" and supplied_rules is not None:
+            try:
+                payload["configuration"]["grill_gate_alerts"] = GrillGateAlertConfig.model_validate(
+                    supplied_rules
+                ).model_dump(mode="json")
+            except ValidationError as exc:
+                issues = "; ".join(
+                    f"{'.'.join(str(part) for part in issue['loc'])}: {issue['msg']}"
+                    for issue in exc.errors(include_url=False)
+                )
+                raise RegistryError(422, f"Invalid Grill Gate alert configuration: {issues}") from exc
     if "calibration" in payload and row.use_case == "grill_gate":
         try:
             payload["calibration"] = validate_grill_gate_calibration(payload["calibration"])

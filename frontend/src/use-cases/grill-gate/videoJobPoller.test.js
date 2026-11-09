@@ -48,6 +48,23 @@ test('a saved job is read once and does not poll until processing starts', async
   assert.equal(timers.length, 0);
 });
 
+test('poller reads the job configuration when status omits its threshold', async () => {
+  let received;
+  const poller = createVideoJobPoller({
+    jobId: 'job-1',
+    api: {
+      getJob: async () => job('UPLOADED'),
+      getConfig: async () => ({ alert_configuration: { max_gate_open_seconds: 3 } }),
+      getResults: async () => ({ items: [], transitions: [], alerts: [] }),
+      describeError: String,
+    },
+    onUpdate: (state) => { received = state.job; },
+  });
+  await poller.start();
+  poller.stop();
+  assert.equal(received.alert_configuration.max_gate_open_seconds, 3);
+});
+
 test('polling runs while active, then stops after a terminal status', async () => {
   const { poller, timers, updates, calls } = harness([job('PROCESSING'), job('PROCESSING', { frame_count: 50 }), job('COMPLETED', { frame_count: 90 })]);
   await poller.start();
@@ -161,6 +178,26 @@ test('a video can be uploaded and processed without a camera assignment using it
   assert.equal(videoUploadConfiguration(null, [], file, {}).blocker.includes('no camera assignment'), true);
 });
 
+test('a video with required zones does not need a directional line or measured endpoints', () => {
+  const file = { name: 'gate-no-line.mp4', size: 12, lastModified: 35 };
+  const key = `grill-gate-video-zones:${encodeURIComponent(file.name)}:${file.size}:${file.lastModified}:1920x1080`;
+  const saved = {
+    frame: { width: 1920, height: 1080 },
+    zones: [{ id: 'gate_leaf_roi', zone_key: 'gate_leaf_roi', zone_type: 'gate_leaf_roi', enabled: true,
+      polygon: [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }] },
+    { id: 'gate_approach', zone_key: 'gate_approach', zone_type: 'gate_approach', enabled: true,
+      polygon: [{ x: 0.1, y: 0.1 }, { x: 0.2, y: 0.1 }, { x: 0.2, y: 0.2 }, { x: 0.1, y: 0.2 }] },
+    { id: 'gate_interior', zone_key: 'gate_interior', zone_type: 'gate_interior', enabled: true,
+      polygon: [{ x: 0.3, y: 0.3 }, { x: 0.4, y: 0.3 }, { x: 0.4, y: 0.4 }, { x: 0.3, y: 0.4 }] }],
+  };
+  const values = new Map([[key, JSON.stringify(saved)]]);
+  const storage = { length: values.size, key: (index) => [...values.keys()][index], getItem: (name) => values.get(name) };
+  const config = localVideoConfiguration(file, storage);
+  assert.equal(config.calibration.directional_crossing, undefined);
+  assert.equal(config.zones.length, 3);
+  assert.equal(videoUploadConfiguration(null, [], file, storage).source, 'video');
+});
+
 test('video snapshot reports backend values and leaves unreported ones null', () => {
   const view = videoMonitoring({
     job: job('PROCESSING', { progress_seconds: 30 }),
@@ -175,8 +212,9 @@ test('video snapshot reports backend values and leaves unreported ones null', ()
   assert.equal(view.gateState, 'PARTIALLY_OPEN');
   assert.equal(view.gateStateTimeLabel, '00:20.0');
   assert.equal(view.gateOpenSeconds, null);
+  assert.equal(view.openWithoutCrossingSeconds, null);
   assert.equal(view.meshGatheringSeconds, null);
-  assert.equal(view.secondsSinceCrossing, 10);
+  assert.equal(view.secondsSinceCrossing, null, 'crossing age comes only from the authoritative timer snapshot');
   assert.deepEqual([view.entryCount, view.exitCount], [1, 1]);
   assert.equal(view.crossings[0].direction, 'EXIT', 'newest first');
   assert.equal(view.crossings[0].timeLabel, '00:20.0');
@@ -184,6 +222,53 @@ test('video snapshot reports backend values and leaves unreported ones null', ()
   assert.equal(view.activeAlertCount, 1);
   assert.equal(view.alerts[0].id, 'o', 'active alerts come first');
   assert.equal(view.alerts[0].timeLabel, '00:12.5');
+});
+
+test('video open-without-crossing display consumes backend timer and contract state', () => {
+  const open = videoMonitoring({ job: job('PROCESSING', {
+    monitoring: { state: 'OPEN', open_without_crossing_seconds: 2.75 },
+  }) });
+  assert.equal(open.openWithoutCrossingSeconds, 2.75);
+  const unknown = videoMonitoring({ job: job('PROCESSING', {
+    monitoring: { state: 'UNKNOWN', open_without_crossing_seconds: 9 },
+  }) });
+  assert.equal(unknown.openWithoutCrossingSeconds, 9);
+});
+
+test('video monitoring distinguishes configured, unset, unavailable and final timer data', () => {
+  const configured = videoMonitoring({ job: job('PROCESSING', { monitoring: {
+    state: 'OPEN', gate_open_seconds: 2, open_without_crossing_seconds: 2,
+    open_without_crossing_threshold_seconds: 3, threshold_configured: true,
+    progress_percent: 66.67, timer_state: 'COUNTING', source_timestamp: '2026-11-06T05:00:02Z',
+  } }) });
+  assert.equal(configured.timerState, 'COUNTING');
+  assert.equal(configured.timerProgressPercent, 66.67);
+  assert.equal(configured.thresholdConfigured, true);
+  const unset = videoMonitoring({ job: job('PROCESSING', { monitoring: {
+    state: 'OPEN', open_without_crossing_seconds: 2, threshold_configured: false, timer_state: 'COUNTING',
+  } }) });
+  assert.equal(unset.thresholdConfigured, false);
+  const missing = videoMonitoring({ job: job('PROCESSING', { monitoring: { state: 'OPEN' } }) });
+  assert.equal(missing.timerState, 'TIMER_UNAVAILABLE');
+  assert.notEqual(missing.timerState, 'NOT_COUNTING');
+  const old = videoMonitoring({ job: job('COMPLETED') });
+  assert.equal(old.finalTimer, true);
+  assert.equal(old.timerRecorded, false);
+  const finalClosed = videoMonitoring({ job: job('COMPLETED', { monitoring: {
+    state: 'CLOSED', open_without_crossing_seconds: null, threshold_configured: false,
+    timer_state: 'NOT_COUNTING', source_timestamp: '2026-11-06T05:00:02Z',
+  } }) });
+  assert.equal(finalClosed.timerRecorded, true, 'a recorded inactive timer may legitimately have a null elapsed value');
+});
+
+test('video monitoring uses the saved job threshold if an older status response omits it', () => {
+  const view = videoMonitoring({ job: job('COMPLETED', {
+    alert_configuration: { max_gate_open_seconds: 3 },
+    monitoring: { state: 'OPEN' },
+  }) });
+  assert.equal(view.openWithoutCrossingThresholdSeconds, 3);
+  assert.equal(view.thresholdConfigured, true);
+  assert.equal(view.timerRecorded, false);
 });
 
 test('the crossing total counts every event even though the list is capped', () => {
@@ -200,6 +285,11 @@ test('an empty job shows no invented gate state or crossing timer', () => {
   assert.equal(view.secondsSinceCrossing, null);
   assert.equal(view.meshPeopleCount, 0);
   assert.deepEqual(view.crossings, []);
+});
+
+test('crossing panel explains when a saved job is missing crossing zones', () => {
+  const view = videoMonitoring({ job: job('COMPLETED', { readiness: { crossing_zones_defined: false } }) });
+  assert.equal(view.crossingConfigStatus, 'missing_required_zones');
 });
 
 test('progress is only reported when the backend supports it', () => {
@@ -228,14 +318,20 @@ test('the timeline merges gate transitions with events, leaves out the end of th
   assert.equal(jobPillLabel(null), 'NONE');
 });
 
-test('alert buttons follow the statuses the Alert Service allows', () => {
+test('alert buttons follow locally stored Grill Gate statuses and retain evidence details', () => {
   const view = videoMonitoring({ job: job('COMPLETED'), alerts: [
-    { id: 'o', status: 'OPEN', row_version: 3, allowed_actions: ['ACKNOWLEDGED', 'DISMISSED', 'RESOLVED'] },
-    { id: 'a', status: 'ACKNOWLEDGED', row_version: 4, allowed_actions: ['DISMISSED', 'RESOLVED'] },
+    { id: 'o', status: 'OPEN', row_version: 3, allowed_actions: ['ACKNOWLEDGED', 'RESOLVED'],
+      triggered_at: '2026-11-09T10:00:00Z', gate_open_duration_seconds: 12,
+      configured_threshold_seconds: 10, evidence_refs: [{ type: 'snapshot', id: 'snap-1' }] },
+    { id: 'a', status: 'ACKNOWLEDGED', row_version: 4, allowed_actions: ['RESOLVED'] },
   ] });
   assert.deepEqual(view.alerts.map((alert) => [alert.id, alert.version, alert.actions]), [
     ['o', 3, ['acknowledge', 'resolve']], ['a', 4, ['resolve']],
   ]);
+  assert.equal(view.alerts[0].gateOpenDurationSeconds, 12);
+  assert.equal(view.alerts[0].configuredThresholdSeconds, 10);
+  assert.deepEqual(view.alerts[0].evidenceRefs, [{ type: 'snapshot', id: 'snap-1' }]);
+  assert.match(view.alerts[0].timeLabel, /2026/);
 });
 
 test('event helpers', () => {

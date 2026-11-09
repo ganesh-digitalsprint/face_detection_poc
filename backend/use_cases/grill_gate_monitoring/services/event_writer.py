@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Callable
 
 from grill_gate_monitoring.models.event import GrillGateEvent
+from grill_gate_monitoring.services.diagnostics import log_diagnostic
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +120,13 @@ class GrillGateEventWriter:
                 failed = False
                 try:
                     self._persist(item)
-                except Exception:
+                except Exception as exc:
                     failed = True
+                    log_diagnostic(logger, "event_persistence_failed", level=logging.ERROR,
+                                   event_type=item.get("event_type"), track_id=item.get("track_id"),
+                                   video_job_id=item.get("video_job_id"),
+                                   video_timestamp=item.get("video_time_seconds"), attempt=1, retries=0,
+                                   exception_type=type(exc).__name__)
                     logger.exception("Grill Gate event persistence failed; event_type=%s",
                                      item.get("event_type"))
                 if job_id:
@@ -129,6 +135,7 @@ class GrillGateEventWriter:
                 self._queue.task_done()
 
     def _persist(self, event: dict) -> None:
+        row = None
         with self._session_factory() as db:
             row = GrillGateEvent(
                 camera_id=(str(event["camera_id"]) if event.get("source_type") != "UPLOADED_VIDEO" else None),
@@ -143,7 +150,20 @@ class GrillGateEventWriter:
                 occurred_at=_as_datetime(event["occurred_at"]), metadata_json=event.get("metadata") or {},
             )
             db.add(row)
-            db.commit()
+            try:
+                db.commit()
+            except Exception as exc:
+                log_diagnostic(logger, "event_persistence_failed", level=logging.ERROR,
+                               event_type=event.get("event_type"), event_id=getattr(row, "id", None),
+                               track_id=event.get("track_id"), video_job_id=event.get("video_job_id"),
+                               video_timestamp=event.get("video_time_seconds"), attempt=1, retries=0,
+                               exception_type=type(exc).__name__)
+                raise
+            log_diagnostic(logger, "event_persisted", level=logging.INFO,
+                           event_type=event.get("event_type"), event_id=row.id,
+                           track_id=event.get("track_id"), video_job_id=event.get("video_job_id"),
+                           video_timestamp=event.get("video_time_seconds"), persistence="success",
+                           attempt=1, retries=0)
 
 
 def _as_datetime(value):

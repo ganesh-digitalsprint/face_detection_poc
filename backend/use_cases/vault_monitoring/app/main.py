@@ -41,7 +41,7 @@ from app.services.cloudinary_evidence import get_evidence_capture_queue
 from app.services.grill_gate_runtime import (
     get_grill_gate_camera_worker_manager, get_grill_gate_event_writer,
     get_grill_gate_state_detector_manager, get_grill_gate_alert_publisher,
-    get_grill_gate_video_jobs,
+    get_grill_gate_video_jobs, get_grill_gate_alert_writer,
 )
 from app.api.routes import detection, employees, health, recognition, registration, streams, vault_authorization
 
@@ -82,6 +82,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     get_vault_room_manager().start()
     get_evidence_capture_queue().start()
     get_grill_gate_event_writer().start()
+    get_grill_gate_alert_writer().start()
     get_grill_gate_alert_publisher().start()
     get_grill_gate_video_jobs().recover()
     get_grill_gate_camera_worker_manager().start_accepting()
@@ -92,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     get_grill_gate_camera_worker_manager().stop_all()
     get_grill_gate_video_jobs().shutdown()
     get_grill_gate_event_writer().stop()
+    get_grill_gate_alert_writer().stop()
     get_grill_gate_alert_publisher().stop()
     get_vault_room_camera_manager().stop_all()
     get_vault_room_manager().stop()

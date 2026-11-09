@@ -1,10 +1,10 @@
 """Composition adapter connecting Grill Gate logic to shared app infrastructure."""
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 
 from app.core.config import settings
-from app.core.ml_config import get_vault_room_config
 from app.db.database import SessionLocal
 from app.db.models.camera_registry import CameraUseCaseAssignment
 from app.services.camera_registry_service import list_zones
@@ -12,13 +12,17 @@ from app.services.person_detector import RfDetrPersonDetector
 from app.services.person_tracker import PersonTracker
 from grill_gate_monitoring.services.camera_worker import GrillGateCameraWorkerManager
 from grill_gate_monitoring.schemas.processing import DEFAULT_PROCESSING_SETTINGS
+from grill_gate_monitoring.services.vision_config import get_grill_gate_vision_config
 from grill_gate_monitoring.services.event_writer import GrillGateEventWriter
 from grill_gate_monitoring.services.frame_processor import GrillGateFrameProcessor, SerializedPersonDetector
 from grill_gate_monitoring.services.alert_publisher import GrillGateAlertPublisher
+from grill_gate_monitoring.services.alert_store import GrillGateAlertSink, GrillGateAlertWriter
 from grill_gate_monitoring.schemas.alerts import GrillGateAlertConfig
 from grill_gate_monitoring.services.gate_geometry import pick_gate_leaf_zone
 from grill_gate_monitoring.services.gate_state_detector import GateDetectorConfig
 from grill_gate_monitoring.services.gate_state_detector_manager import GrillGateStateDetectorManager
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -40,10 +44,19 @@ def get_grill_gate_event_writer() -> GrillGateEventWriter:
 
 
 @lru_cache(maxsize=1)
+def get_grill_gate_alert_writer() -> GrillGateAlertWriter:
+    return GrillGateAlertWriter(SessionLocal)
+
+
+@lru_cache(maxsize=1)
+def get_grill_gate_alert_sink() -> GrillGateAlertSink:
+    return GrillGateAlertSink(get_grill_gate_alert_writer(), get_grill_gate_alert_publisher())
+
+
+@lru_cache(maxsize=1)
 def _get_person_detector() -> SerializedPersonDetector:
-    """Reuse the existing RF-DETR implementation and inference configuration."""
-    counting = get_vault_room_config().counting
-    return SerializedPersonDetector(RfDetrPersonDetector(counting))
+    """Own one serialized Grill Gate RF-DETR instance, separate from Vault Room."""
+    return SerializedPersonDetector(RfDetrPersonDetector(get_grill_gate_vision_config()))
 
 
 def _config_loader(assignment_id: str):
@@ -55,10 +68,14 @@ def _config_loader(assignment_id: str):
                 raise RuntimeError("assignment is missing or inactive")
             if not row.calibration:
                 raise RuntimeError("assignment has no calibration")
-            zones = list_zones(db, assignment_id, enabled=True)
+            all_zones = list_zones(db, assignment_id)
+            zones = [zone for zone in all_zones if zone.get("enabled", True)]
             zone = pick_gate_leaf_zone(zones)
             alert_config = GrillGateAlertConfig.model_validate(
                 (row.configuration or {}).get("grill_gate_alerts", {}))
+            logger.info(
+                "Grill Gate alert configuration loaded assignment=%s gate_open_enabled=%s max_gate_open_seconds=%s",
+                assignment_id, alert_config.gate_open_enabled, alert_config.max_gate_open_seconds)
             return GateDetectorConfig(zone=zone, calibration=row.calibration,
                                       zones_version=row.zones_version, zones=zones,
                                       alert_configuration=alert_config)
@@ -66,13 +83,12 @@ def _config_loader(assignment_id: str):
 
 
 def _frame_processor_factory(camera_id: str, assignment_id: str):
-    counting = get_vault_room_config().counting
     return GrillGateFrameProcessor(
         person_detector=_get_person_detector(),
-        tracker=PersonTracker(counting),
+        tracker=PersonTracker(get_grill_gate_vision_config()),
         event_sink=get_grill_gate_event_writer().submit,
-        alert_sink=get_grill_gate_alert_publisher().submit,
-        active_alert_loader=lambda: get_grill_gate_alert_publisher().active_conditions(assignment_id, camera_id),
+        alert_sink=get_grill_gate_alert_sink().submit,
+        active_alert_loader=lambda: get_grill_gate_alert_writer().active_conditions(assignment_id, camera_id),
         camera_id=camera_id, assignment_id=assignment_id,
         settings=DEFAULT_PROCESSING_SETTINGS,
     )
@@ -87,14 +103,14 @@ def get_grill_gate_video_jobs():
         max_concurrent=settings.GRILL_GATE_VIDEO_MAX_CONCURRENT,
         max_queued=settings.GRILL_GATE_VIDEO_MAX_QUEUED,
         processor_factory=lambda job_id, template_id: GrillGateFrameProcessor(
-            person_detector=_get_person_detector(), tracker=PersonTracker(get_vault_room_config().counting),
+            person_detector=_get_person_detector(), tracker=PersonTracker(get_grill_gate_vision_config()),
             event_sink=get_grill_gate_event_writer().submit,
-            alert_sink=get_grill_gate_alert_publisher().submit,
+            alert_sink=get_grill_gate_alert_sink().submit,
             camera_id=job_id, assignment_id=job_id, settings=DEFAULT_PROCESSING_SETTINGS,
             alert_source_context={"source_type": "UPLOADED_VIDEO", "video_job_id": job_id,
                                   "template_assignment_id": template_id},
         ),
-        event_writer=get_grill_gate_event_writer(), alert_publisher=get_grill_gate_alert_publisher(),
+        event_writer=get_grill_gate_event_writer(), alert_publisher=get_grill_gate_alert_sink(),
     )
 
 

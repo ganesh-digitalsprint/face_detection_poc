@@ -1,0 +1,655 @@
+{
+  "3_4": {
+    "measurement": {
+      "xL_px": 48.0,
+      "xR_px": null,
+      "P_L": 1.2,
+      "P_R": null,
+      "P": 1.2,
+      "conf": 0.5
+    },
+    "diagnostics": {
+      "frame_size": {
+        "width": 2560,
+        "height": 1440
+      },
+      "roi_bbox_px": [
+        770,
+        376,
+        1321,
+        1356
+      ],
+      "strip_y_px": [
+        758,
+        777,
+        797
+      ],
+      "max_run_px": 66,
+      "dark_runs_roi_px": [
+        {
+          "start": 0,
+          "end": 26,
+          "width": 27
+        },
+        {
+          "start": 48,
+          "end": 79,
+          "width": 32
+        },
+        {
+          "start": 96,
+          "end": 111,
+          "width": 16
+        },
+        {
+          "start": 116,
+          "end": 356,
+          "width": 241
+        },
+        {
+          "start": 405,
+          "end": 433,
+          "width": 29
+        },
+        {
+          "start": 513,
+          "end": 550,
+          "width": 38
+        }
+      ],
+      "edges": {
+        "left": {
+          "window_roi_px": [
+            44,
+            247
+          ],
+          "window_frame_px": [
+            814,
+            1017
+          ],
+          "candidate_x_frame_px": [
+            818,
+            866
+          ],
+          "detected_x_frame_px": 818,
+          "reason": "edge detected"
+        },
+        "right": {
+          "window_roi_px": [
+            165,
+            396
+          ],
+          "window_frame_px": [
+            935,
+            1166
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(116, 356, 241)]; max_run_px=66)"
+        }
+      }
+    },
+    "dark_runs": [
+      {
+        "start": 0,
+        "end": 26,
+        "width": 27
+      },
+      {
+        "start": 48,
+        "end": 79,
+        "width": 32
+      },
+      {
+        "start": 96,
+        "end": 111,
+        "width": 16
+      },
+      {
+        "start": 116,
+        "end": 356,
+        "width": 241
+      },
+      {
+        "start": 405,
+        "end": 433,
+        "width": 29
+      },
+      {
+        "start": 513,
+        "end": 550,
+        "width": 38
+      }
+    ]
+  },
+  "3_6": {
+    "measurement": {
+      "xL_px": null,
+      "xR_px": null,
+      "P_L": null,
+      "P_R": null,
+      "P": null,
+      "conf": 0.0
+    },
+    "diagnostics": {
+      "frame_size": {
+        "width": 2560,
+        "height": 1440
+      },
+      "roi_bbox_px": [
+        770,
+        376,
+        1321,
+        1356
+      ],
+      "strip_y_px": [
+        758,
+        777,
+        797
+      ],
+      "max_run_px": 66,
+      "dark_runs_roi_px": [
+        {
+          "start": 0,
+          "end": 25,
+          "width": 26
+        },
+        {
+          "start": 53,
+          "end": 158,
+          "width": 106
+        },
+        {
+          "start": 161,
+          "end": 161,
+          "width": 1
+        },
+        {
+          "start": 163,
+          "end": 358,
+          "width": 196
+        },
+        {
+          "start": 406,
+          "end": 433,
+          "width": 28
+        },
+        {
+          "start": 514,
+          "end": 550,
+          "width": 37
+        }
+      ],
+      "edges": {
+        "left": {
+          "window_roi_px": [
+            44,
+            247
+          ],
+          "window_frame_px": [
+            814,
+            1017
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(53, 158, 106), (163, 358, 196)]; max_run_px=66)"
+        },
+        "right": {
+          "window_roi_px": [
+            165,
+            396
+          ],
+          "window_frame_px": [
+            935,
+            1166
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(163, 358, 196)]; max_run_px=66)"
+        }
+      }
+    },
+    "dark_runs": [
+      {
+        "start": 0,
+        "end": 25,
+        "width": 26
+      },
+      {
+        "start": 53,
+        "end": 158,
+        "width": 106
+      },
+      {
+        "start": 161,
+        "end": 161,
+        "width": 1
+      },
+      {
+        "start": 163,
+        "end": 358,
+        "width": 196
+      },
+      {
+        "start": 406,
+        "end": 433,
+        "width": 28
+      },
+      {
+        "start": 514,
+        "end": 550,
+        "width": 37
+      }
+    ]
+  },
+  "3_8": {
+    "measurement": {
+      "xL_px": null,
+      "xR_px": null,
+      "P_L": null,
+      "P_R": null,
+      "P": null,
+      "conf": 0.0
+    },
+    "diagnostics": {
+      "frame_size": {
+        "width": 2560,
+        "height": 1440
+      },
+      "roi_bbox_px": [
+        770,
+        376,
+        1321,
+        1356
+      ],
+      "strip_y_px": [
+        758,
+        777,
+        797
+      ],
+      "max_run_px": 66,
+      "dark_runs_roi_px": [
+        {
+          "start": 0,
+          "end": 25,
+          "width": 26
+        },
+        {
+          "start": 53,
+          "end": 237,
+          "width": 185
+        },
+        {
+          "start": 242,
+          "end": 358,
+          "width": 117
+        },
+        {
+          "start": 406,
+          "end": 433,
+          "width": 28
+        },
+        {
+          "start": 514,
+          "end": 550,
+          "width": 37
+        }
+      ],
+      "edges": {
+        "left": {
+          "window_roi_px": [
+            44,
+            247
+          ],
+          "window_frame_px": [
+            814,
+            1017
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(53, 237, 185), (242, 358, 117)]; max_run_px=66)"
+        },
+        "right": {
+          "window_roi_px": [
+            165,
+            396
+          ],
+          "window_frame_px": [
+            935,
+            1166
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(53, 237, 185), (242, 358, 117)]; max_run_px=66)"
+        }
+      }
+    },
+    "dark_runs": [
+      {
+        "start": 0,
+        "end": 25,
+        "width": 26
+      },
+      {
+        "start": 53,
+        "end": 237,
+        "width": 185
+      },
+      {
+        "start": 242,
+        "end": 358,
+        "width": 117
+      },
+      {
+        "start": 406,
+        "end": 433,
+        "width": 28
+      },
+      {
+        "start": 514,
+        "end": 550,
+        "width": 37
+      }
+    ]
+  },
+  "4_0": {
+    "measurement": {
+      "xL_px": null,
+      "xR_px": null,
+      "P_L": null,
+      "P_R": null,
+      "P": null,
+      "conf": 0.0
+    },
+    "diagnostics": {
+      "frame_size": {
+        "width": 2560,
+        "height": 1440
+      },
+      "roi_bbox_px": [
+        770,
+        376,
+        1321,
+        1356
+      ],
+      "strip_y_px": [
+        758,
+        777,
+        797
+      ],
+      "max_run_px": 66,
+      "dark_runs_roi_px": [
+        {
+          "start": 0,
+          "end": 25,
+          "width": 26
+        },
+        {
+          "start": 52,
+          "end": 359,
+          "width": 308
+        },
+        {
+          "start": 408,
+          "end": 433,
+          "width": 26
+        },
+        {
+          "start": 513,
+          "end": 550,
+          "width": 38
+        }
+      ],
+      "edges": {
+        "left": {
+          "window_roi_px": [
+            44,
+            247
+          ],
+          "window_frame_px": [
+            814,
+            1017
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(52, 359, 308)]; max_run_px=66)"
+        },
+        "right": {
+          "window_roi_px": [
+            165,
+            396
+          ],
+          "window_frame_px": [
+            935,
+            1166
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(52, 359, 308)]; max_run_px=66)"
+        }
+      }
+    },
+    "dark_runs": [
+      {
+        "start": 0,
+        "end": 25,
+        "width": 26
+      },
+      {
+        "start": 52,
+        "end": 359,
+        "width": 308
+      },
+      {
+        "start": 408,
+        "end": 433,
+        "width": 26
+      },
+      {
+        "start": 513,
+        "end": 550,
+        "width": 38
+      }
+    ]
+  },
+  "5_4": {
+    "measurement": {
+      "xL_px": null,
+      "xR_px": null,
+      "P_L": null,
+      "P_R": null,
+      "P": null,
+      "conf": 0.0
+    },
+    "diagnostics": {
+      "frame_size": {
+        "width": 2560,
+        "height": 1440
+      },
+      "roi_bbox_px": [
+        770,
+        376,
+        1321,
+        1356
+      ],
+      "strip_y_px": [
+        758,
+        777,
+        797
+      ],
+      "max_run_px": 66,
+      "dark_runs_roi_px": [
+        {
+          "start": 0,
+          "end": 20,
+          "width": 21
+        },
+        {
+          "start": 48,
+          "end": 367,
+          "width": 320
+        },
+        {
+          "start": 416,
+          "end": 431,
+          "width": 16
+        },
+        {
+          "start": 510,
+          "end": 550,
+          "width": 41
+        }
+      ],
+      "edges": {
+        "left": {
+          "window_roi_px": [
+            44,
+            247
+          ],
+          "window_frame_px": [
+            814,
+            1017
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(48, 367, 320)]; max_run_px=66)"
+        },
+        "right": {
+          "window_roi_px": [
+            165,
+            396
+          ],
+          "window_frame_px": [
+            935,
+            1166
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(48, 367, 320)]; max_run_px=66)"
+        }
+      }
+    },
+    "dark_runs": [
+      {
+        "start": 0,
+        "end": 20,
+        "width": 21
+      },
+      {
+        "start": 48,
+        "end": 367,
+        "width": 320
+      },
+      {
+        "start": 416,
+        "end": 431,
+        "width": 16
+      },
+      {
+        "start": 510,
+        "end": 550,
+        "width": 41
+      }
+    ]
+  },
+  "5_6": {
+    "measurement": {
+      "xL_px": null,
+      "xR_px": null,
+      "P_L": null,
+      "P_R": null,
+      "P": null,
+      "conf": 0.0
+    },
+    "diagnostics": {
+      "frame_size": {
+        "width": 2560,
+        "height": 1440
+      },
+      "roi_bbox_px": [
+        770,
+        376,
+        1321,
+        1356
+      ],
+      "strip_y_px": [
+        758,
+        777,
+        797
+      ],
+      "max_run_px": 66,
+      "dark_runs_roi_px": [
+        {
+          "start": 0,
+          "end": 20,
+          "width": 21
+        },
+        {
+          "start": 48,
+          "end": 367,
+          "width": 320
+        },
+        {
+          "start": 416,
+          "end": 430,
+          "width": 15
+        },
+        {
+          "start": 510,
+          "end": 550,
+          "width": 41
+        }
+      ],
+      "edges": {
+        "left": {
+          "window_roi_px": [
+            44,
+            247
+          ],
+          "window_frame_px": [
+            814,
+            1017
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(48, 367, 320)]; max_run_px=66)"
+        },
+        "right": {
+          "window_roi_px": [
+            165,
+            396
+          ],
+          "window_frame_px": [
+            935,
+            1166
+          ],
+          "candidate_x_frame_px": [],
+          "detected_x_frame_px": null,
+          "reason": "edge lies on dark run(s) wider than the configured maximum ([(48, 367, 320)]; max_run_px=66)"
+        }
+      }
+    },
+    "dark_runs": [
+      {
+        "start": 0,
+        "end": 20,
+        "width": 21
+      },
+      {
+        "start": 48,
+        "end": 367,
+        "width": 320
+      },
+      {
+        "start": 416,
+        "end": 430,
+        "width": 15
+      },
+      {
+        "start": 510,
+        "end": 550,
+        "width": 41
+      }
+    ]
+  }
+}

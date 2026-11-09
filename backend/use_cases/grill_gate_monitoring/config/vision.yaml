@@ -1,0 +1,18 @@
+# Grill Gate has its own detector and tracker settings. These defaults match the
+# values previously used by the Grill Gate adapter; they do not read Vault Room's
+# models.yaml settings. RF-DETR's person-class selection remains fixed to "person".
+detector:
+  model: rfdetr-nano
+  confidence: 0.5
+  min_box_area_ratio: 0.01
+  weights_path: null
+  device: auto
+  cpu_threads: 4
+  inference_resolution: null
+
+tracker:
+  track_activation_threshold: 0.4
+  minimum_matching_threshold: 0.7
+  minimum_consecutive_frames: 2
+  lost_track_buffer: 90
+  frame_rate: 1

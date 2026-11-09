@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 from typing import Literal
 from typing import Annotated
@@ -12,12 +14,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFi
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import Operator, get_db, get_operator
 from app.db.models.camera_registry import CameraUseCaseAssignment
 from app.services import camera_registry_service as registry
 from app.db.models import GrillGateEvent, GrillGateVideoJob
+from grill_gate_monitoring.models.alert import GrillGateAlert
+from grill_gate_monitoring.services.alert_store import alert_dict
+from grill_gate_monitoring.models.zone_configuration import GrillGateZoneConfiguration
 from grill_gate_monitoring.services.camera_worker import (
     GrillGateWorkerCapacityError,
     GrillGateWorkerConflictError,
@@ -29,18 +35,24 @@ from grill_gate_monitoring.services.gate_state_detector_manager import (
     DetectorCapacityError, DetectorConflictError, DetectorManagerClosingError,
 )
 from grill_gate_monitoring.services.zone_geometry import find_zone, normalized_polygon
-from grill_gate_monitoring.services.gate_geometry import calibrate_endpoints, calibration_from_zone, pick_gate_leaf_zone
-from grill_gate_monitoring.services.video_jobs import read_frame_at, validate_video, VideoJobCapacityError
+from grill_gate_monitoring.services.gate_geometry import (calibrate_endpoints, calibration_from_zone,
+    edge_search_diagnostics, pick_gate_leaf_zone)
+from grill_gate_monitoring.services.video_jobs import (read_frame_at, validate_video, VideoJobCapacityError,
+    VideoJobActiveConflict)
 from grill_gate_monitoring.services.video_job_config import CONFIG_KEYS, JobConfigError, job_frame, job_video, normalize_config, readiness
-from grill_gate_monitoring.schemas.video_job import CopyConfigRequest, JobConfigUpdate, MeasureEndpointsRequest
+from grill_gate_monitoring.schemas.video_job import (CopyConfigRequest, JobConfigUpdate, MeasureEndpointsRequest,
+    NamedZoneConfigurationWrite, ReprocessVideoRequest, ZoneConfigurationName)
 from app.services.grill_gate_runtime import get_grill_gate_video_jobs
 from sqlalchemy import desc
 from grill_gate_monitoring.schemas.alerts import GrillGateAlertConfig
+from grill_gate_monitoring.services.assignment_readiness import missing_assignment_zones
+from grill_gate_monitoring.services.diagnostics import log_diagnostic
 import cv2
 import httpx
 
 router = APIRouter(prefix="/api/v1/grill-gate", tags=["grill gate camera workers"],
                    dependencies=[Depends(get_operator)])
+logger = logging.getLogger(__name__)
 Db = Annotated[Session, Depends(get_db)]
 Caller = Annotated[Operator, Depends(get_operator)]
 
@@ -103,10 +115,12 @@ def upload_video(video: UploadFile, db: Db, caller: Caller,
             path.unlink(missing_ok=True)
 
 
-def _config_call(fn, *args):
+def _config_call(fn, *args, video_job_id: str | None = None):
     try:
         return fn(*args)
     except JobConfigError as exc:
+        logger.warning("Grill Gate video configuration rejected video_job_id=%s code=%s reason=%s",
+                       video_job_id or "unknown", exc.code, exc.message)
         raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message}) from exc
 
 
@@ -116,8 +130,10 @@ def _assignment_config(db: Session, assignment_id: str) -> dict:
     if assignment is None or assignment.use_case != "grill_gate" or not assignment.is_active:
         raise HTTPException(404, "Active Grill Gate assignment not found")
     zones = _registry_call(registry.list_zones, db, assignment_id)
-    return {"calibration": assignment.calibration, "zones": jsonable_encoder(zones),
-            "alert_configuration": (assignment.configuration or {}).get("grill_gate_alerts", {})}
+    active_zones = [zone for zone in zones if zone.get("zone_type") not in {"gate_trigger", "gate_crossing"}]
+    return {"calibration": assignment.calibration, "zones": jsonable_encoder(active_zones),
+            "alert_configuration": (assignment.configuration or {}).get("grill_gate_alerts", {}),
+            "crossing_strategy": "three_zone"}
 
 
 def _job_or_404(db: Session, job_id: str) -> GrillGateVideoJob:
@@ -127,23 +143,11 @@ def _job_or_404(db: Session, job_id: str) -> GrillGateVideoJob:
     return row
 
 
-def _job_alerts(job_id: str) -> tuple[list[dict], bool]:
-    """Alerts raised by one job, or (.., False) when the shared Alert Service cannot be read."""
-    alerts = []
-    try:
-        cursor = None
-        while True:
-            params = {"use_case": "grill_gate", "sort": "oldest", "limit": 100}
-            if cursor:
-                params["cursor"] = cursor
-            result = _alert_service_request("GET", "", params=params)
-            alerts.extend(item for item in result.get("items", [])
-                          if (item.get("resource_refs") or {}).get("video_job_id") == job_id)
-            cursor = result.get("next_cursor")
-            if not cursor:
-                return alerts, True
-    except HTTPException:
-        return alerts, False
+def _job_alerts(db: Session, job_id: str) -> list[dict]:
+    rows = db.scalars(select(GrillGateAlert).where(
+        GrillGateAlert.use_case == "grill_gate", GrillGateAlert.video_job_id == str(job_id)
+    ).order_by(GrillGateAlert.triggered_at.desc(), GrillGateAlert.id.desc())).all()
+    return [alert_dict(row) for row in rows]
 
 
 def _job_dict(row, *, event_count: int | None = None, alert_count: int | None = None, monitoring: dict | None = None):
@@ -164,7 +168,9 @@ def _job_dict(row, *, event_count: int | None = None, alert_count: int | None = 
             end = end.replace(tzinfo=None)
         elapsed = (end - started).total_seconds()
         processing_fps = round(row.frame_count / elapsed, 2) if elapsed > 0 else None
-    return {"job_id": str(row.id), "filename": row.original_filename, "status": row.status,
+    return {"job_id": str(row.id), "asset_job_id": row.asset_job_id,
+        "zone_configuration_id": (row.config_snapshot or {}).get("zone_configuration_id"),
+        "filename": row.original_filename, "status": row.status,
         "template_assignment_id": row.template_assignment_id, "frame_count": row.frame_count,
         "progress_seconds": row.progress_seconds, "error_code": row.error_code,
         "created_at": row.created_at, "started_at": row.started_at, "completed_at": row.completed_at,
@@ -173,6 +179,8 @@ def _job_dict(row, *, event_count: int | None = None, alert_count: int | None = 
         "duration_seconds": video.get("duration_seconds"), "width": video.get("width"), "height": video.get("height"),
         "fps": video.get("fps"),
         "error": JOB_ERROR_MESSAGES.get(row.error_code, row.error_code),
+        "crossing_strategy": "three_zone",
+        "alert_configuration": (row.config_snapshot or {}).get("alert_configuration") or {},
         "event_count": event_count, "alert_count": alert_count,
         "readiness": readiness(row), "editable": row.status == "UPLOADED",
         "video_available": Path(row.storage_path).exists(),
@@ -195,7 +203,7 @@ def list_video_jobs(db: Db, caller: Caller, status_filter: str | None = Query(de
         query = query.where(GrillGateVideoJob.status == status_filter.upper())
     rows = db.scalars(query.offset(offset).limit(limit)).all()
     counts = _event_counts(db, [str(row.id) for row in rows])
-    # alert_count is detail-only: each count means reading the shared Alert Service.
+    # Alert counts are detail-only and come from Grill Gate's local alert store.
     return {"items": [_job_dict(row, event_count=counts.get(str(row.id), 0)) for row in rows],
             "limit": limit, "offset": offset}
 
@@ -203,15 +211,15 @@ def list_video_jobs(db: Db, caller: Caller, status_filter: str | None = Query(de
 @router.get("/videos/{job_id}")
 def get_video_job(job_id: str, db: Db, caller: Caller):
     row = _job_or_404(db, job_id)
-    alerts, available = _job_alerts(job_id)
+    alerts = _job_alerts(db, job_id)
     return _job_dict(row, event_count=_event_counts(db, [job_id]).get(job_id, 0),
-                     alert_count=len(alerts) if available else None,
+                     alert_count=len(alerts),
                      monitoring=get_grill_gate_video_jobs().monitoring(job_id))
 
 
 @router.delete("/videos/{job_id}")
 def delete_video_job(job_id: str, db: Db, caller: Caller):
-    """Remove a job that is not running, with its events and stored video."""
+    """Remove the selected uploaded asset and its complete run history."""
     _job_or_404(db, job_id)
     db.rollback()
     if not get_grill_gate_video_jobs().delete(job_id):
@@ -223,8 +231,125 @@ def _job_config_view(row) -> dict:
     config = row.config_snapshot or {}
     return {"job_id": str(row.id), "editable": row.status == "UPLOADED",
             "reference_frame": {"width": job_frame(row)[0], "height": job_frame(row)[1]} if job_frame(row) else None,
-            "calibration": config.get("calibration"), "zones": config.get("zones") or [],
-            "alert_configuration": config.get("alert_configuration") or {}, "readiness": readiness(row)}
+            "calibration": config.get("calibration"), "zones": [zone for zone in (config.get("zones") or [])
+                if zone.get("zone_type") not in {"gate_trigger", "gate_crossing"}],
+            "alert_configuration": config.get("alert_configuration") or {},
+            "crossing_strategy": "three_zone",
+            "zone_configuration_id": config.get("zone_configuration_id"),
+            "readiness": readiness(row)}
+
+
+def _zone_configuration_view(row: GrillGateZoneConfiguration) -> dict:
+    config = row.config_json or {}
+    return {"id": str(row.id), "name": row.name,
+            "reference_frame": {"width": row.reference_width, "height": row.reference_height},
+            **{**config, "zones": [zone for zone in (config.get("zones") or [])
+                if zone.get("zone_type") not in {"gate_trigger", "gate_crossing"}],
+               "crossing_strategy": "three_zone"},
+            "created_at": row.created_at, "updated_at": row.updated_at}
+
+
+def _normalize_named_zone_configuration(payload: NamedZoneConfigurationWrite) -> dict:
+    frame = payload.reference_frame
+    raw = payload.model_dump(mode="json", exclude={"name", "reference_frame"})
+    config = _config_call(normalize_config, raw, (frame.width, frame.height))
+    # Validate all processing prerequisites except video availability.
+    readiness_row = SimpleNamespace(storage_path="__named_zone_configuration__",
+        config_snapshot={**config, "video": {"width": frame.width, "height": frame.height}})
+    checks = readiness(readiness_row)
+    missing = [item for item in checks["missing"] if item["item"] != "video_saved"]
+    if missing:
+        raise HTTPException(422, detail={"code": "ZONE_CONFIGURATION_NOT_READY", "missing": missing})
+    config.pop("zone_configuration_id", None)
+    return config
+
+
+@router.get("/zone-configurations")
+def list_zone_configurations(db: Db, caller: Caller):
+    rows = db.scalars(select(GrillGateZoneConfiguration).where(
+        GrillGateZoneConfiguration.owner_id == caller.id).order_by(
+            GrillGateZoneConfiguration.updated_at.desc(), GrillGateZoneConfiguration.name)).all()
+    return {"items": [_zone_configuration_view(row) for row in rows]}
+
+
+@router.post("/zone-configurations", status_code=201)
+def create_zone_configuration(payload: NamedZoneConfigurationWrite, db: Db, caller: Caller):
+    normalized = _normalize_named_zone_configuration(payload)
+    row = GrillGateZoneConfiguration(owner_id=caller.id, name=payload.name.strip(),
+        reference_width=payload.reference_frame.width, reference_height=payload.reference_frame.height,
+        config_json=normalized)
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, detail={"code": "ZONE_CONFIGURATION_NAME_EXISTS",
+            "message": "A zone configuration with this name already exists."}) from exc
+    db.refresh(row)
+    return _zone_configuration_view(row)
+
+
+@router.get("/zone-configurations/{configuration_id}")
+def get_zone_configuration(configuration_id: str, db: Db, caller: Caller):
+    row = db.scalar(select(GrillGateZoneConfiguration).where(
+        GrillGateZoneConfiguration.id == configuration_id,
+        GrillGateZoneConfiguration.owner_id == caller.id))
+    if row is None:
+        raise HTTPException(404, "Zone configuration not found")
+    return _zone_configuration_view(row)
+
+
+@router.put("/zone-configurations/{configuration_id}")
+def update_zone_configuration(configuration_id: str, payload: NamedZoneConfigurationWrite, db: Db, caller: Caller):
+    row = db.scalar(select(GrillGateZoneConfiguration).where(
+        GrillGateZoneConfiguration.id == configuration_id,
+        GrillGateZoneConfiguration.owner_id == caller.id))
+    if row is None:
+        raise HTTPException(404, "Zone configuration not found")
+    row.name = payload.name.strip()
+    row.reference_width, row.reference_height = payload.reference_frame.width, payload.reference_frame.height
+    row.config_json = _normalize_named_zone_configuration(payload)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, detail={"code": "ZONE_CONFIGURATION_NAME_EXISTS",
+            "message": "A zone configuration with this name already exists."}) from exc
+    db.refresh(row)
+    return _zone_configuration_view(row)
+
+
+@router.post("/zone-configurations/{configuration_id}/duplicate", status_code=201)
+def duplicate_zone_configuration(configuration_id: str, payload: ZoneConfigurationName, db: Db, caller: Caller):
+    source = db.scalar(select(GrillGateZoneConfiguration).where(
+        GrillGateZoneConfiguration.id == configuration_id,
+        GrillGateZoneConfiguration.owner_id == caller.id))
+    if source is None:
+        raise HTTPException(404, "Zone configuration not found")
+    row = GrillGateZoneConfiguration(owner_id=caller.id, name=payload.name.strip(),
+        reference_width=source.reference_width, reference_height=source.reference_height,
+        config_json=dict(source.config_json or {}))
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, detail={"code": "ZONE_CONFIGURATION_NAME_EXISTS",
+            "message": "A zone configuration with this name already exists."}) from exc
+    db.refresh(row)
+    return _zone_configuration_view(row)
+
+
+@router.delete("/zone-configurations/{configuration_id}")
+def delete_zone_configuration(configuration_id: str, db: Db, caller: Caller):
+    row = db.scalar(select(GrillGateZoneConfiguration).where(
+        GrillGateZoneConfiguration.id == configuration_id,
+        GrillGateZoneConfiguration.owner_id == caller.id))
+    if row is None:
+        raise HTTPException(404, "Zone configuration not found")
+    db.delete(row)
+    db.commit()
+    return {"id": configuration_id, "deleted": True}
 
 
 def _store_job_config(db: Session, row, config: dict) -> dict:
@@ -249,7 +374,13 @@ def put_video_job_config(job_id: str, payload: JobConfigUpdate, db: Db, caller: 
     row = _job_or_404(db, job_id)
     if row.status != "UPLOADED":
         raise HTTPException(409, detail={"code": "CONFIG_LOCKED", "message": "This job has started, so its configuration is locked"})
-    config = _config_call(normalize_config, payload.model_dump(mode="json"), job_frame(row))
+    if payload.zone_configuration_id and db.scalar(select(GrillGateZoneConfiguration.id).where(
+            GrillGateZoneConfiguration.id == payload.zone_configuration_id,
+            GrillGateZoneConfiguration.owner_id == caller.id)) is None:
+        raise HTTPException(404, "Zone configuration not found")
+    snapshot = row.config_snapshot or {}
+    config = _config_call(normalize_config, payload.model_dump(mode="json"), job_frame(row),
+                          video_job_id=job_id)
     return _store_job_config(db, row, config)
 
 
@@ -267,6 +398,7 @@ def copy_video_job_config(job_id: str, payload: CopyConfigRequest, db: Db, calle
             raise HTTPException(404, "Source video job not found")
         snapshot = other.config_snapshot or {}
         source = {key: snapshot.get(key) for key in CONFIG_KEYS if key != "zone"}
+        source["crossing_strategy"] = "three_zone"
         source["zones"] = source["zones"] or []
         source["alert_configuration"] = source["alert_configuration"] or {}
     if not source.get("calibration"):
@@ -337,11 +469,38 @@ def measure_video_job_endpoints(job_id: str, payload: MeasureEndpointsRequest, d
         raise HTTPException(422, detail={"code": "GATE_ZONE_MISSING", "message": "Save a Sliding gate leaf zone before measuring"}) from exc
     if frame_size is None:
         raise HTTPException(422, detail={"code": "FRAME_SIZE_UNKNOWN", "message": "This job's video frame size is unknown"})
+    log_diagnostic(logger, "endpoint_measurement_requested", level=logging.INFO, category="ENDPOINT",
+                   video_job_id=job_id, closed_source_timestamp=payload.closed_t,
+                   open_source_timestamp=payload.open_t)
+    frame_diagnostics = {}
     try:
         geometry = calibration_from_zone(zone, *frame_size)
-        endpoints = calibrate_endpoints(read_frame_at(path, payload.closed_t), read_frame_at(path, payload.open_t), geometry)
+        closed_frame, closed_info = read_frame_at(path, payload.closed_t, return_metadata=True)
+        open_frame, open_info = read_frame_at(path, payload.open_t, return_metadata=True)
+        closed_diagnostics = edge_search_diagnostics(closed_frame, geometry)
+        open_diagnostics = edge_search_diagnostics(open_frame, geometry)
+        frame_diagnostics = {"closed": {**closed_info, **closed_diagnostics},
+                             "open": {**open_info, **open_diagnostics}}
+        log_diagnostic(logger, "endpoint_frame_measurement", level=logging.DEBUG, category="ENDPOINT",
+                       video_job_id=job_id, frame_index=closed_info.get("frame_index"),
+                       video_source_timestamp=payload.closed_t, frame_metadata=closed_info,
+                       roi_polygon_px=geometry.roi_polygon, gate_geometry=geometry,
+                       edge_search=closed_diagnostics)
+        log_diagnostic(logger, "endpoint_frame_measurement", level=logging.DEBUG, category="ENDPOINT",
+                       video_job_id=job_id, frame_index=open_info.get("frame_index"),
+                       video_source_timestamp=payload.open_t, frame_metadata=open_info,
+                       roi_polygon_px=geometry.roi_polygon, gate_geometry=geometry,
+                       edge_search=open_diagnostics)
+        endpoints = calibrate_endpoints(closed_frame, open_frame, geometry)
     except ValueError as exc:
-        raise HTTPException(422, detail={"code": "ENDPOINTS_NOT_FOUND", "message": str(exc)}) from exc
+        log_diagnostic(logger, "endpoint_measurement_failed", level=logging.WARNING, category="ENDPOINT",
+                       video_job_id=job_id, closed_source_timestamp=payload.closed_t,
+                       open_source_timestamp=payload.open_t, reason=str(exc), diagnostics=frame_diagnostics)
+        raise HTTPException(422, detail={"code": "ENDPOINTS_NOT_FOUND", "message": str(exc),
+                                         "diagnostics": frame_diagnostics}) from exc
+    log_diagnostic(logger, "endpoint_measurement_completed", level=logging.INFO, category="ENDPOINT",
+                   video_job_id=job_id, closed_source_timestamp=payload.closed_t,
+                   open_source_timestamp=payload.open_t, endpoints=endpoints)
     return {"job_id": job_id, "closed_t": payload.closed_t, "open_t": payload.open_t, "endpoints": endpoints}
 
 
@@ -364,6 +523,51 @@ def start_video_job(job_id: str, db: Db, caller: Caller):
     return {"job_id": job_id, "status": status}
 
 
+@router.post("/videos/{job_id}/reprocess", status_code=202)
+def reprocess_video_job(job_id: str, payload: ReprocessVideoRequest, db: Db, caller: Caller):
+    """Start a fresh, independent processing run over the retained upload."""
+    source = _job_or_404(db, job_id)
+    if source.status in {"QUEUED", "PROCESSING", "CANCEL_REQUESTED"}:
+        raise HTTPException(409, detail={"code": "JOB_ACTIVE", "message": "This video is already being processed."})
+    if source.status not in {"COMPLETED", "FAILED", "CANCELLED"}:
+        raise HTTPException(409, detail={"code": "JOB_NOT_FINISHED", "message": "Process the uploaded video before requesting another run."})
+    if not Path(source.storage_path).exists():
+        raise HTTPException(410, detail={"code": "VIDEO_UNAVAILABLE", "message": "The stored video is no longer available."})
+    if payload.zone_configuration_id:
+        saved = db.scalar(select(GrillGateZoneConfiguration).where(
+            GrillGateZoneConfiguration.id == payload.zone_configuration_id,
+            GrillGateZoneConfiguration.owner_id == caller.id))
+        if saved is None:
+            raise HTTPException(404, "Zone configuration not found")
+        video = job_video(source)
+        if (saved.reference_width != video.get("width") or saved.reference_height != video.get("height")):
+            raise HTTPException(422, detail={"code": "FRAME_SIZE_MISMATCH",
+                "message": "The selected zone configuration uses a different reference frame size."})
+        snapshot = {**(saved.config_json or {}), "video": video,
+                    "zone_configuration_id": str(saved.id)}
+    else:
+        snapshot = dict(source.config_snapshot or {})
+        snapshot.pop("final_status", None)
+        snapshot["video"] = job_video(source)
+    checklist = readiness(SimpleNamespace(storage_path=source.storage_path, config_snapshot=snapshot))
+    if not checklist["ready"]:
+        raise HTTPException(409, detail={"code": "JOB_NOT_READY", "message": "This configuration is not ready to process",
+                                         "missing": checklist["missing"]})
+    db.rollback()
+    try:
+        result = get_grill_gate_video_jobs().reprocess(job_id, snapshot)
+    except VideoJobCapacityError as exc:
+        raise HTTPException(429, str(exc)) from exc
+    except VideoJobActiveConflict as exc:
+        raise HTTPException(409, detail={"code": "JOB_ACTIVE", "message": str(exc)}) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(410, detail={"code": "VIDEO_UNAVAILABLE", "message": str(exc)}) from exc
+    if result is None:
+        raise HTTPException(409, "Could not create a new processing run")
+    run_id, status = result
+    return {"job_id": run_id, "source_job_id": job_id, "status": status}
+
+
 @router.post("/videos/{job_id}/cancel")
 def cancel_video_job(job_id: str, db: Db, caller: Caller):
     row = db.get(GrillGateVideoJob, job_id)
@@ -381,17 +585,26 @@ def cancel_video_job(job_id: str, db: Db, caller: Caller):
 def get_video_results(job_id: str, db: Db, caller: Caller,
                       limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0)):
     job = _job_or_404(db, job_id)
+    log_diagnostic(logger, "video_results_requested", level=logging.INFO, category="API",
+                   video_job_id=job_id, status=job.status, limit=limit, offset=offset)
     query = select(GrillGateEvent).where(GrillGateEvent.video_job_id == job_id).order_by(
         GrillGateEvent.video_time_seconds, GrillGateEvent.id)
     rows = db.scalars(query.offset(offset).limit(limit)).all()
-    alerts, alerts_available = _job_alerts(job_id)
+    alerts = _job_alerts(db, job_id)
     monitoring = get_grill_gate_video_jobs().monitoring(job_id) or (job.config_snapshot or {}).get("final_status") or {}
-    return {"transitions": monitoring.get("transitions", []), "items": [{"event_id": row.id, "event_type": row.event_type, "track_id": row.track_id,
+    response = {"transitions": monitoring.get("transitions", []), "items": [{"event_id": row.id, "event_type": row.event_type, "track_id": row.track_id,
         "direction": row.direction, "source_zone": row.source_zone,
         "destination_zone": row.destination_zone, "video_time_seconds": row.video_time_seconds,
         "occurred_at": row.occurred_at, "metadata": row.metadata_json} for row in rows],
-        "alerts": alerts, "alerts_available": alerts_available,
+        "alerts": alerts, "alerts_available": True, "monitoring": monitoring or None,
         "status": job.status, "limit": limit, "offset": offset}
+    log_diagnostic(logger, "video_results_response", level=logging.INFO, category="API",
+                   video_job_id=job_id, status=job.status, returned_events=len(rows),
+                   returned_transitions=len(response["transitions"]), returned_alerts=len(alerts),
+                   monitoring_state=monitoring.get("state"), timer_state=monitoring.get("timer_state"),
+                   elapsed_seconds=monitoring.get("open_without_crossing_seconds"),
+                   source_timestamp=monitoring.get("source_timestamp"))
+    return response
 
 
 def _registry_call(fn, *args, **kwargs):
@@ -420,6 +633,18 @@ def _worker_call(fn, *args, **kwargs):
 
 @router.post("/assignments/{assignment_id}/connect")
 def connect_assignment(assignment_id: str, response: Response, db: Db, caller: Caller):
+    assignment = db.get(CameraUseCaseAssignment, assignment_id)
+    if assignment is None or assignment.use_case != "grill_gate" or not assignment.is_active:
+        raise HTTPException(404, "Active Grill Gate assignment not found")
+    zones = _registry_call(registry.list_zones, db, assignment_id)
+    alert_config = GrillGateAlertConfig.model_validate((assignment.configuration or {}).get("grill_gate_alerts", {}))
+    monitoring = (assignment.calibration or {}).get("monitoring", {})
+    mesh_required = alert_config.mesh_occupancy_enabled or any(
+        monitoring.get(key) is not None for key in ("minimum_mesh_gathering_count", "mesh_gathering_seconds"))
+    missing = missing_assignment_zones(zones, mesh_required=mesh_required)
+    if missing:
+        raise HTTPException(409, detail={"code": "ASSIGNMENT_NOT_READY", "crossing_strategy": "three_zone",
+                                         "missing_zones": missing})
     resolved = _registry_call(registry.resolve_grill_gate_assignment_source, db, assignment_id)
     assignment_id, camera_id, source = resolved
     status, created = _worker_call(get_grill_gate_camera_worker_manager().connect,
@@ -459,6 +684,10 @@ def get_gate_state(assignment_id: str, caller: Caller):
     status = get_grill_gate_state_detector_manager().status(assignment_id)
     if status is None:
         raise HTTPException(status_code=404, detail="Gate-state detector is not running for this assignment")
+    status = dict(status)
+    processing = status.get("processing") or {}
+    status["open_without_crossing_seconds"] = (
+        processing.get("open_without_crossing_seconds") if status.get("state") == "OPEN" else None)
     return status
 
 
@@ -568,111 +797,136 @@ class AlertAction(BaseModel):
 
 
 def _alert_service_request(method: str, path: str, *, params=None, json_body=None):
-    token = settings.ALERT_SERVICE_OPERATOR_TOKEN.get_secret_value()
     base = settings.ALERT_SERVICE_BASE_URL
-    if not base or not token:
+    token = settings.ALERT_SERVICE_OPERATOR_TOKEN.get_secret_value()
+    if not base:
+        logger.error("Grill Gate Alert Service request unavailable reason=missing_base_url")
+        raise HTTPException(status_code=503, detail="Shared Alert Service URL is not configured")
+    if not token:
+        logger.error("Grill Gate Alert Service request unavailable reason=missing_operator_credential")
         raise HTTPException(status_code=503, detail="Shared Alert Service operator access is not configured")
     try:
-        response = httpx.request(method, f"{base}/api/v1/alerts{path}",
+        response = httpx.request(method, f"{base.rstrip('/')}/api/v1/alerts{path}",
             headers={"Authorization": f"Bearer {token}"}, params=params, json=json_body,
             timeout=settings.ALERT_SERVICE_TIMEOUT_SECONDS, follow_redirects=False)
     except httpx.HTTPError as exc:
+        logger.warning("Grill Gate Alert Service request failed reason=transport error=%s", type(exc).__name__)
         raise HTTPException(status_code=502, detail="Shared Alert Service is unavailable") from exc
     if response.status_code >= 400:
-        status = response.status_code if response.status_code in {401, 403, 404, 409, 422} else 502
-        raise HTTPException(status_code=status, detail="Shared Alert Service rejected the request")
+        status = response.status_code if response.status_code in {401, 403, 404, 409, 422} else (
+            503 if response.status_code == 503 or response.status_code >= 500 else 502)
+        if response.status_code in {401, 403}:
+            detail = "Shared Alert Service operator authentication failed" if status == 401 else (
+                "Shared Alert Service operator is not authorized for Grill Gate alerts")
+            reason = "authentication_failed" if status == 401 else "grill_gate_scope_missing"
+        elif status == 503:
+            try:
+                body = response.json()
+                service_code = (body.get("detail") or {}).get("code") if isinstance(body, dict) else None
+            except (ValueError, TypeError, AttributeError):
+                service_code = None
+            if response.status_code == 503 and service_code == "AUTH_NOT_CONFIGURED":
+                detail = "Shared Alert Service operator authentication is not configured"
+                reason = "service_auth_not_configured"
+            else:
+                detail = "Shared Alert Service is unavailable"
+                reason = "service_unavailable"
+        else:
+            detail = "Shared Alert Service rejected the request"
+            reason = "request_rejected"
+        logger.warning("Grill Gate Alert Service request rejected method=%s status=%s reason=%s",
+                       method, response.status_code, reason)
+        raise HTTPException(status_code=status, detail=detail)
     return response.json()
 
 
-def _alert_assignment(db: Session, alert: dict, expected_assignment: str | None = None,
-                      expected_camera: str | None = None) -> tuple[str, str]:
-    refs = alert.get("resource_refs") or {}
-    assignment_id = str(refs.get("assignment_id") or "")
-    camera_id = str(refs.get("camera_id") or "")
-    video_job_id = str(refs.get("video_job_id") or "")
-    # Uploaded-video alerts belong to a job, not a camera assignment.
-    if (alert.get("use_case") == "grill_gate" and video_job_id and not assignment_id
-            and expected_assignment is None and expected_camera is None):
-        if db.get(GrillGateVideoJob, video_job_id) is None:
-            raise HTTPException(status_code=404, detail="Grill Gate alert not found")
-        return "", ""
-    if (alert.get("use_case") != "grill_gate" or not assignment_id or not camera_id
-            or (expected_assignment is not None and assignment_id != str(expected_assignment))
-            or (expected_camera is not None and camera_id != str(expected_camera))):
-        raise HTTPException(status_code=404, detail="Grill Gate alert not found")
-    actual_camera = _assignment_camera(db, assignment_id, camera_id)
-    return assignment_id, actual_camera
-
-
-def _alert_list(assignment_id: str, db: Session, *, statuses: tuple[str, ...],
-                camera_id: str | None, alert_type: str | None, severity: str | None,
-                limit: int, offset: int) -> dict:
+def _local_alert_page(db: Session, assignment_id: str, *, statuses: tuple[str, ...],
+                      camera_id: str | None, alert_type: str | None, severity: str | None,
+                      from_at: datetime | None, to_at: datetime | None,
+                      limit: int, offset: int) -> dict:
     assigned_camera = _assignment_camera(db, assignment_id, camera_id)
-    params = {"use_case": "grill_gate", "assignment_id": assignment_id,
-              "camera_id": assigned_camera, "sort": "newest", "limit": 100}
+    _validate_time_range(from_at, to_at)
+    conditions = [GrillGateAlert.use_case == "grill_gate",
+                  GrillGateAlert.assignment_id == str(assignment_id),
+                  GrillGateAlert.camera_id == assigned_camera,
+                  GrillGateAlert.status.in_(statuses)]
     if alert_type:
-        params["source_event_type"] = alert_type
+        conditions.append(GrillGateAlert.source_event_type == alert_type)
     if severity:
-        params["severity"] = severity.upper()
-    records = []
-    for status in statuses:
-        cursor = None
-        while True:
-            query = {**params, "status": status}
-            if cursor:
-                query["cursor"] = cursor
-            result = _alert_service_request("GET", "", params=query)
-            records.extend(item for item in result.get("items", [])
-                           if item.get("resource_refs", {}).get("assignment_id") == assignment_id
-                           and item.get("resource_refs", {}).get("camera_id") == assigned_camera)
-            cursor = result.get("next_cursor")
-            if not cursor:
-                break
-    records.sort(key=lambda item: (item.get("occurred_at", ""), item.get("id", "")), reverse=True)
-    total = len(records)
-    page = records[offset:offset + limit]
-    return {"items": page, "total": total, "limit": limit, "offset": offset,
-            "next_offset": offset + len(page) if offset + len(page) < total else None}
+        conditions.append(GrillGateAlert.severity == severity.upper())
+    if from_at is not None:
+        conditions.append(GrillGateAlert.triggered_at >= from_at)
+    if to_at is not None:
+        conditions.append(GrillGateAlert.triggered_at <= to_at)
+    total = db.scalar(select(func.count()).select_from(GrillGateAlert).where(*conditions)) or 0
+    rows = db.scalars(select(GrillGateAlert).where(*conditions)
+        .order_by(GrillGateAlert.triggered_at.desc(), GrillGateAlert.id.desc())
+        .offset(offset).limit(limit)).all()
+    items = [alert_dict(row) for row in rows]
+    logger.debug("Grill Gate local alerts listed assignment=%s camera=%s statuses=%s count=%s offset=%s",
+                 assignment_id, assigned_camera, statuses, total, offset)
+    next_offset = offset + len(items) if offset + len(items) < total else None
+    return {"items": items, "count": total, "total": total, "limit": limit,
+            "offset": offset, "next_offset": next_offset}
 
 
 @router.get("/assignments/{assignment_id}/alerts/active")
 def get_active_alerts(assignment_id: str, db: Db, caller: Caller,
                       camera_id: str | None = None, alert_type: str | None = None,
                       severity: Literal["INFO", "WARNING", "HIGH", "CRITICAL"] | None = None,
+                      from_at: datetime | None = Query(default=None, alias="from"),
+                      to_at: datetime | None = Query(default=None, alias="to"),
                       limit: int = Query(default=25, ge=1, le=100), offset: int = Query(default=0, ge=0)):
-    return _alert_list(assignment_id, db, statuses=("OPEN", "ACKNOWLEDGED"), camera_id=camera_id,
-                       alert_type=alert_type, severity=severity, limit=limit, offset=offset)
+    return _local_alert_page(db, assignment_id, statuses=("OPEN", "ACKNOWLEDGED"),
+        camera_id=camera_id, alert_type=alert_type, severity=severity,
+        from_at=from_at, to_at=to_at, limit=limit, offset=offset)
 
 
 @router.get("/assignments/{assignment_id}/alerts/history")
 def get_alert_history(assignment_id: str, db: Db, caller: Caller,
                       camera_id: str | None = None, alert_type: str | None = None,
                       severity: Literal["INFO", "WARNING", "HIGH", "CRITICAL"] | None = None,
-                      status: Literal["RESOLVED", "DISMISSED"] | None = None,
+                      status: Literal["ACKNOWLEDGED", "RESOLVED"] | None = None,
+                      from_at: datetime | None = Query(default=None, alias="from"),
+                      to_at: datetime | None = Query(default=None, alias="to"),
                       limit: int = Query(default=25, ge=1, le=100), offset: int = Query(default=0, ge=0)):
-    statuses = (status,) if status else ("RESOLVED", "DISMISSED")
-    return _alert_list(assignment_id, db, statuses=statuses, camera_id=camera_id,
-                       alert_type=alert_type, severity=severity, limit=limit, offset=offset)
+    statuses = (status,) if status else ("ACKNOWLEDGED", "RESOLVED")
+    return _local_alert_page(db, assignment_id, statuses=statuses, camera_id=camera_id,
+        alert_type=alert_type, severity=severity, from_at=from_at, to_at=to_at,
+        limit=limit, offset=offset)
 
 
 @router.get("/alerts/{alert_id}")
 def get_grill_gate_alert(alert_id: str, db: Db, caller: Caller):
-    alert = _alert_service_request("GET", f"/{alert_id}")
-    _alert_assignment(db, alert)
-    return alert
+    row = db.get(GrillGateAlert, alert_id)
+    if row is None or row.use_case != "grill_gate":
+        raise HTTPException(status_code=404, detail="Grill Gate alert not found")
+    return alert_dict(row)
 
 
 def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session):
-    alert = _alert_service_request("GET", f"/{alert_id}")
-    _alert_assignment(db, alert)
+    row = db.get(GrillGateAlert, alert_id)
+    if row is None or row.use_case != "grill_gate":
+        raise HTTPException(status_code=404, detail="Grill Gate alert not found")
+    if row.row_version != body.expected_version:
+        raise HTTPException(status_code=409, detail="Grill Gate alert changed; refresh and try again")
+    if row.status not in {"OPEN", "ACKNOWLEDGED"}:
+        raise HTTPException(status_code=409, detail="Only an active Grill Gate alert can be changed")
+    now = datetime.now(timezone.utc)
     if action == "acknowledge":
-        path = f"/{alert_id}/acknowledgements"
+        if row.status == "OPEN":
+            row.status = "ACKNOWLEDGED"
+            row.row_version += 1
+            row.updated_at = now
     else:
-        path = f"/{alert_id}/resolution"
-    result = _alert_service_request("POST", path, json_body={"expected_version": body.expected_version,
-        "note": body.note})
-    _alert_assignment(db, result)
-    return result
+        row.status = "RESOLVED"
+        row.resolved_at = now
+        row.resolution_note = (body.note or "Resolved by operator").strip()[:500]
+        row.row_version += 1
+        row.updated_at = now
+    db.commit()
+    db.refresh(row)
+    return alert_dict(row)
 
 
 @router.post("/alerts/{alert_id}/acknowledge")

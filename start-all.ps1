@@ -37,22 +37,26 @@ function Get-ValueFromMaps {
 }
 
 function Test-AlertCredentialsMap {
-    param([string]$Value, [ValidateSet('producer','operator')][string]$Kind)
+    param([string]$Value, [ValidateSet('producer','operator')][string]$Kind,
+          [string]$RequiredUseCase)
     if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
     try {
         $parsed = $Value | ConvertFrom-Json -ErrorAction Stop
         if ($null -eq $parsed -or $parsed -isnot [System.Management.Automation.PSCustomObject]) { return $false }
         $items = @($parsed.PSObject.Properties)
         if ($items.Count -eq 0) { return $false }
+        $scopeFound = [string]::IsNullOrWhiteSpace($RequiredUseCase)
         foreach ($item in $items) {
             if ([string]::IsNullOrWhiteSpace($item.Name)) { return $false }
             if ($Kind -eq 'producer') {
                 if ([string]::IsNullOrWhiteSpace([string]$item.Value.use_case) -or [string]::IsNullOrWhiteSpace([string]$item.Value.producer)) { return $false }
+                if ($item.Value.use_case -eq $RequiredUseCase) { $scopeFound = $true }
             } else {
                 if ([string]::IsNullOrWhiteSpace([string]$item.Value.actor_id) -or $null -eq $item.Value.use_cases) { return $false }
+                if (@($item.Value.use_cases) -contains $RequiredUseCase -or @($item.Value.use_cases) -contains '*') { $scopeFound = $true }
             }
         }
-        return $true
+        return $scopeFound
     } catch { return $false }
 }
 
@@ -200,10 +204,13 @@ try {
     }
     $producerCredentials = Get-LauncherEnvValue -Values $callerAlertEnv -Name 'ALERT_PRODUCER_CREDENTIALS'
     $operatorCredentials = Get-LauncherEnvValue -Values $callerAlertEnv -Name 'ALERT_OPERATOR_CREDENTIALS'
-    if (-not (Test-AlertCredentialsMap -Value $producerCredentials -Kind producer)) { Add-LauncherWarning 'Alert Service producer credentials are not configured; Vault/Branch publication will not be usable until matching producer tokens are configured.' }
-    if (-not (Test-AlertCredentialsMap -Value $operatorCredentials -Kind operator)) { Add-LauncherWarning 'Alert Service operator credentials are not configured; protected Alert Center API calls will fail until an operator token is configured.' }
-    foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN')) {
-        if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $vaultEnv -Name $name))) { Add-LauncherWarning "Vault $name is unset; Vault alert publication is disabled."; break }
+    if (-not (Test-AlertCredentialsMap -Value $producerCredentials -Kind producer -RequiredUseCase 'grill_gate')) { Add-LauncherWarning 'Alert Service has no valid Grill Gate producer registration; Grill Gate alert publication requires a producer token mapped to use_case=grill_gate and producer=grill-gate-monitoring.' }
+    if (-not (Test-AlertCredentialsMap -Value $operatorCredentials -Kind operator -RequiredUseCase 'grill_gate')) { Add-LauncherWarning 'Alert Service has no operator credential scoped to grill_gate; Grill Gate alert listing and active-condition recovery will fail.' }
+    foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN','ALERT_SERVICE_OPERATOR_TOKEN')) {
+        if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $vaultEnv -Name $name))) {
+            $purpose = if ($name -eq 'ALERT_SERVICE_OPERATOR_TOKEN') { 'Grill Gate alert listing and active-condition recovery' } else { 'Grill Gate alert publication' }
+            Add-LauncherWarning "Vault $name is unset; $purpose is unavailable. Configure it in backend/use_cases/vault_monitoring/.env."
+        }
     }
     foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN')) {
         if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $branchEnv -Name $name))) { Add-LauncherWarning "Branch $name is unset; Branch alert publication is disabled."; break }

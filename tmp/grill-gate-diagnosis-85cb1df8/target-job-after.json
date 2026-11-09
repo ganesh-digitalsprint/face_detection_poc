@@ -1,0 +1,64 @@
+{
+    "job_id":  "372122de-9924-4fad-9c74-c009d1a5ad0f",
+    "asset_job_id":  null,
+    "zone_configuration_id":  "f4ff14b3-eb2a-40da-a537-6b4633b82405",
+    "filename":  "grill-gate-85cb1df8-recalibration.mp4",
+    "status":  "UPLOADED",
+    "template_assignment_id":  null,
+    "frame_count":  0,
+    "progress_seconds":  0.0,
+    "error_code":  null,
+    "created_at":  "2026-11-09T16:37:07.959486+05:30",
+    "started_at":  null,
+    "completed_at":  null,
+    "processed_frames":  0,
+    "total_frames":  592,
+    "progress":  0.0,
+    "processing_fps":  null,
+    "video_time_seconds":  0.0,
+    "duration_seconds":  19.753,
+    "width":  2560,
+    "height":  1440,
+    "fps":  29.97002997002997,
+    "error":  null,
+    "crossing_strategy":  "three_zone",
+    "alert_configuration":  {
+                                "gate_open_enabled":  true,
+                                "gate_open_severity":  "WARNING",
+                                "max_mesh_occupancy":  3,
+                                "max_gate_open_seconds":  4.0,
+                                "mesh_occupancy_enabled":  true,
+                                "partially_open_enabled":  false,
+                                "mesh_occupancy_severity":  "WARNING",
+                                "partially_open_severity":  "WARNING",
+                                "max_partially_open_seconds":  null,
+                                "crossing_unknown_recovery_frames":  2
+                            },
+    "event_count":  0,
+    "alert_count":  0,
+    "readiness":  {
+                      "video_saved":  true,
+                      "gate_zone_defined":  true,
+                      "calibration_matches_frame":  true,
+                      "crossing_zones_defined":  true,
+                      "mesh_zone_defined":  true,
+                      "calibration_status":  {
+                                                 "video_frame":  {
+                                                                     "width":  2560,
+                                                                     "height":  1440
+                                                                 },
+                                                 "reference_frame":  {
+                                                                         "width":  2560,
+                                                                         "height":  1440
+                                                                     },
+                                                 "message":  null
+                                             },
+                      "ready":  true,
+                      "missing":  [
+
+                                  ]
+                  },
+    "editable":  true,
+    "video_available":  true,
+    "monitoring":  null
+}

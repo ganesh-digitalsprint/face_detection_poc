@@ -5,12 +5,6 @@ zone_types:
   - key: gate_approach
     label: Gate approach
     description: Outside approach region before the gate threshold.
-  - key: gate_trigger
-    label: Gate trigger
-    description: Region near the gate threshold used for gate monitoring context.
-  - key: gate_crossing
-    label: Gate crossing corridor
-    description: Polygon corridor around the crossing area; directional crossing uses a separate calibrated virtual line.
   - key: gate_interior
     label: Gate interior
     description: Inside region on the bank-premises side of the gate.

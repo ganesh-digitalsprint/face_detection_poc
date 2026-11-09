@@ -28,6 +28,105 @@ def test_gate_open_only_alerts_after_threshold_once_and_resolves_on_close():
     assert sent[1]["expected_source_version"] == 1
 
 
+def test_gate_open_thresholds_of_three_and_four_seconds_use_continuous_open_duration():
+    for threshold in (3, 4):
+        rule, sent = engine(GrillGateAlertConfig(gate_open_enabled=True,
+                                                  max_gate_open_seconds=threshold))
+        rule.on_gate_transition("OPEN", T0)
+        rule.tick(T0 + timedelta(seconds=threshold - 0.001))
+        assert sent == []
+        rule.tick(T0 + timedelta(seconds=threshold))
+        assert len(sent) == 1
+        assert sent[0]["payload"]["source_event_type"] == "GATE_OPEN_TOO_LONG"
+        assert sent[0]["payload"]["domain_data"]["configured_threshold_seconds"] == threshold
+
+
+def test_uploaded_video_timer_advances_and_alerts_exactly_at_threshold_once():
+    sent = []
+    rule = GrillGateAlertRuleEngine("job", "job", lambda command: sent.append(command) or True,
+        config=GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=3),
+        source_context={"source_type": "UPLOADED_VIDEO", "video_job_id": "job"})
+    rule.on_crossing_activity(0, False, T0)
+    rule.on_gate_transition("OPEN", T0)
+    assert rule.monitoring_status(T0)["open_without_crossing_seconds"] == 0
+    assert rule.monitoring_status(T0)["timer_state"] == "COUNTING"
+    assert rule.monitoring_status(T0 + timedelta(seconds=2))["progress_percent"] == 66.67
+    rule.tick(T0 + timedelta(seconds=3))
+    rule.tick(T0 + timedelta(seconds=4))
+    assert [item["payload"]["source_event_type"] for item in sent if item["action"] == "create"] == ["GATE_OPEN_TOO_LONG"]
+    assert rule.monitoring_status(T0 + timedelta(seconds=3))["timer_state"] == "ALERT_RAISED"
+    assert rule.monitoring_status(T0 + timedelta(seconds=3))["source_timestamp"].endswith("Z")
+
+
+def test_uploaded_video_completed_entry_and_exit_reset_only_the_open_without_crossing_interval():
+    rule, _sent = engine(GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=3))
+    rule._source_context["source_type"] = "UPLOADED_VIDEO"
+    rule.on_gate_transition("OPEN", T0)
+    for direction in ("ENTRY", "EXIT"):
+        rule.on_completed_crossing(direction, T0 + timedelta(seconds=2))
+        status = rule.monitoring_status(T0 + timedelta(seconds=2))
+        assert status["open_without_crossing_seconds"] == 0
+        assert status["gate_open_seconds"] == 2
+        assert status["seconds_since_crossing"] == 0
+    assert rule.on_completed_crossing("INCOMPLETE", T0 + timedelta(seconds=3)) is False
+    assert rule.monitoring_status(T0 + timedelta(seconds=3))["open_without_crossing_seconds"] == 1
+
+
+def test_open_timer_distinguishes_explicitly_unset_threshold():
+    rule, _sent = engine(GrillGateAlertConfig())
+    rule.on_gate_transition("OPEN", T0)
+    status = rule.monitoring_status(T0)
+    assert status["threshold_configured"] is False
+    assert status["open_without_crossing_threshold_seconds"] is None
+    assert status["timer_state"] != "NOT_COUNTING"
+
+
+def test_gate_open_disabled_and_closed_before_threshold_do_not_raise():
+    disabled, disabled_sent = engine(GrillGateAlertConfig(max_gate_open_seconds=3))
+    disabled.on_gate_transition("OPEN", T0)
+    disabled.tick(T0 + timedelta(seconds=10))
+    assert disabled_sent == []
+
+    rule, sent = engine(GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=4))
+    rule.on_gate_transition("OPEN", T0)
+    rule.tick(T0 + timedelta(seconds=3))
+    rule.on_gate_transition("CLOSED", T0 + timedelta(seconds=3))
+    assert [command["action"] for command in sent] == []
+
+
+def test_gate_open_timer_keeps_crossing_safeguards_and_is_independent_of_crossing_time():
+    rule, sent = engine(GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=3))
+    rule.on_gate_transition("OPEN", T0)
+    rule.on_crossing_activity(0, False, T0 + timedelta(seconds=3))
+    assert sent == []
+    rule.on_crossing_activity(1, True, T0 + timedelta(seconds=4))
+    assert sent == []
+    # Once crossing activity is clear and reliable, the qualifying continuous OPEN duration applies.
+    rule.on_crossing_activity(0, True, T0 + timedelta(seconds=5))
+    assert [command["payload"]["source_event_type"] for command in sent] == ["GATE_OPEN_TOO_LONG"]
+
+    no_crossing_timer, no_crossing_sent = engine(
+        GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=3))
+    no_crossing_timer.on_gate_transition("OPEN", T0)
+    no_crossing_timer.on_crossing_activity(0, True, T0 + timedelta(seconds=2))
+    no_crossing_timer.tick(T0 + timedelta(seconds=3))
+    assert len(no_crossing_sent) == 1
+
+
+def test_crossing_suppression_does_not_create_a_second_alert_in_the_same_open_episode():
+    rule, sent = engine(GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=3))
+    rule.on_gate_transition("OPEN", T0)
+    rule.tick(T0 + timedelta(seconds=3))
+    rule.on_crossing_activity(1, True, T0 + timedelta(seconds=4))
+    rule.on_crossing_activity(0, True, T0 + timedelta(seconds=5))
+    assert [command["action"] for command in sent] == ["create"]
+
+    rule.on_gate_transition("CLOSED", T0 + timedelta(seconds=6))
+    rule.on_gate_transition("OPEN", T0 + timedelta(seconds=7))
+    rule.tick(T0 + timedelta(seconds=10))
+    assert [command["action"] for command in sent] == ["create", "resolve", "create"]
+
+
 def test_unknown_pauses_timer_and_reopen_after_resolution_creates_new_alert():
     rule, sent = engine(GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=5))
     rule.on_gate_transition("OPEN", T0)

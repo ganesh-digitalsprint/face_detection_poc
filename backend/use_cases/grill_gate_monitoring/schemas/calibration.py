@@ -135,7 +135,7 @@ class GrillGateCalibration(StrictModel):
     coordinate_system: Literal["normalized_raw"] = "normalized_raw"
     calibrated_at: datetime
     sliding_gate: SlidingGateCalibration
-    directional_crossing: CrossingCalibration
+    directional_crossing: CrossingCalibration | None = None
     monitoring: MeshAndTimerSettings = Field(default_factory=MeshAndTimerSettings)
 
     @model_validator(mode="after")
@@ -151,6 +151,33 @@ class GrillGateCalibration(StrictModel):
                 f"Frame dimensions mismatch: calibration is {self.reference_frame.width}x"
                 f"{self.reference_frame.height}, received {width}x{height}; recalibrate this assignment"
             )
+
+
+def default_video_calibration(width: int, height: int) -> dict:
+    """Build a frame-matched calibration from the existing standard gate-state values.
+
+    The optional Three-Zone crossing path needs endpoint polygons, not a virtual line.
+    No image-space endpoint measurements or polygon coordinates are synthesized here.
+    """
+    value = {
+        "schema_version": 1,
+        "reference_frame": {"width": width, "height": height},
+        "coordinate_system": "normalized_raw",
+        "calibrated_at": datetime.now().astimezone().isoformat(),
+        "sliding_gate": {
+            "gate_roi_zone_key": "gate_leaf_roi",
+            "closed_reference_position": 0.0,
+            "open_reference_position": 1.0,
+            "horizontal_movement_direction": "left_to_right",
+            "position_thresholds": {"closed_tolerance": 0.1, "open_tolerance": 0.1},
+            "confidence_threshold": 0.5,
+            "state_confirmation_durations": {"closed_seconds": 0.5, "opening_seconds": 0.3,
+                "open_seconds": 0.5, "partially_open_seconds": 1.0, "closing_seconds": 0.3},
+            "hysteresis_fraction": 0.05,
+        },
+        "monitoring": {"thresholds_status": "unset"},
+    }
+    return GrillGateCalibration.model_validate(value).model_dump(mode="json")
 
 
 def validate_grill_gate_calibration(value: dict | None) -> dict | None:

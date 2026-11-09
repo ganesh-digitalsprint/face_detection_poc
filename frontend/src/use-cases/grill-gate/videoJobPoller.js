@@ -55,10 +55,19 @@ export function createVideoJobPoller({
     try {
       const job = await api.getJob(jobId, controller.signal);
       if (stopped) return;
+      let effectiveJob = job;
+      if (!Object.hasOwn(job, 'alert_configuration') && api.getConfig) {
+        try {
+          const config = await api.getConfig(jobId, controller.signal);
+          if (config?.alert_configuration) effectiveJob = { ...job, alert_configuration: config.alert_configuration };
+        } catch {
+          // The job status remains usable if the optional saved-config endpoint is temporarily unavailable.
+        }
+      }
       const at = now();
       state.fps = processingFps(job, sample, at) ?? (job.status === 'PROCESSING' ? state.fps : null);
       sample = job.status === 'PROCESSING' ? { frames: job.frame_count, at } : null;
-      state.job = job;
+      state.job = effectiveJob;
       // The worker flushes its events before writing a terminal status, so this read of a finished job is complete.
       await readResults(controller.signal, jobIsTerminal(job));
       if (stopped) return;

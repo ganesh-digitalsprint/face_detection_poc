@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from grill_gate_monitoring.schemas.processing import DEFAULT_PROCESSING_SETTINGS, GrillGateProcessingSettings
-from grill_gate_monitoring.services.crossing_detector import (
-    _box, _confidence, _foot_point, _valid_track_id,
+from grill_gate_monitoring.services.track_geometry import (
+    box as _box, confidence as _confidence, foot_point as _foot_point, valid_track_id as _valid_track_id,
 )
 from grill_gate_monitoring.services.zone_geometry import contains_point, find_zone, normalized_polygon
+from grill_gate_monitoring.services.diagnostics import log_diagnostic
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class _MeshTrack:
     outside_samples: int = 0
     last_seen: float = 0.0
     last_point: tuple[float, float] | None = None
+    last_inside_observation: bool | None = None
 
 
 class MeshAreaMonitor:
@@ -53,7 +55,8 @@ class MeshAreaMonitor:
 
     def update(self, *, camera_id: str, assignment_id: str, tracks: list,
                sequence_number: int, timestamp: datetime, now_monotonic: float,
-               frame_width: int, frame_height: int) -> list[dict]:
+               frame_width: int, frame_height: int, video_job_id: str | None = None,
+               video_timestamp: float | None = None) -> list[dict]:
         session_key = (str(camera_id), str(assignment_id))
         if sequence_number <= self._last_sequence.get(session_key, -1):
             return []
@@ -78,23 +81,42 @@ class MeshAreaMonitor:
             state.last_seen = now_monotonic
             state.last_point = point
             inside = contains_point(self._polygon, *point)
+            if logger.isEnabledFor(logging.DEBUG) and state.last_inside_observation is not inside:
+                log_diagnostic(logger, "mesh_membership", level=logging.DEBUG,
+                               video_job_id=video_job_id, frame_number=sequence_number,
+                               video_timestamp=video_timestamp, track_id=track_id,
+                               previous_mesh_membership=state.last_inside_observation,
+                               current_mesh_membership=inside, bottom_center=point)
+            state.last_inside_observation = inside
             if inside:
                 state.outside_samples = 0
                 state.inside_samples += 1
                 if (not state.inside and
                         state.inside_samples >= self._settings.transition_confirmation_frames):
+                    previous_state = state.inside
                     state.inside = True
                     events.append(self._event("MESH_PERSON_ENTERED", session_key, track_id,
                                               point, timestamp, sequence_number))
+                    log_diagnostic(logger, "mesh_event_generated", level=logging.INFO,
+                                   video_job_id=video_job_id, frame_number=sequence_number,
+                                   video_timestamp=video_timestamp, track_id=track_id,
+                                   previous_mesh_state=previous_state, current_mesh_state=state.inside,
+                                   event_type="MESH_PERSON_ENTERED", bottom_center=point)
             else:
                 state.inside_samples = 0
                 if state.inside:
                     state.outside_samples += 1
                     if state.outside_samples >= self._settings.transition_confirmation_frames:
+                        previous_state = state.inside
                         state.inside = False
                         state.outside_samples = 0
                         events.append(self._event("MESH_PERSON_EXITED", session_key, track_id,
                                                   point, timestamp, sequence_number))
+                        log_diagnostic(logger, "mesh_event_generated", level=logging.INFO,
+                                       video_job_id=video_job_id, frame_number=sequence_number,
+                                       video_timestamp=video_timestamp, track_id=track_id,
+                                       previous_mesh_state=previous_state, current_mesh_state=state.inside,
+                                       event_type="MESH_PERSON_EXITED", bottom_center=point)
         events.extend(self._expire_missing(session_key, now_monotonic, timestamp, sequence_number))
         self._cleanup(now_monotonic)
         return events

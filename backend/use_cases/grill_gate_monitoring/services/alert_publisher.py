@@ -40,6 +40,13 @@ class GrillGateAlertPublisher:
     def active_conditions(self, assignment_id: str, camera_id: str) -> list[dict]:
         """Read active Grill Gate condition identities for recovery, without owning alert storage."""
         if not self._base or not self._operator_token:
+            missing = []
+            if not self._base:
+                missing.append("operator_service_url")
+            if not self._operator_token:
+                missing.append("operator_credential")
+            logger.warning("Grill Gate active-alert recovery unavailable missing_configuration=%s",
+                           ",".join(missing))
             return []
         rows = []
         try:
@@ -51,7 +58,9 @@ class GrillGateAlertPublisher:
                         "camera_id": str(camera_id), "status": status, "limit": 100,
                         "sort": "newest"})
                     if response.status_code != 200:
-                        logger.warning("Grill Gate active-alert recovery rejected status=%s", response.status_code)
+                        reason = "authentication_failed" if response.status_code in {401, 403} else "service_rejected"
+                        logger.warning("Grill Gate active-alert recovery rejected status=%s reason=%s",
+                                       response.status_code, reason)
                         continue
                     rows.extend(response.json().get("items", []))
             # Include locally queued creates that have not reached the shared store yet.
@@ -71,13 +80,22 @@ class GrillGateAlertPublisher:
                     logger.warning("Skipping malformed Grill Gate alert outbox entry %s", path.name)
             return rows
         except Exception as exc:
-            logger.warning("Grill Gate active-alert recovery failed (%s)", type(exc).__name__)
+            logger.warning("Grill Gate active-alert recovery failed reason=transport_or_response error=%s",
+                           type(exc).__name__)
             return []
 
     def start(self) -> None:
         if not self.enabled:
-            logger.info("Grill Gate shared Alert Service publisher disabled; endpoint/token not configured")
+            missing = []
+            if not self._base:
+                missing.append("ALERT_SERVICE_BASE_URL")
+            if not self._token:
+                missing.append("ALERT_SERVICE_TOKEN")
+            logger.warning("Grill Gate shared Alert Service publisher disabled missing_configuration=%s",
+                           ",".join(missing))
             return
+        if not self._operator_token:
+            logger.warning("Grill Gate alert publication is configured, but active-alert recovery is disabled missing_configuration=ALERT_SERVICE_OPERATOR_TOKEN")
         with self._lock:
             if self._thread and self._thread.is_alive():
                 return
@@ -189,16 +207,17 @@ class GrillGateAlertPublisher:
                     return
                 retryable = response.status_code in {408, 425, 429} or response.status_code >= 500
                 if not retryable:
-                    logger.error("Grill Gate alert publication rejected action=%s status=%s source=%s",
-                                 action, response.status_code, command["source_event_id"])
+                    reason = "authentication_failed" if response.status_code in {401, 403} else "request_rejected"
+                    logger.error("Grill Gate alert publication rejected action=%s status=%s reason=%s source=%s",
+                                 action, response.status_code, reason, command["source_event_id"])
                     self._write(self._failed / path.name,
                                 {**state, "attempt": int(state.get("attempt", 0)) + attempt + 1,
                                  "status_code": response.status_code})
                     path.unlink(missing_ok=True)
                     return
             except Exception as exc:
-                logger.warning("Grill Gate alert persistence attempt failed source=%s error=%s",
-                               command.get("source_event_id"), type(exc).__name__)
+                logger.warning("Grill Gate alert delivery attempt failed action=%s source=%s error=%s",
+                               action, command.get("source_event_id"), type(exc).__name__)
             if attempt < 4:
                 self._retry_wait(min(30.0, 0.5 * (2 ** attempt)))
         attempts = int(state.get("attempt", 0)) + 5

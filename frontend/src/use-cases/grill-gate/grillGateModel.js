@@ -9,8 +9,6 @@
 export const ZONE_COLORS = {
   gate_leaf_roi: '#7c93ff',
   gate_approach: '#4f7cf7',
-  gate_trigger: '#22d3ee',
-  gate_crossing: '#f5b83d',
   gate_interior: '#34d399',
   mesh_area: '#a78bfa',
 };
@@ -95,6 +93,7 @@ export const EMPTY_MONITORING = Object.freeze({
   status: 'INACTIVE',
   gateState: 'UNKNOWN',
   gateOpenSeconds: 0,
+  openWithoutCrossingSeconds: null,
   secondsSinceCrossing: 0,
   entryCount: 0,
   exitCount: 0,
@@ -119,7 +118,7 @@ export function previewState(connection) {
   };
 }
 
-const REQUIRED_CALIBRATION_KEYS = ['reference_frame', 'sliding_gate', 'directional_crossing', 'calibrated_at'];
+const REQUIRED_CALIBRATION_KEYS = ['reference_frame', 'sliding_gate', 'calibrated_at'];
 
 /**
  * Calibration readiness for operators. The backend validates on save; this only reports what is visible:
@@ -147,14 +146,20 @@ export function calibrationStatus(calibration, { worker = null, zones = [] } = {
 /** PATCH /assignments replaces `configuration`, so changing one key must carry the rest (e.g. grill_gate_alerts). */
 export const mergeAssignmentConfiguration = (current, changes) => ({ ...(current ?? {}), ...changes });
 
+/** Merge live Grill Gate alert edits without dropping existing assignment settings or alert rules. */
+export const mergeGrillGateAlertConfiguration = (current, alertConfiguration) => ({
+  ...(current ?? {}),
+  grill_gate_alerts: { ...(current?.grill_gate_alerts ?? {}), ...(alertConfiguration ?? {}) },
+});
+
 /** Reference positions are progress-space endpoints for the geometry detector, not operator settings. */
 const FIXED_GATE_REFERENCE = { closed_reference_position: '0', open_reference_position: '1', horizontal_movement_direction: 'left_to_right' };
 
-/** Values the operator chooses to start from with the visible button; they stay editable and unsaved until Save. */
+/** Baseline values used internally while advanced calibration inputs are hidden. */
 export const CALIBRATION_STARTING_VALUES = {
   closed_tolerance: '0.1', open_tolerance: '0.1', confidence_threshold: '0.5', hysteresis_fraction: '0.05',
   closed_seconds: '0.5', opening_seconds: '0.3', open_seconds: '0.5', partially_open_seconds: '1', closing_seconds: '0.3',
-  dead_band_fraction: '0.05', minimum_crossing_displacement: '0.02',
+  outside_side: 'left', inside_side: 'right', dead_band_fraction: '0.05', minimum_crossing_displacement: '0.02',
 };
 
 const FORM_META_KEYS = new Set(['width', 'height', 'thresholds_status']);
@@ -175,6 +180,9 @@ export function zoneCoverage(zoneTypes, zones) {
   if (other.length) rows.push({ key: '__other', label: 'Other / unknown type', description: 'Zones whose type is not configured for Grill Gate.', zones: other });
   return rows;
 }
+
+export const THREE_ZONE_TYPES = Object.freeze(['gate_leaf_roi', 'gate_approach', 'gate_interior', 'mesh_area']);
+export const zoneTypesForStrategy = (zoneTypes) => (zoneTypes ?? []).filter((type) => THREE_ZONE_TYPES.includes(type.key));
 
 /** Normalized [[x, y], ...] or [{x, y}, ...] -> [{x, y}]. */
 export const polygonPoints = (polygon) => (polygon ?? []).map((point) => (Array.isArray(point) ? { x: point[0], y: point[1] } : point));
@@ -224,8 +232,10 @@ const num = (value) => (String(value ?? '').trim() === '' ? null : Number(value)
 const int = (value) => (String(value ?? '').trim() === '' ? null : Number.parseInt(value, 10));
 const choice = (value) => (value ? value : null);
 
-/** Build the GrillGateCalibration document (schema_version 1) from form strings. */
+/** Build schema_version 1 config; optional advanced fields use the shared starting values. */
 export function formToCalibration(form, calibratedAt = new Date()) {
+  const withDefault = (name) => (String(form[name] ?? '').trim() === '' ? CALIBRATION_STARTING_VALUES[name] : form[name]);
+  const line = formLine(form);
   return {
     schema_version: 1,
     reference_frame: { width: int(form.width), height: int(form.height) },
@@ -236,27 +246,27 @@ export function formToCalibration(form, calibratedAt = new Date()) {
       closed_reference_position: num(form.closed_reference_position),
       open_reference_position: num(form.open_reference_position),
       horizontal_movement_direction: choice(form.horizontal_movement_direction),
-      position_thresholds: { closed_tolerance: num(form.closed_tolerance), open_tolerance: num(form.open_tolerance) },
-      confidence_threshold: num(form.confidence_threshold),
+      position_thresholds: { closed_tolerance: num(withDefault('closed_tolerance')), open_tolerance: num(withDefault('open_tolerance')) },
+      confidence_threshold: num(withDefault('confidence_threshold')),
       state_confirmation_durations: {
-        closed_seconds: num(form.closed_seconds),
-        opening_seconds: num(form.opening_seconds),
-        open_seconds: num(form.open_seconds),
-        partially_open_seconds: num(form.partially_open_seconds),
-        closing_seconds: num(form.closing_seconds),
+        closed_seconds: num(withDefault('closed_seconds')),
+        opening_seconds: num(withDefault('opening_seconds')),
+        open_seconds: num(withDefault('open_seconds')),
+        partially_open_seconds: num(withDefault('partially_open_seconds')),
+        closing_seconds: num(withDefault('closing_seconds')),
       },
-      hysteresis_fraction: num(form.hysteresis_fraction),
+      hysteresis_fraction: num(withDefault('hysteresis_fraction')),
     },
-    directional_crossing: {
-      line_start: { x: num(form.line_start_x), y: num(form.line_start_y) },
-      line_end: { x: num(form.line_end_x), y: num(form.line_end_y) },
-      outside_side: choice(form.outside_side),
-      inside_side: choice(form.inside_side),
+    ...(line ? { directional_crossing: {
+      line_start: line.start,
+      line_end: line.end,
+      outside_side: choice(withDefault('outside_side')),
+      inside_side: choice(withDefault('inside_side')),
       entry_direction: 'outside_to_inside',
       exit_direction: 'inside_to_outside',
-      dead_band_fraction: num(form.dead_band_fraction),
-      minimum_crossing_displacement: num(form.minimum_crossing_displacement),
-    },
+      dead_band_fraction: num(withDefault('dead_band_fraction')),
+      minimum_crossing_displacement: num(withDefault('minimum_crossing_displacement')),
+    } } : {}),
     monitoring: {
       thresholds_status: form.thresholds_status || 'unset',
       maximum_continuous_open_seconds: num(form.maximum_continuous_open_seconds),

@@ -1,10 +1,12 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
 from app.api.dependencies import get_db
 from grill_gate_monitoring.api import grill_gate
 from app.core.config import settings
 from grill_gate_monitoring.services.camera_worker import CaptureSource
+from app.services import grill_gate_runtime
 
 
 def test_worker_api_requires_existing_operator_auth(monkeypatch):
@@ -20,6 +22,15 @@ def test_worker_api_requires_existing_operator_auth(monkeypatch):
 
 def test_connect_api_response_does_not_expose_source_values(monkeypatch):
     monkeypatch.setattr(settings, "VAULT_ROOM_API_KEY", "test-operator-key")
+    assignment = SimpleNamespace(use_case="grill_gate", is_active=True, calibration=None,
+                                 configuration={"grill_gate_crossing_strategy": "three_zone", "grill_gate_alerts": {}})
+    class FakeDb:
+        def get(self, *_args): return assignment
+    monkeypatch.setattr(grill_gate.registry, "list_zones", lambda *_args, **_kwargs: [
+        {"zone_type": "gate_leaf_roi", "enabled": True},
+        {"zone_type": "gate_approach", "enabled": True},
+        {"zone_type": "gate_interior", "enabled": True},
+    ])
     monkeypatch.setattr(grill_gate.registry, "resolve_grill_gate_assignment_source",
         lambda _db, _assignment_id: ("assignment-1", "camera-1",
             CaptureSource("rtsp", "rtsp", "rtsp://user:secret@example.invalid/live")))
@@ -36,7 +47,7 @@ def test_connect_api_response_does_not_expose_source_values(monkeypatch):
     monkeypatch.setattr(grill_gate, "get_grill_gate_state_detector_manager", lambda: DetectorManager())
     app = FastAPI()
     app.include_router(grill_gate.router)
-    app.dependency_overrides[get_db] = lambda: None
+    app.dependency_overrides[get_db] = lambda: FakeDb()
     client = TestClient(app)
     response = client.post("/api/v1/grill-gate/assignments/assignment-1/connect",
         headers={"X-API-Key": "test-operator-key"})
@@ -68,6 +79,26 @@ def test_gate_state_endpoint_auth_and_missing_detector(monkeypatch):
     response = client.get(path, headers={"X-API-Key": "test-operator-key"})
     assert response.status_code == 200
     assert response.json()["state"] == "CLOSED"
+
+
+def test_runtime_config_loader_passes_saved_three_second_rule_to_worker(monkeypatch):
+    assignment = SimpleNamespace(is_active=True, calibration={"reference_frame": {"width": 640, "height": 360}},
+        zones_version=7, configuration={"grill_gate_alerts": {
+            "gate_open_enabled": True, "max_gate_open_seconds": 3,
+        }})
+
+    class FakeDb:
+        def get(self, *_args): return assignment
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+
+    monkeypatch.setattr(grill_gate_runtime, "SessionLocal", FakeDb)
+    monkeypatch.setattr(grill_gate_runtime, "list_zones", lambda *_args: [
+        {"zone_type": "gate_leaf_roi", "enabled": True},
+    ])
+    config = grill_gate_runtime._config_loader("assignment-1")()
+    assert config.alert_configuration.gate_open_enabled is True
+    assert config.alert_configuration.max_gate_open_seconds == 3
 
 
 def test_disconnect_api_stops_detector_before_capture_worker(monkeypatch):

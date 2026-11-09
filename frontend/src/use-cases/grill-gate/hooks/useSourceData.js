@@ -8,8 +8,24 @@ import { analysedFps } from '../liveMonitoringModel.js';
 const LIVE_POLL_MS = 3000;
 const emptyLive = (assignmentId) => ({
   assignmentId, gate: null, crossings: [], crossingTotal: 0, entryCount: 0, exitCount: 0, mesh: null, meshEvents: [],
-  alerts: [], alertsAvailable: true, fps: null, error: '', loaded: false, now: Date.now(),
+  alerts: [], alertsAvailable: true, alertsError: '', alertsLoading: Boolean(assignmentId),
+  alertsRequestAttempted: false, fps: null, error: '', loaded: false, now: Date.now(),
 });
+
+/** One monitoring poll for the selected assignment; local alerts are always requested with the same assignment scope. */
+export function fetchLiveMonitoringData(assignmentId, workerActive, signal) {
+  if (!assignmentId) return Promise.resolve(null);
+  return Promise.allSettled([
+    // A detector only exists while a worker runs; asking otherwise is a guaranteed 404.
+    workerActive ? getLiveGateState(assignmentId, signal) : null,
+    getLiveCrossings(assignmentId, { limit: 25 }, signal),
+    getLiveCrossings(assignmentId, { limit: 1, direction: 'OUTSIDE_TO_INSIDE' }, signal),
+    getLiveCrossings(assignmentId, { limit: 1, direction: 'INSIDE_TO_OUTSIDE' }, signal),
+    getLiveMeshStatus(assignmentId, signal),
+    getLiveMeshEvents(assignmentId, { limit: 25 }, signal),
+    getLiveActiveAlerts(assignmentId, { limit: 25 }, signal),
+  ]);
+}
 
 /** Live-camera data for one assignment. One read cycle at a time; data never survives a change of assignment. */
 export function useLiveMonitoring(assignmentId, workerActive) {
@@ -32,16 +48,11 @@ export function useLiveMonitoring(assignmentId, workerActive) {
       if (stopped || running) return;
       running = true;
       window.clearTimeout(timer);
-      const [gate, crossings, entries, exits, mesh, meshEvents, alerts] = await Promise.allSettled([
-        // A detector only exists while a worker runs; asking otherwise is a guaranteed 404.
-        workerActiveRef.current ? getLiveGateState(assignmentId, signal) : null,
-        getLiveCrossings(assignmentId, { limit: 25 }, signal),
-        getLiveCrossings(assignmentId, { limit: 1, direction: 'OUTSIDE_TO_INSIDE' }, signal),
-        getLiveCrossings(assignmentId, { limit: 1, direction: 'INSIDE_TO_OUTSIDE' }, signal),
-        getLiveMeshStatus(assignmentId, signal),
-        getLiveMeshEvents(assignmentId, { limit: 25 }, signal),
-        getLiveActiveAlerts(assignmentId, { limit: 25 }, signal),
-      ]);
+      setState((current) => current.assignmentId === assignmentId
+        ? { ...current, alertsLoading: true }
+        : current);
+      const [gate, crossings, entries, exits, mesh, meshEvents, alerts] = await fetchLiveMonitoringData(
+        assignmentId, workerActiveRef.current, signal);
       running = false;
       if (stopped) return;
       const at = Date.now();
@@ -49,6 +60,13 @@ export function useLiveMonitoring(assignmentId, workerActive) {
       const gateValue = gate.status === 'fulfilled' ? gate.value : null;
       const gateFailed = gate.status === 'rejected' && gate.reason?.response?.status !== 404;
       const failure = [gateFailed ? gate : null, crossings, mesh, meshEvents].find((item) => item?.status === 'rejected');
+      if (alerts.status === 'rejected') {
+        const error = describeError(alerts.reason);
+        console.warn('Grill Gate local alerts request failed', {
+          assignmentId, endpoint: `/api/v1/grill-gate/assignments/${assignmentId}/alerts/active`,
+          status: error.status, message: error.message,
+        });
+      }
       setState((current) => ({
         ...current,
         gate: gateValue,
@@ -60,6 +78,9 @@ export function useLiveMonitoring(assignmentId, workerActive) {
         meshEvents: meshEvents.status === 'fulfilled' ? meshEvents.value.items : current.meshEvents,
         alerts: alerts.status === 'fulfilled' ? alerts.value.items : current.alerts,
         alertsAvailable: alerts.status === 'fulfilled',
+        alertsError: alerts.status === 'rejected' ? describeError(alerts.reason).message : '',
+        alertsLoading: false,
+        alertsRequestAttempted: true,
         fps: analysedFps(sample, gateValue, at) ?? (gateValue ? current.fps : null),
         error: failure ? describeError(failure.reason).message : '',
         loaded: true,

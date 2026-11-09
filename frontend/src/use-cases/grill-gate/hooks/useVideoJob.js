@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { describeError } from '../../../utils/errors.js';
-import { getGrillGateVideoJob, getGrillGateVideoResults, uploadGrillGateVideo } from '../api/grillGate.js';
+import { getGrillGateVideoJob, getGrillGateVideoResults, getVideoJobConfig, uploadGrillGateVideo } from '../api/grillGate.js';
 import { createVideoJobPoller } from '../videoJobPoller.js';
 
 const api = {
   getJob: getGrillGateVideoJob,
+  getConfig: getVideoJobConfig,
   getResults: getGrillGateVideoResults,
   describeError: (error) => describeError(error).message,
 };

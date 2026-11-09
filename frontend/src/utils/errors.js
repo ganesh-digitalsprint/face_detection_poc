@@ -20,6 +20,10 @@ function extractDetail(data) {
   const detail = data?.detail;
   if (typeof detail === 'string') return detail;
   if (detail && typeof detail === 'object' && typeof detail.message === 'string') return detail.message;
+  if (detail && typeof detail === 'object' && Array.isArray(detail.missing)) {
+    const reasons = detail.missing.map((item) => item?.message).filter(Boolean);
+    if (reasons.length) return reasons.join('; ');
+  }
   if (Array.isArray(detail)) {
     return detail.map((d) => d?.msg).filter(Boolean).join('; ') || null;
   }

@@ -97,6 +97,65 @@ def edges_px(frame_bgr, cal: GateCalibration, prev: dict | None = None):
     return xL, xR, len(prof)
 
 
+def edge_search_diagnostics(frame_bgr, cal: GateCalibration) -> dict:
+    """Explain edge-search outcomes without changing detector thresholds or selection."""
+    profile = dark_profile(frame_bgr, cal)
+    width = len(profile)
+    max_run = int(cal.max_run_fraction * width)
+    dark = profile >= 0.6
+    delta = np.diff(np.concatenate(([0], dark.astype(int), [0])))
+    runs = [(int(start), int(end) - 1)
+            for start, end in zip(np.where(delta == 1)[0], np.where(delta == -1)[0])]
+    x0, y0, x1, y1 = roi_bbox(cal.roi_polygon)
+    result = {
+        "frame_size": {"width": int(frame_bgr.shape[1]), "height": int(frame_bgr.shape[0])},
+        "roi_bbox_px": [x0, y0, x1, y1],
+        "strip_y_px": strip_y_pixels(cal),
+        "max_run_px": max_run,
+        "dark_runs_roi_px": [{"start": start, "end": end, "width": end - start + 1}
+                             for start, end in runs],
+        "edges": {},
+    }
+    for side, window in (("left", cal.win_left), ("right", cal.win_right)):
+        a, b = int(window[0] * width), int(window[1] * width)
+        edge_for_side = (lambda start, end: start) if side == "left" else (lambda start, end: end)
+        in_window = [(start, end) for start, end in runs if a <= edge_for_side(start, end) <= b]
+        width_valid = [(start, end) for start, end in runs
+                       if end - start + 1 >= 6 and end - start + 1 <= max_run]
+        candidates = [(start, end) for start, end in width_valid
+                      if a <= edge_for_side(start, end) <= b]
+        detected = find_leaf_edge(profile, window, side, max_run_px=max_run)
+        if detected is not None:
+            reason = "edge detected"
+        elif not runs:
+            reason = "no dark runs at the configured strip rows"
+        elif in_window and not candidates:
+            oversized = [(start, end, end - start + 1) for start, end in in_window
+                         if end - start + 1 > max_run]
+            undersized = [(start, end, end - start + 1) for start, end in in_window
+                          if end - start + 1 < 6]
+            if oversized:
+                reason = (f"edge lies on dark run(s) wider than the configured maximum "
+                          f"({oversized}; max_run_px={max_run})")
+            elif undersized:
+                reason = f"edge lies on dark run(s) narrower than 6 px ({undersized})"
+            else:
+                reason = "dark runs inside the window were rejected by edge filtering"
+        elif width_valid:
+            positions = [x0 + edge_for_side(start, end) for start, end in width_valid]
+            reason = f"valid-width edge candidates are outside the search window; candidate_x_px={positions}"
+        else:
+            reason = f"no dark run has an accepted width (minimum=6 px, maximum={max_run} px)"
+        result["edges"][side] = {
+            "window_roi_px": [a, b],
+            "window_frame_px": [x0 + a, x0 + b],
+            "candidate_x_frame_px": [x0 + edge_for_side(start, end) for start, end in candidates],
+            "detected_x_frame_px": None if detected is None else x0 + int(detected),
+            "reason": reason,
+        }
+    return result
+
+
 def progress(x_frac, closed, open_):
     return float(np.clip((x_frac - closed) / (open_ - closed), -0.2, 1.2))
 
@@ -120,7 +179,11 @@ def calibrate_endpoints(closed_frame, open_frame, cal: GateCalibration) -> dict:
     for tag, frame in (("closed", closed_frame), ("open", open_frame)):
         xL, xR, W = edges_px(frame, cal)
         if xL is None or xR is None:
-            raise ValueError(f"Could not find both leaf edges in the {tag} frame; widen the search windows.")
+            detail = edge_search_diagnostics(frame, cal)
+            missing = [side for side, value in detail["edges"].items()
+                       if value["detected_x_frame_px"] is None]
+            reasons = "; ".join(f"{side}: {detail['edges'][side]['reason']}" for side in missing)
+            raise ValueError(f"Could not find {', '.join(missing)} leaf edge(s) in the {tag} frame. {reasons}")
         out[f"xL_{tag}"], out[f"xR_{tag}"] = round(xL / W, 4), round(xR / W, 4)
     if not (out["xL_open"] < out["xL_closed"] and out["xR_open"] > out["xR_closed"]):
         raise ValueError(f"Open/closed edges look swapped or too close: {out}")

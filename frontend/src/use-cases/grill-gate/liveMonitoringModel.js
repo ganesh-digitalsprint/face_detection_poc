@@ -9,8 +9,10 @@ const serverTime = (iso) => new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(String(iso)) ?
 const clockLabel = (iso) => (iso ? serverTime(iso).toLocaleTimeString(undefined, { hourCycle: 'h23' }) : '');
 
 export function liveMonitoring({ gate = null, crossings = [], crossingTotal = 0, entryCount = 0, exitCount = 0, mesh = null,
-  meshEvents = [], alerts = [], alertsAvailable = true, now = Date.now() } = {}) {
-  const alertViews = alerts.map((alert) => alertView(alert, clockLabel(alert.occurred_at)));
+  meshEvents = [], alerts = [], alertsAvailable = true, alertsError = '', alertsLoading = false,
+  alertsRequestAttempted = false, now = Date.now() } = {}) {
+  const alertViews = alerts.map((alert) => alertView(alert, clockLabel(alert.triggered_at ?? alert.occurred_at)))
+    .filter((alert) => alert.active);
   const lastCrossing = crossings[0];
   return {
     source: 'live',
@@ -21,6 +23,16 @@ export function liveMonitoring({ gate = null, crossings = [], crossingTotal = 0,
     gateProgress: gate?.progress ?? null,
     gateConfidence: gate?.confidence ?? null,
     gateOpenSeconds: gate?.gate_open_seconds ?? null,
+    gateOpenSince: gate?.gate_open_since ?? null,
+    openWithoutCrossingSeconds: gate?.open_without_crossing_seconds ?? null,
+    openWithoutCrossingThresholdSeconds: gate?.open_without_crossing_threshold_seconds ?? null,
+    thresholdConfigured: gate?.threshold_configured,
+    timerProgressPercent: gate?.progress_percent ?? null,
+    timerSourceTimestamp: gate?.source_timestamp ?? null,
+    lastCrossingAt: gate?.last_crossing_at ?? null,
+    lastCrossingDirection: gate?.last_crossing_direction ?? null,
+    secondsSinceCrossing: gate?.seconds_since_crossing ?? null,
+    timerState: gate?.timer_state ?? 'NOT_COUNTING',
     secondsSinceCrossing: lastCrossing ? Math.max(0, (now - serverTime(lastCrossing.occurred_at)) / 1000) : null,
     entryCount,
     exitCount,
@@ -32,6 +44,9 @@ export function liveMonitoring({ gate = null, crossings = [], crossingTotal = 0,
     alerts: alertViews,
     activeAlertCount: alertViews.length,
     alertsAvailable,
+    alertsError,
+    alertsLoading,
+    alertsRequestAttempted,
     events: mergeTimeline([...crossings, ...meshEvents], gate?.recent_transitions ?? [], {
       keyOf: (item) => serverTime(item.occurred_at ?? item.at).getTime(),
       labelOf: (item) => clockLabel(item.occurred_at ?? item.at),

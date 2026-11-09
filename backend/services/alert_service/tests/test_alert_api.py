@@ -71,6 +71,40 @@ def test_branch_severity_ingestion_and_exact_replay_create_one_audit_and_outbox(
         assert db.query(NotificationOutbox).count() == 1
 
 
+def test_grill_gate_contract_v1_producer_registration_publishes_one_scoped_logical_alert(tmp_path):
+    grill_producer = "grill-gate-test-producer"
+    grill_operator = "grill-gate-test-operator"
+    settings = Settings(
+        database_url=f"sqlite:///{(tmp_path / 'grill-alerts.db').as_posix()}",
+        producer_credentials={grill_producer: {"use_case": "grill_gate", "producer": "grill-gate-monitoring"}},
+        operator_credentials={grill_operator: {"actor_id": "gate-operator", "use_cases": ["grill_gate"]}},
+        notification_webhook_url="",
+    )
+    app = create_app(settings, start_notification_worker=False)
+    with TestClient(app) as client:
+        body = payload(
+            source_event_id="gate-open-source-1", source_event_type="GATE_OPEN_TOO_LONG",
+            severity="WARNING", title="Gate open too long", summary="Gate remained open for 3 seconds.",
+            resource_refs={"camera_id": "cam-1", "assignment_id": "assignment-1"},
+            domain_data={"schema_version": "grill-gate-alert/1", "configured_threshold_seconds": 3},
+        )
+        headers = {"Authorization": f"Bearer {grill_producer}", "Idempotency-Key": "grill-gate:source-1"}
+        created = client.post("/api/v1/alerts", headers=headers, json=body)
+        replay = client.post("/api/v1/alerts", headers=headers, json=body)
+        assert created.status_code == 201
+        assert replay.status_code == 200
+        assert replay.json()["id"] == created.json()["id"]
+        assert created.json()["use_case"] == "grill_gate"
+        assert created.json()["producer"] == "grill-gate-monitoring"
+        assert created.json()["source_event_type"] == "GATE_OPEN_TOO_LONG"
+        listing = client.get(
+            "/api/v1/alerts?use_case=grill_gate&assignment_id=assignment-1&camera_id=cam-1",
+            headers={"Authorization": f"Bearer {grill_operator}"},
+        )
+        assert listing.status_code == 200
+        assert [item["id"] for item in listing.json()["items"]] == [created.json()["id"]]
+
+
 def test_same_source_with_different_body_conflicts_even_with_new_idempotency_key(configured):
     client, _ = configured
     assert create(client).status_code == 201

@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     CORS_ALLOW_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
     # Root log level used by app.core.logging.setup_logging().
     LOG_LEVEL: LogLevel = "INFO"
+    # Grill Gate diagnostics can be more verbose without changing Vault log volume.
+    GRILL_GATE_LOG_LEVEL: LogLevel = "DEBUG"
 
     # ------------------------------------------------------------------
     # Database

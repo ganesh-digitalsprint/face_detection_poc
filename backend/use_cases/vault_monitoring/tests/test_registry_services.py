@@ -118,6 +118,38 @@ def test_registry_config_uses_configured_zone_types_and_no_fake_records(db):
     assert db.query(RegistryZone).count() == 0
 
 
+def test_grill_gate_alert_rules_persist_and_validate_on_assignment_update(db, monkeypatch):
+    monkeypatch.setattr(service, "_active_vault_identity", lambda: None)
+    _location, _camera, source, assignment = create_assigned_camera(
+        db, use_case="grill_gate", code="gate-alert-camera", connection="browser:terminal-a:gate-alert-camera")
+    initial = {
+        "source_id": source["id"], "other_setting": "preserved",
+        "grill_gate_alerts": {"gate_open_enabled": True, "max_gate_open_seconds": 30,
+                              "mesh_occupancy_enabled": True, "max_mesh_occupancy": 8},
+    }
+    saved = service.update_assignment(db, assignment["id"],
+        CameraUseCaseAssignmentUpdate(configuration=initial), "test-operator")
+    for seconds in (3, 4, 10, 30):
+        update = {**saved["configuration"], "grill_gate_alerts": {
+            **saved["configuration"]["grill_gate_alerts"], "max_gate_open_seconds": seconds,
+        }}
+        saved = service.update_assignment(db, assignment["id"],
+            CameraUseCaseAssignmentUpdate(configuration=update), "test-operator")
+        assert saved["configuration"]["grill_gate_alerts"]["max_gate_open_seconds"] == seconds
+        assert saved["configuration"]["source_id"] == source["id"]
+        assert saved["configuration"]["other_setting"] == "preserved"
+        assert saved["configuration"]["grill_gate_alerts"]["max_mesh_occupancy"] == 8
+
+    invalid = {**saved["configuration"], "grill_gate_alerts": {
+        **saved["configuration"]["grill_gate_alerts"], "max_gate_open_seconds": 0,
+    }}
+    with pytest.raises(service.RegistryError, match="Invalid Grill Gate alert configuration") as error:
+        service.update_assignment(db, assignment["id"],
+            CameraUseCaseAssignmentUpdate(configuration=invalid), "test-operator")
+    assert error.value.status_code == 422
+    assert service.list_assignments(db, use_case="grill_gate")[0]["configuration"]["grill_gate_alerts"]["max_gate_open_seconds"] == 30
+
+
 def test_assignment_calibration_is_optional_and_validated_only_for_grill_gate(db, monkeypatch):
     monkeypatch.setattr(service, "_active_vault_identity", lambda: None)
     _location, _camera, _source, vault_assignment = create_assigned_camera(

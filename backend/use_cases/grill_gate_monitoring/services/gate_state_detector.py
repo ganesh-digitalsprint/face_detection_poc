@@ -26,9 +26,12 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Callable
 
-from grill_gate_monitoring.services.gate_geometry import calibration_from_zone, measure, pick_gate_leaf_zone
+from grill_gate_monitoring.services.gate_geometry import (
+    calibration_from_zone, edge_search_diagnostics, measure, pick_gate_leaf_zone,
+)
 from grill_gate_monitoring.services.gate_state_machine import GateStateMachine, StateMachineParams, Transition
 from grill_gate_monitoring.services.frame_source import FrameSource
+from grill_gate_monitoring.services.diagnostics import log_diagnostic
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +92,10 @@ class GrillGateStateDetector:
             result["recent_transitions"] = list(self._transitions)
         if self._frame_processor is not None:
             result["processing"] = self._frame_processor.status()
-            result["gate_open_seconds"] = result["processing"].get("gate_open_seconds")
+            for key in ("gate_state", "gate_open_seconds", "gate_open_since", "open_without_crossing_seconds",
+                        "open_without_crossing_threshold_seconds", "last_crossing_at", "last_crossing_direction",
+                        "timer_state"):
+                result[key] = result["processing"].get(key)
         return result
 
     def mesh_status(self) -> dict:
@@ -114,6 +120,11 @@ class GrillGateStateDetector:
             event.update(source_type="UPLOADED_VIDEO", video_job_id=pkt.video_job_id,
                          video_time_seconds=pkt.video_time_seconds,
                          template_assignment_id=pkt.template_assignment_id)
+        log_diagnostic(logger, "gate_state_transition",
+                       level=logging.WARNING if tr.reason == "measurement lost (occlusion or low confidence)" else logging.INFO,
+                       category="STATE", **_packet_log_context(pkt, self.camera_id),
+                       from_state=tr.from_state, to_state=tr.to_state, progress=tr.progress,
+                       reason=tr.reason, transition_timestamp=event["at"])
         with self._lock:
             self._transitions.append(event)
         self._set(state=tr.to_state, since=event["at"], last_transition=event)
@@ -134,6 +145,7 @@ class GrillGateStateDetector:
 
     def _run(self) -> None:
         cfg = geo = machine = prev = last_packet = None
+        measurement_lost_since = None
         geo_key = None
         last_reload, last_proc, last_frame = -1e9, None, self._clock()
         while not self._stop.is_set():
@@ -145,14 +157,21 @@ class GrillGateStateDetector:
                 except Exception as exc:
                     self._set(error=f"configuration unavailable: {type(exc).__name__}")
                     new = None
-                if new is not None and (cfg is None or new.zones_version != cfg.zones_version
-                                        or new.calibration != cfg.calibration
-                                        or new.alert_configuration != cfg.alert_configuration):
-                    cfg, geo, geo_key, prev = new, None, None, None
-                    machine = GateStateMachine(StateMachineParams.from_calibration(cfg.calibration, **self._overrides))
-                    if self._frame_processor is not None:
-                        self._frame_processor.configure(cfg)
-                    self._set(error=None, zones_version=cfg.zones_version, state="UNKNOWN", since=None)
+                if new is not None:
+                    gate_configuration_changed = (cfg is None or new.zones_version != cfg.zones_version
+                                                  or new.calibration != cfg.calibration)
+                    alert_configuration_changed = (cfg is not None
+                                                   and new.alert_configuration != cfg.alert_configuration)
+                    if gate_configuration_changed:
+                        cfg, geo, geo_key, prev = new, None, None, None
+                        machine = GateStateMachine(StateMachineParams.from_calibration(cfg.calibration, **self._overrides))
+                        if self._frame_processor is not None:
+                            self._frame_processor.configure(cfg)
+                        self._set(error=None, zones_version=cfg.zones_version, state="UNKNOWN", since=None)
+                    elif alert_configuration_changed:
+                        cfg = new
+                        if self._frame_processor is not None:
+                            self._frame_processor.configure_alerts(cfg.alert_configuration)
             if cfg is None:
                 self._stop.wait(1.0)
                 continue
@@ -195,6 +214,37 @@ class GrillGateStateDetector:
                     continue
 
             res = measure(pkt.frame, geo, prev)
+            source_timestamp = (getattr(pkt, "video_time_seconds", None)
+                                if getattr(pkt, "source_type", "LIVE_CAMERA") == "UPLOADED_VIDEO"
+                                else pkt.captured_at.isoformat())
+            context = _packet_log_context(pkt, self.camera_id)
+            log_diagnostic(logger, "gate_frame_processed", level=logging.DEBUG, category="FRAME",
+                           **context, gate_state=machine.state, progress=res["P"], confidence=res["conf"])
+            log_diagnostic(logger, "gate_measurement", level=logging.DEBUG, category="MEASUREMENT",
+                           **context, source_timestamp=source_timestamp, left_endpoint_px=res["xL_px"],
+                           right_endpoint_px=res["xR_px"], left_progress=res["P_L"],
+                           right_progress=res["P_R"], progress=res["P"], confidence=res["conf"],
+                           valid=res["P"] is not None and res["conf"] > 0)
+            if res["xL_px"] is None or res["xR_px"] is None:
+                if measurement_lost_since is None:
+                    measurement_lost_since = t
+                loss_duration = max(0.0, t - measurement_lost_since)
+                try:
+                    details = edge_search_diagnostics(pkt.frame, geo)
+                except Exception as exc:
+                    details = {"diagnostics_error": type(exc).__name__}
+                log_diagnostic(logger, "gate_endpoint_missing", level=logging.WARNING,
+                               category="ENDPOINT", **context, source_timestamp=source_timestamp,
+                               left_endpoint_px=res["xL_px"], right_endpoint_px=res["xR_px"],
+                               measurement_loss_duration_seconds=round(loss_duration, 3),
+                               rejection_details=details.get("edges"),
+                               diagnostics_error=details.get("diagnostics_error"))
+            elif measurement_lost_since is not None:
+                log_diagnostic(logger, "gate_measurement_recovered", level=logging.INFO,
+                               category="MEASUREMENT", **context, source_timestamp=source_timestamp,
+                               measurement_loss_duration_seconds=round(max(0.0, t - measurement_lost_since), 3),
+                               left_endpoint_px=res["xL_px"], right_endpoint_px=res["xR_px"])
+                measurement_lost_since = None
             if res["conf"] > 0:
                 prev = res
             self._emit(machine.update(t, res["P"], res["conf"]), pkt)
@@ -217,3 +267,13 @@ class GrillGateStateDetector:
             logger.exception("Grill Gate person pipeline failed camera=%s assignment=%s",
                              self.camera_id, self.assignment_id)
             self._set(processing_error=type(exc).__name__)
+
+
+def _packet_log_context(packet, camera_id: str) -> dict:
+    if packet is None:
+        return {"camera_id": camera_id, "video_job_id": None, "frame_index": None,
+                "video_source_timestamp": None}
+    return {"camera_id": camera_id,
+            "video_job_id": getattr(packet, "video_job_id", None),
+            "frame_index": getattr(packet, "sequence_number", None),
+            "video_source_timestamp": getattr(packet, "video_time_seconds", None)}

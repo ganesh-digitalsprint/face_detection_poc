@@ -1,0 +1,3 @@
+DROP TABLE grill_gate_zone_configurations;
+DROP INDEX ix_grill_gate_video_jobs_asset_job_id;
+ALTER TABLE grill_gate_video_jobs DROP COLUMN asset_job_id;

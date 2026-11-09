@@ -21,6 +21,19 @@ Producer credentials are a JSON object keyed by bearer token, each value contain
 
 For Grill Gate, add a producer credential scoped to `grill_gate` and an operator credential scoped to `grill_gate` (or reuse an appropriately scoped operator). Set the producer token as `ALERT_SERVICE_TOKEN` and the operator token as `ALERT_SERVICE_OPERATOR_TOKEN` in the Vault Monitoring process. Grill Gate duration and occupancy thresholds are opt-in under each assignment's `configuration.grill_gate_alerts`; all are disabled or unset by default.
 
+The credential-map entries have this shape (replace the example tokens with values from the approved secret manager; never commit real tokens):
+
+```json
+{
+  "<grill-gate-producer-token>": {
+    "use_case": "grill_gate",
+    "producer": "grill-gate-monitoring"
+  }
+}
+```
+
+The separate operator map entry uses `{"actor_id":"<operator-id>","use_cases":["grill_gate"]}`. The Vault backend's `ALERT_SERVICE_TOKEN` and `ALERT_SERVICE_OPERATOR_TOKEN` must match those two map keys respectively. The use-case identity is derived from producer authentication by the service; it is not supplied by the frontend or trusted from the payload.
+
 ## API surface
 
 - `GET /health`

@@ -72,7 +72,7 @@ export function localVideoConfiguration(file, storage = globalThis.localStorage)
   const zones = Array.isArray(saved?.zones) ? saved.zones : [];
   const zone = zones.find((entry) => entry.zone_type === 'gate_leaf_roi' && entry.enabled !== false);
   const line = saved?.line;
-  if (!saved?.frame?.width || !saved?.frame?.height || !zone || !line?.start || !line?.end) return null;
+  if (!saved?.frame?.width || !saved?.frame?.height || !zone) return null;
   return {
     zone,
     zones,
@@ -94,7 +94,7 @@ export function localVideoConfiguration(file, storage = globalThis.localStorage)
         },
         hysteresis_fraction: 0.05,
       },
-      directional_crossing: {
+      ...(line?.start && line?.end ? { directional_crossing: {
         line_start: line.start,
         line_end: line.end,
         outside_side: 'left',
@@ -103,7 +103,7 @@ export function localVideoConfiguration(file, storage = globalThis.localStorage)
         exit_direction: 'inside_to_outside',
         dead_band_fraction: 0.05,
         minimum_crossing_displacement: 0.02,
-      },
+      } } : {}),
     },
     alert_configuration: {},
   };
@@ -119,7 +119,7 @@ export function videoUploadConfiguration(item, zones, file, storage) {
   if (local) return { value: local, blocker: '', source: 'video' };
   return {
     value: null,
-    blocker: 'Draw and save a gate_leaf_roi zone and ENTRY/EXIT line on this video first. The video configuration is saved in this browser and sent with the upload; no camera assignment is needed.',
+    blocker: 'Draw and save an enabled Sliding gate leaf zone on this video first. The video configuration is saved in this browser and sent with the upload; no camera assignment is needed.',
     source: null,
   };
 }
@@ -174,10 +174,17 @@ const alertActions = (alert) => (Array.isArray(alert.allowed_actions) ? alert.al
 
 export function alertView(alert, timeLabel) {
   const seconds = alert.domain_data?.video_time_seconds;
+  const occurredAt = alert.triggered_at ?? alert.occurred_at;
   return {
     id: alert.id, title: alert.title, type: alert.source_event_type, severity: alert.severity, status: alert.status,
-    message: alert.summary, timeLabel: timeLabel ?? (seconds == null ? '' : formatVideoTime(seconds)), active: ACTIVE_ALERT.has(alert.status),
-    version: alert.row_version, actions: alertActions(alert),
+    message: alert.summary, timeLabel: timeLabel ?? (seconds == null
+      ? (occurredAt ? new Date(occurredAt).toLocaleString() : '') : formatVideoTime(seconds)), active: ACTIVE_ALERT.has(alert.status),
+    version: alert.row_version, actions: alertActions(alert), cameraName: alert.camera_name ?? alert.domain_data?.camera_name ?? null,
+    cameraId: alert.camera_id ?? alert.resource_refs?.camera_id ?? null,
+    assignmentId: alert.assignment_id ?? alert.resource_refs?.assignment_id ?? null,
+    gateOpenDurationSeconds: alert.gate_open_duration_seconds ?? alert.domain_data?.gate_open_duration_seconds ?? null,
+    configuredThresholdSeconds: alert.configured_threshold_seconds ?? alert.domain_data?.configured_threshold_seconds ?? null,
+      evidenceRefs: alert.evidence_refs ?? [], occurredAt,
   };
 }
 
@@ -219,6 +226,14 @@ export function videoMonitoring({ job, events = [], transitions = [], alerts = [
   const lastCrossing = crossings.at(-1);
   const alertViews = alerts.map((alert) => alertView(alert)).sort((a, b) => Number(b.active) - Number(a.active));
   const reported = job?.monitoring ?? null;
+  const jobThreshold = job?.alert_configuration?.max_gate_open_seconds ?? null;
+  const hasJobAlertConfiguration = Boolean(job && Object.hasOwn(job, 'alert_configuration'));
+  const thresholdSeconds = hasJobAlertConfiguration ? jobThreshold
+    : reported && Object.hasOwn(reported, 'open_without_crossing_threshold_seconds')
+      ? reported.open_without_crossing_threshold_seconds : null;
+  const thresholdConfigured = hasJobAlertConfiguration ? jobThreshold != null
+    : reported && typeof reported.threshold_configured === 'boolean'
+      ? reported.threshold_configured : thresholdSeconds != null;
   // The end of a file is not a gate observation, so it is left out of the timeline.
   const gateRows = transitions.filter((item) => item.reason !== 'video ended');
   return {
@@ -230,15 +245,33 @@ export function videoMonitoring({ job, events = [], transitions = [], alerts = [
     gateProgress: reported?.progress ?? null,
     gateConfidence: reported?.confidence ?? null,
     gateOpenSeconds: reported?.gate_open_seconds ?? null,
-    secondsSinceCrossing: lastCrossing ? Math.max(0, (job?.progress_seconds ?? 0) - (lastCrossing.video_time_seconds ?? 0)) : null,
+    videoTimeSeconds: reported?.video_timestamp ?? job?.video_time_seconds ?? job?.progress_seconds ?? null,
+    gateOpenSince: reported?.gate_open_since ?? null,
+    openWithoutCrossingSeconds: reported?.open_without_crossing_seconds ?? null,
+    openWithoutCrossingThresholdSeconds: thresholdSeconds,
+    thresholdConfigured,
+    timerProgressPercent: reported?.progress_percent ?? null,
+    timerSourceTimestamp: reported?.source_timestamp ?? null,
+    lastCrossingAt: reported?.last_crossing_at ?? null,
+    lastCrossingDirection: reported?.last_crossing_direction ?? null,
+    timerState: reported?.state === 'OPEN'
+      ? (reported.open_without_crossing_seconds == null || reported.gate_open_seconds == null
+        ? 'TIMER_UNAVAILABLE' : reported.timer_state === 'ALERT_RAISED' ? 'ALERT_RAISED' : 'COUNTING')
+      : reported?.timer_state ?? 'NOT_COUNTING',
+    timerRecorded: Boolean(reported && ['threshold_configured', 'timer_state', 'source_timestamp']
+      .some((key) => Object.hasOwn(reported, key))),
+    secondsSinceCrossing: reported?.seconds_since_crossing ?? null,
+    finalTimer: ['COMPLETED', 'FAILED', 'CANCELLED'].includes(job?.status),
     entryCount: crossings.filter((event) => event.direction === 'OUTSIDE_TO_INSIDE').length,
     exitCount: crossings.filter((event) => event.direction === 'INSIDE_TO_OUTSIDE').length,
     meshPeopleCount: reported?.mesh?.occupancy_count ?? meshOccupancy(mesh),
     meshGatheringSeconds: null,
     meshEvents: newestFirst(mesh).slice(0, 5).map(timelineView),
     crossingTotal: crossings.length,
+    crossingConfigStatus: reported?.crossing?.status
+      ?? (job?.readiness?.crossing_zones_defined === false ? 'missing_required_zones' : null),
     crossings: newestFirst(crossings).slice(0, 50).map((event) => crossingView(event)),
-    alerts: alertViews,
+    alerts: alertViews.filter((alert) => alert.active),
     activeAlertCount: alertViews.filter((alert) => alert.active).length,
     alertsAvailable,
     events: gateRows.length

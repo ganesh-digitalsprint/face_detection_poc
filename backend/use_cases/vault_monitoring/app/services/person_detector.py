@@ -18,13 +18,12 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 import cv2
 import numpy as np
 
 from app.core.inference import actual_torch_device, get_inference_settings, resolve_device
-from app.core.ml_config import VaultRoomCountingSettings
 
 log = logging.getLogger(__name__)
 
@@ -50,8 +49,23 @@ class Detector(Protocol):
     def warmup(self) -> None: ...
 
 
+class RfDetrSettings(Protocol):
+    """Structural settings consumed by RF-DETR, independent of a use case."""
+
+    model: str
+    confidence: float
+    min_box_area_ratio: float
+    weights_path: str | None
+    device: Literal["auto", "cpu", "cuda"] | None
+    cpu_threads: int
+
+
+class RfDetrConfig(Protocol):
+    detector: RfDetrSettings
+
+
 class RfDetrPersonDetector:
-    def __init__(self, config: VaultRoomCountingSettings):
+    def __init__(self, config: RfDetrConfig):
         self._config = config
         self._model = None
         self._lock = threading.Lock()          # held while the model loads (can take seconds)

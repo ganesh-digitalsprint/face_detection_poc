@@ -2,12 +2,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 import supervision as sv
 
-from app.core.ml_config import VaultRoomCountingSettings
 from app.services.person_detector import Detection
+
+
+class ByteTrackSettings(Protocol):
+    track_activation_threshold: float
+    frame_rate: int
+    minimum_matching_threshold: float
+    minimum_consecutive_frames: int
+
+
+class ByteTrackConfig(Protocol):
+    tracker: ByteTrackSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,16 +32,22 @@ class Track:
 
 
 class PersonTracker:
-    def __init__(self, config: VaultRoomCountingSettings):
+    def __init__(self, config: ByteTrackConfig):
         self._config = config
         self._tracker = self._new_tracker()
 
     def _new_tracker(self):
         cfg = self._config.tracker
-        # supervision 0.30.x: max_time_lost = int(frame_rate / 30 * lost_track_buffer).
-        # Convert the wanted seconds (at the REAL update rate) into its 30-fps buffer units.
-        target_lost_frames = max(1, round(cfg.lost_track_seconds * cfg.frame_rate))
-        lost_track_buffer = max(1, round(target_lost_frames * 30 / cfg.frame_rate))
+        # Grill Gate can provide ByteTrack's native buffer directly. Existing Vault Room
+        # configs keep their seconds-based conversion unchanged.
+        configured_buffer = getattr(cfg, "lost_track_buffer", None)
+        if configured_buffer is None:
+            # supervision 0.30.x: max_time_lost = int(frame_rate / 30 * lost_track_buffer).
+            # Convert the wanted seconds into its 30-fps buffer units.
+            target_lost_frames = max(1, round(getattr(cfg, "lost_track_seconds") * cfg.frame_rate))
+            lost_track_buffer = max(1, round(target_lost_frames * 30 / cfg.frame_rate))
+        else:
+            lost_track_buffer = int(configured_buffer)
         return sv.ByteTrack(
             track_activation_threshold=cfg.track_activation_threshold,
             lost_track_buffer=lost_track_buffer,

@@ -147,12 +147,14 @@ export default function GrillGatePage() {
       {view === 'video' && (
         <UploadedVideoSection videoJob={videoJob} jobs={selectionList.jobs} jobsError={selectionList.error} selectedJobId={selectedJobId}
           onSelectJob={(id) => setParam('job', id)} onJobsChanged={() => setListKey((value) => value + 1)} upload={upload} monitoring={videoView}
+          assignmentItem={item}
           onOpenZones={() => setParams((current) => { const next = new URLSearchParams(current); next.set('view', 'zones'); next.set('apply', 'video'); return next; })} />
       )}
       {view === 'zones' && (
         <ZonesSection apply={params.get('apply')} onApplyChange={(value) => setParam('apply', value)} assignmentItem={item} job={job}
           otherJobs={selectionList.jobs.filter((row) => row.job_id !== job?.job_id)} liveZones={zones.zones} zoneTypes={registry.zoneTypes} worker={worker}
-          reloadLiveZones={zones.reload} onLiveCalibrationSaved={registry.replaceAssignment} onVideoConfigSaved={() => videoJob.refresh()} />
+          reloadLiveZones={zones.reload} onLiveCalibrationSaved={registry.replaceAssignment} onVideoConfigSaved={() => videoJob.refresh()}
+          onZoneConfigurationsChanged={() => setListKey((value) => value + 1)} />
       )}
     </div>
   );

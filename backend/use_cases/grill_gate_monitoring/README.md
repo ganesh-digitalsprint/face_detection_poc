@@ -21,11 +21,11 @@ Alert rules are stored in the shared camera assignment's `configuration.grill_ga
 
 Unset or disabled thresholds do not raise alerts. `max_mesh_occupancy` means the maximum allowed count; an alert starts only when occupancy is greater than that value.
 
-For `GATE_OPEN_TOO_LONG`, Stage 2 considers a track active after it has an observed endpoint origin (`gate_approach` or `gate_interior`) and then enters `gate_trigger` or `gate_crossing`. It leaves that active state after a confirmed destination crossing or a reversal to its origin. An unconfirmed direct jump between endpoints is treated as unreliable, not as proof that the crossing ended. All active tracks are counted, so one crossing finishing does not unblock the rule while another remains in progress. The gate-open timer is independent; it accumulates only while the gate reports `OPEN`, pauses during transitional/unknown readings, and resets only on a `CLOSED` state.
+`gate_open_enabled` and `max_gate_open_seconds` configure `GATE_OPEN_WITHOUT_CROSSING`. Its timer accumulates only while the gate reports `OPEN`; `UNKNOWN`, `OPENING`, and `CLOSING` pause it. A confirmed ENTRY or EXIT resets the timer; a confirmed `CLOSED` state resets the gate episode. An active crossing or unreliable crossing reading suppresses alert creation without resetting the timer. Once conditions become reliable and clear, an elapsed timer raises one alert for that interval.
 
-When crossing state is temporarily unreliable, the rule does not claim that crossing activity is absent and resolves any open-too-long alert while status is unknown. `crossing_unknown_recovery_frames` configures how many consecutive valid detector updates are needed to trust crossing state again after a transient interruption. If an in-flight track is lost past the tracker stale timeout, crossing state stays unknown until the detector session is reset/reconfigured; this deliberately favors suppression over an alert based on missing data.
+When crossing state is temporarily unreliable, the rule does not claim that crossing activity is absent. `crossing_unknown_recovery_frames` configures how many consecutive valid detector updates are needed to trust crossing state again after a transient interruption. If an in-flight track is lost past the tracker stale timeout, crossing state stays unknown until the detector session is reset/reconfigured; this deliberately favors suppression over an alert based on missing data.
 
-The Vault Monitoring process publishes through the shared Alert Service using `ALERT_SERVICE_BASE_URL` and `ALERT_SERVICE_TOKEN`. Grill Gate alert query and lifecycle proxy routes also require `ALERT_SERVICE_OPERATOR_TOKEN`, configured in the Alert Service as an operator credential scoped to `grill_gate`. Delivery jobs are written to `GRILL_GATE_ALERT_OUTBOX_DIR` and retried asynchronously. The Alert Service remains the only alert record store.
+Grill Gate alert conditions are stored locally and listed through the assignment-scoped `/api/v1/grill-gate/assignments/{assignment_id}/alerts/active` endpoint. Optional shared Alert Service fan-out uses the configured producer and operator credentials, but local generation and retrieval work independently of that service.
 
 Unauthorized crossing alerts remain unimplemented because there is no reliable authorization result linked to a tracked crossing. Camera-availability alerts remain unimplemented because the camera worker currently exposes status snapshots but no reliable disconnect/reconnect event contract.
 # Uploaded video jobs
@@ -40,9 +40,15 @@ worker is connected or changed.
 
 An upload saves the video as an `UPLOADED` job; zones and calibration are optional at that point and
 are set on the job afterwards. Processing begins when `POST .../start` is called and the job is ready. Each
-job can be started once. Starting locks its configuration, so later edits cannot change a running or
-finished job. The stored video stays until the job is deleted, and a finished job is not reprocessed. The
-video's size, fps, duration and frame count and the job's final status are kept in `config_snapshot`.
+run can be started once. Starting locks its configuration, so later edits cannot change a running or
+finished run. `POST .../reprocess` creates a fresh run with independent detector/tracker state and event rows
+over the original retained video asset. Deleting any job in an asset group removes the uploaded asset and
+all inactive processing runs, their video-specific events and local alert records. Each run keeps its own
+immutable `config_snapshot` until that asset group is explicitly deleted.
+
+Named zone configurations are stored separately from video results and scoped to the authenticated operator
+identity. Jobs copy the selected configuration into their own snapshot, so later edits or deletion of a saved
+configuration do not change historical processing results.
 
 Endpoints:
 
@@ -69,6 +75,11 @@ Endpoints:
 - `GET /api/v1/grill-gate/videos/{job_id}/results` — persisted crossing/mesh events and
   matching shared Alert Service alerts.
 
+`POST /api/v1/grill-gate/videos/{job_id}/reprocess` creates a fresh run over the retained asset; an optional
+`zone_configuration_id` selects another saved configuration. Named configurations are available through
+`GET`/`POST /api/v1/grill-gate/zone-configurations`, `GET`/`PUT`/`DELETE /api/v1/grill-gate/zone-configurations/{id}`,
+and `POST /api/v1/grill-gate/zone-configurations/{id}/duplicate`.
+
 The runner defaults to one concurrent decode/inference job and three queued jobs. Set
 `GRILL_GATE_VIDEO_MAX_CONCURRENT`, `GRILL_GATE_VIDEO_MAX_QUEUED`,
 `GRILL_GATE_VIDEO_UPLOAD_DIR` and `MAX_VIDEO_UPLOAD_MB` in the host environment to tune it.
@@ -81,3 +92,6 @@ Apply `migrations/20261107_grill_gate_video_jobs.sql` with the existing manual S
 workflow before running against a database that already has `grill_gate_events`. The paired
 `_down.sql` file reverses the schema changes; downgrade requires video event rows to be removed
 first because the previous schema requires camera and assignment IDs.
+
+The `20261109_grill_gate_reuse.sql` migration adds reusable named configurations and links independent
+processing runs to the original retained video asset. Its paired `_down.sql` file reverses these additions.

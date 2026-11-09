@@ -35,6 +35,10 @@ export const uploadGrillGateVideo = (file, configurationOrAssignmentId, { onProg
 };
 export const startGrillGateVideoJob = (jobId) =>
   client.post(`${root}/videos/${encodeURIComponent(jobId)}/start`, undefined, { headers, timeout: 15000 }).then((r) => r.data);
+export const reprocessGrillGateVideoJob = (jobId, zoneConfigurationId = null) =>
+  client.post(`${root}/videos/${encodeURIComponent(jobId)}/reprocess`,
+    zoneConfigurationId ? { zone_configuration_id: zoneConfigurationId } : {},
+    { headers, timeout: 15000 }).then((r) => r.data);
 export const cancelGrillGateVideoJob = (jobId) =>
   client.post(`${root}/videos/${encodeURIComponent(jobId)}/cancel`, undefined, { headers, timeout: 15000 }).then((r) => r.data);
 export const getGrillGateVideoJob = (jobId, signal) =>
@@ -46,14 +50,26 @@ export const getGrillGateVideoResults = (jobId, params, signal) =>
   client.get(`${root}/videos/${encodeURIComponent(jobId)}/results`, { params, headers, signal, timeout: 30000 }).then((r) => r.data);
 export const deleteGrillGateVideoJob = (jobId) =>
   client.delete(`${root}/videos/${encodeURIComponent(jobId)}`, { headers, timeout: 15000 }).then((r) => r.data);
-export const getVideoJobConfig = (jobId) =>
-  client.get(`${root}/videos/${encodeURIComponent(jobId)}/config`, { headers, timeout: 10000 }).then((r) => r.data);
+export const getVideoJobConfig = (jobId, signal) =>
+  client.get(`${root}/videos/${encodeURIComponent(jobId)}/config`, { headers, signal, timeout: 10000 }).then((r) => r.data);
 export const putVideoJobConfig = (jobId, config) =>
   client.put(`${root}/videos/${encodeURIComponent(jobId)}/config`, config, { headers, timeout: 15000 }).then((r) => r.data);
 export const copyVideoJobConfig = (jobId, source) =>
   client.post(`${root}/videos/${encodeURIComponent(jobId)}/config/copy`, source, { headers, timeout: 15000 }).then((r) => r.data);
 export const measureVideoJobEndpoints = (jobId, closedT, openT) =>
   client.post(`${root}/videos/${encodeURIComponent(jobId)}/measure-endpoints`, { closed_t: closedT, open_t: openT }, { headers, timeout: 60000 }).then((r) => r.data);
+export const listGrillGateZoneConfigurations = () =>
+  client.get(`${root}/zone-configurations`, { headers, timeout: 10000 }).then((r) => r.data);
+export const getGrillGateZoneConfiguration = (id) =>
+  client.get(`${root}/zone-configurations/${encodeURIComponent(id)}`, { headers, timeout: 10000 }).then((r) => r.data);
+export const createGrillGateZoneConfiguration = (configuration) =>
+  client.post(`${root}/zone-configurations`, configuration, { headers, timeout: 15000 }).then((r) => r.data);
+export const updateGrillGateZoneConfiguration = (id, configuration) =>
+  client.put(`${root}/zone-configurations/${encodeURIComponent(id)}`, configuration, { headers, timeout: 15000 }).then((r) => r.data);
+export const duplicateGrillGateZoneConfiguration = (id, name) =>
+  client.post(`${root}/zone-configurations/${encodeURIComponent(id)}/duplicate`, { name }, { headers, timeout: 15000 }).then((r) => r.data);
+export const deleteGrillGateZoneConfiguration = (id) =>
+  client.delete(`${root}/zone-configurations/${encodeURIComponent(id)}`, { headers, timeout: 15000 }).then((r) => r.data);
 
 /** JPEGs go through this authenticated client as blobs; the operator key never appears in a URL. */
 const getJpeg = (path, params, signal) =>
@@ -70,6 +86,9 @@ export const getLiveCrossings = (assignmentId, params, signal) => assignmentGet(
 export const getLiveMeshStatus = (assignmentId, signal) => assignmentGet(assignmentId, 'mesh-status', undefined, signal);
 export const getLiveMeshEvents = (assignmentId, params, signal) => assignmentGet(assignmentId, 'mesh-events', params, signal);
 export const getLiveActiveAlerts = (assignmentId, params, signal) => assignmentGet(assignmentId, 'alerts/active', params, signal);
+export const getLiveAlertHistory = (assignmentId, params, signal) => assignmentGet(assignmentId, 'alerts/history', params, signal);
+export const getGrillGateAlert = (alertId) =>
+  client.get(`${root}/alerts/${encodeURIComponent(alertId)}`, { headers, timeout: 15000 }).then((r) => r.data);
 
 /** Alert lifecycle for live and uploaded-video alerts alike; a resolve needs a note. */
 export const acknowledgeGrillGateAlert = (alertId, expectedVersion) =>

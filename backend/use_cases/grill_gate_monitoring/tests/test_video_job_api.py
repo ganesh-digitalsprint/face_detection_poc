@@ -16,7 +16,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.dependencies import get_db
+from app.api.dependencies import Operator, get_db, get_operator
 from app.core.config import settings
 from app.db.database import Base
 from app.db.models.camera_registry import CameraSource, CameraUseCaseAssignment, RegistryCamera, RegistryLocation, RegistryZone
@@ -25,7 +25,9 @@ from app.schemas.camera_registry import CameraUseCaseAssignmentUpdate
 from app.services import camera_registry_service
 from grill_gate_monitoring.api import grill_gate
 from grill_gate_monitoring.models.event import GrillGateEvent
+from grill_gate_monitoring.models.alert import GrillGateAlert
 from grill_gate_monitoring.models.video_job import GrillGateVideoJob
+from grill_gate_monitoring.models.zone_configuration import GrillGateZoneConfiguration
 from grill_gate_monitoring.scripts.run_video_demo import run_demo
 from grill_gate_monitoring.services import video_jobs as video_jobs_module
 from grill_gate_monitoring.services.event_writer import GrillGateEventWriter
@@ -50,8 +52,25 @@ def gate_zone(enabled=True, **extra):
             "polygon": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]], **extra}
 
 
+def crossing_zones():
+    return [
+        {"zone_key": "approach", "name": "Gate approach", "zone_type": "gate_approach", "enabled": True,
+         "polygon": [[0.05, 0.2], [0.3, 0.2], [0.3, 0.8], [0.05, 0.8]]},
+        {"zone_key": "corridor", "name": "Gate crossing corridor", "zone_type": "gate_crossing", "enabled": True,
+         "polygon": [[0.35, 0.2], [0.65, 0.2], [0.65, 0.8], [0.35, 0.8]]},
+        {"zone_key": "interior", "name": "Gate interior", "zone_type": "gate_interior", "enabled": True,
+         "polygon": [[0.7, 0.2], [0.95, 0.2], [0.95, 0.8], [0.7, 0.8]]},
+    ]
+
+
 def config(**overrides):
-    return {"calibration": calibration(), "zones": [gate_zone()], "alert_configuration": {}, **overrides}
+    return {"calibration": calibration(), "zones": [gate_zone(), *crossing_zones()], "alert_configuration": {}, **overrides}
+
+
+def named_config(name="Test Gate", **overrides):
+    return {"name": name, "reference_frame": {"width": WIDTH, "height": HEIGHT},
+            "calibration": calibration(), "zones": [gate_zone(), *crossing_zones()],
+            "alert_configuration": {}, "crossing_strategy": "three_zone", **overrides}
 
 
 @pytest.fixture
@@ -60,7 +79,7 @@ def harness(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "GRILL_GATE_VIDEO_UPLOAD_DIR", tmp_path)
     engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[model.__table__ for model in (
-        GrillGateEvent, GrillGateVideoJob, RegistryLocation, RegistryCamera, CameraSource,
+        GrillGateEvent, GrillGateAlert, GrillGateVideoJob, GrillGateZoneConfiguration, RegistryLocation, RegistryCamera, CameraSource,
         CameraUseCaseAssignment, RegistryZone, VaultAuditEvent)])
     monkeypatch.setattr(video_jobs_module, "SessionLocal", sessionmaker(engine, expire_on_commit=False))
     jobs = GrillGateVideoJobs(upload_dir=tmp_path, max_bytes=1024, max_concurrent=1, max_queued=1,
@@ -79,7 +98,10 @@ def harness(monkeypatch, tmp_path):
     app = FastAPI()
     app.include_router(grill_gate.router)
     app.dependency_overrides[get_db] = get_session
-    return SimpleNamespace(client=TestClient(app), jobs=jobs, runs=runs, dir=tmp_path)
+    harness = SimpleNamespace(client=TestClient(app), jobs=jobs, runs=runs, dir=tmp_path, engine=engine)
+    yield harness
+    harness.client.close()
+    engine.dispose()
 
 
 def upload(h, payload=b"video-bytes", **data):
@@ -123,6 +145,37 @@ def test_upload_without_config_saves_job_and_does_not_start(harness):
     assert job["readiness"]["video_saved"] is True and job["readiness"]["ready"] is False
 
 
+def test_upload_saves_assignment_alert_rules_into_the_job_snapshot_and_job_status(harness):
+    rules = {"gate_open_enabled": True, "max_gate_open_seconds": 3}
+    uploaded = upload(harness, configuration=json.dumps({"alert_configuration": rules})).json()
+    config_view = harness.client.get(f"{BASE}/{uploaded['job_id']}/config", headers=HEADERS).json()
+    job_view = harness.client.get(f"{BASE}/{uploaded['job_id']}", headers=HEADERS).json()
+    assert config_view["alert_configuration"]["max_gate_open_seconds"] == 3
+    assert job_view["alert_configuration"]["max_gate_open_seconds"] == 3
+
+
+def test_uploaded_job_configuration_snapshot_preserves_three_zone_strategy(harness):
+    payload = config(zones=[gate_zone(), crossing_zones()[0], crossing_zones()[2]],
+                     crossing_strategy="three_zone")
+    response = upload(harness, configuration=json.dumps(payload))
+    assert response.status_code == 201
+    body = harness.client.get(f"{BASE}/{response.json()['job_id']}/config", headers=HEADERS).json()
+    assert body["crossing_strategy"] == "three_zone"
+    assert body["readiness"]["ready"] is True
+
+
+def test_four_zone_target_configuration_is_saved_as_three_zone_snapshot(harness):
+    zones = [gate_zone(), crossing_zones()[0], crossing_zones()[2],
+             {"zone_key": "mesh", "name": "Mesh gathering area", "zone_type": "mesh_area", "enabled": True,
+              "polygon": [[.2, .2], [.4, .2], [.4, .4], [.2, .4]]}]
+    response = upload(harness, configuration=json.dumps(config(zones=zones)))
+    assert response.status_code == 201
+    body = harness.client.get(f"{BASE}/{response.json()['job_id']}/config", headers=HEADERS).json()
+    assert body["crossing_strategy"] == "three_zone"
+    assert {zone["zone_type"] for zone in body["zones"]} == {"gate_leaf_roi", "gate_approach", "gate_interior", "mesh_area"}
+    assert body["readiness"]["ready"] is True
+
+
 def test_status_never_exposes_a_filesystem_path(harness):
     job_id = saved_job(harness)
     text = harness.client.get(f"{BASE}/{job_id}", headers=HEADERS).text + harness.client.get(BASE, headers=HEADERS).text
@@ -135,7 +188,8 @@ def test_start_requires_readiness_and_lists_what_is_missing(harness):
     assert response.status_code == 409
     detail = response.json()["detail"]
     assert detail["code"] == "JOB_NOT_READY"
-    assert {item["item"] for item in detail["missing"]} == {"gate_zone_defined", "calibration_matches_frame"}
+    assert {item["item"] for item in detail["missing"]} == {
+        "gate_zone_defined", "calibration_matches_frame", "crossing_zones_defined"}
     assert harness.runs == []
 
 
@@ -146,6 +200,69 @@ def test_start_runs_once_and_duplicate_requests_are_rejected(harness):
     assert harness.client.post(f"{BASE}/{job_id}/start", headers=HEADERS).status_code == 409
     join_all(harness)
     assert harness.runs == [job_id]
+
+
+def test_reprocess_creates_a_separate_run_over_the_same_video_and_is_idempotent(harness):
+    source_id = ready_job(harness)
+    set_job(source_id, status="COMPLETED", frame_count=30, progress_seconds=3.0,
+            completed_at=datetime.now(timezone.utc))
+    first = harness.client.post(f"{BASE}/{source_id}/reprocess", headers=HEADERS, json={})
+    assert first.status_code == 202
+    run_id = first.json()["job_id"]
+    assert run_id != source_id and first.json()["source_job_id"] == source_id
+    join_all(harness)
+    with video_jobs_module.SessionLocal() as db:
+        original, run = db.get(GrillGateVideoJob, source_id), db.get(GrillGateVideoJob, run_id)
+        assert run.asset_job_id == source_id
+        assert run.storage_path == original.storage_path
+        assert run.config_snapshot["zones"] == original.config_snapshot["zones"]
+        assert run.frame_count == 0 and run.progress_seconds == 0
+    again = harness.client.post(f"{BASE}/{source_id}/reprocess", headers=HEADERS, json={})
+    assert again.status_code == 202 and again.json()["job_id"] == run_id
+    assert harness.runs == [run_id]
+
+
+def test_reprocess_keeps_events_separate_and_deleting_asset_removes_all_runs(harness):
+    source_id = ready_job(harness)
+    set_job(source_id, status="COMPLETED", frame_count=30, progress_seconds=3.0,
+            completed_at=datetime.now(timezone.utc))
+    result = harness.client.post(f"{BASE}/{source_id}/reprocess", headers=HEADERS, json={}).json()
+    run_id = result["job_id"]
+    join_all(harness)
+    at = datetime.now(timezone.utc)
+    with video_jobs_module.SessionLocal() as db:
+        db.add(GrillGateEvent(source_type="UPLOADED_VIDEO", video_job_id=source_id, video_time_seconds=1,
+                              event_type="CROSSING_COMPLETED", occurred_at=at, metadata_json={"run": "original"}))
+        db.add(GrillGateEvent(source_type="UPLOADED_VIDEO", video_job_id=run_id, video_time_seconds=2,
+                              event_type="CROSSING_COMPLETED", occurred_at=at, metadata_json={"run": "retry"}))
+        db.commit()
+    original_events = harness.client.get(f"{BASE}/{source_id}/results", headers=HEADERS).json()["items"]
+    retry_events = harness.client.get(f"{BASE}/{run_id}/results", headers=HEADERS).json()["items"]
+    assert len(original_events) == len(retry_events) == 1
+    assert original_events[0]["metadata"]["run"] == "original"
+    assert retry_events[0]["metadata"]["run"] == "retry"
+    set_job(run_id, status="COMPLETED", completed_at=datetime.now(timezone.utc))
+    with video_jobs_module.SessionLocal() as db:
+        asset_path = Path(db.get(GrillGateVideoJob, source_id).storage_path)
+        saved_zone = GrillGateZoneConfiguration(owner_id="operator", name="Keep this zone set",
+            reference_width=WIDTH, reference_height=HEIGHT, config_json=named_config())
+        db.add(saved_zone)
+        db.add(GrillGateAlert(source_event_id="video-delete-alert", source_event_version=1,
+            use_case="grill_gate", source_event_type="GATE_OPEN_TOO_LONG", video_job_id=run_id,
+            severity="WARNING", status="OPEN", title="Open too long", summary="Video alert",
+            occurred_at=at, triggered_at=at, resource_refs={"video_job_id": run_id},
+            domain_data={}, evidence_refs=[]))
+        db.commit()
+    deleted = harness.client.delete(f"{BASE}/{run_id}", headers=HEADERS)
+    assert deleted.status_code == 200
+    assert asset_path.exists() is False
+    assert harness.client.get(f"{BASE}/{source_id}", headers=HEADERS).status_code == 404
+    assert harness.client.get(f"{BASE}/{run_id}", headers=HEADERS).status_code == 404
+    with video_jobs_module.SessionLocal() as db:
+        assert db.query(GrillGateVideoJob).count() == 0
+        assert db.query(GrillGateEvent).count() == 0
+        assert db.query(GrillGateAlert).filter_by(source_event_id="video-delete-alert").count() == 0
+        assert db.get(GrillGateZoneConfiguration, saved_zone.id) is not None
 
 
 @pytest.mark.parametrize("status", ["COMPLETED", "FAILED", "CANCELLED", "PROCESSING"])
@@ -178,6 +295,92 @@ def test_valid_config_round_trips_and_makes_the_job_ready(harness):
     assert harness.client.get(f"{BASE}/{job_id}", headers=HEADERS).json()["total_frames"] == 30
 
 
+def test_valid_zones_without_measurement_get_standard_frame_calibration(harness):
+    job_id = saved_job(harness)
+    payload = config(calibration=None, zones=[gate_zone(), crossing_zones()[0], crossing_zones()[2]])
+    response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=payload)
+    assert response.status_code == 200
+    saved = harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()
+    assert saved["calibration"]["reference_frame"] == {"width": WIDTH, "height": HEIGHT}
+    assert saved["calibration"]["directional_crossing"] is None
+    assert saved["readiness"]["calibration_matches_frame"] is True
+    assert saved["readiness"]["ready"] is True
+
+
+def test_named_zone_configuration_create_list_get_update_duplicate_delete(harness):
+    created = harness.client.post("/api/v1/grill-gate/zone-configurations", headers=HEADERS,
+                                  json=named_config()).json()
+    config_id = created["id"]
+    assert created["crossing_strategy"] == "three_zone"
+    assert created["reference_frame"] == {"width": WIDTH, "height": HEIGHT}
+    assert created["zones"][2]["polygon"] == crossing_zones()[1]["polygon"]
+    assert [item["id"] for item in harness.client.get("/api/v1/grill-gate/zone-configurations", headers=HEADERS).json()["items"]] == [config_id]
+    assert harness.client.get(f"/api/v1/grill-gate/zone-configurations/{config_id}", headers=HEADERS).json()["id"] == config_id
+
+    changed = named_config("Test Gate", crossing_strategy="three_zone",
+        zones=[gate_zone(), crossing_zones()[0], crossing_zones()[2]])
+    updated = harness.client.put(f"/api/v1/grill-gate/zone-configurations/{config_id}", headers=HEADERS,
+                                 json=changed)
+    assert updated.status_code == 200 and updated.json()["crossing_strategy"] == "three_zone"
+    duplicate = harness.client.post(f"/api/v1/grill-gate/zone-configurations/{config_id}/duplicate",
+        headers=HEADERS, json={"name": "Test Gate Copy"})
+    assert duplicate.status_code == 201 and duplicate.json()["id"] != config_id
+    assert harness.client.delete(f"/api/v1/grill-gate/zone-configurations/{config_id}", headers=HEADERS).status_code == 200
+
+
+def test_named_zone_configuration_is_operator_scoped_and_historical_job_snapshot_is_immutable(harness):
+    created = harness.client.post("/api/v1/grill-gate/zone-configurations", headers=HEADERS,
+                                  json=named_config()).json()
+    job_id = ready_job(harness)
+    payload = config(zone_configuration_id=created["id"])
+    assert harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=payload).status_code == 200
+    with video_jobs_module.SessionLocal() as db:
+        before = dict(db.get(GrillGateVideoJob, job_id).config_snapshot)
+    modified = named_config(zones=[gate_zone(), *crossing_zones()])
+    modified["zones"][2]["polygon"] = [[.72, .2], [.95, .2], [.95, .8], [.72, .8]]
+    assert harness.client.put(f"/api/v1/grill-gate/zone-configurations/{created['id']}",
+        headers=HEADERS, json=modified).status_code == 200
+    with video_jobs_module.SessionLocal() as db:
+        after = db.get(GrillGateVideoJob, job_id).config_snapshot
+        assert after["zones"] == before["zones"]
+
+    harness.client.app.dependency_overrides[get_operator] = lambda: Operator("other-operator", "Other")
+    assert harness.client.get("/api/v1/grill-gate/zone-configurations", headers=HEADERS).json()["items"] == []
+    assert harness.client.get(f"/api/v1/grill-gate/zone-configurations/{created['id']}", headers=HEADERS).status_code == 404
+    harness.client.app.dependency_overrides.pop(get_operator)
+
+
+def test_reprocess_can_select_another_saved_configuration_and_preserves_run_snapshot(harness):
+    saved = harness.client.post("/api/v1/grill-gate/zone-configurations", headers=HEADERS,
+                                json=named_config("Three Zone", crossing_strategy="three_zone",
+                                    zones=[gate_zone(), crossing_zones()[0], crossing_zones()[2]])).json()
+    source_id = ready_job(harness)
+    set_job(source_id, status="COMPLETED", frame_count=30, progress_seconds=3.0,
+            completed_at=datetime.now(timezone.utc))
+    response = harness.client.post(f"{BASE}/{source_id}/reprocess", headers=HEADERS,
+                                   json={"zone_configuration_id": saved["id"]})
+    assert response.status_code == 202
+    run_id = response.json()["job_id"]
+    join_all(harness)
+    with video_jobs_module.SessionLocal() as db:
+        run = db.get(GrillGateVideoJob, run_id)
+        assert run.config_snapshot["crossing_strategy"] == "three_zone"
+        assert run.config_snapshot["zone_configuration_id"] == saved["id"]
+        assert run.config_snapshot["video"] == db.get(GrillGateVideoJob, source_id).config_snapshot["video"]
+
+
+@pytest.mark.parametrize("status", ["FAILED", "CANCELLED"])
+def test_failed_or_cancelled_run_can_be_retried(status, harness):
+    source_id = ready_job(harness)
+    set_job(source_id, status=status, frame_count=12, progress_seconds=1.1,
+            completed_at=datetime.now(timezone.utc))
+    response = harness.client.post(f"{BASE}/{source_id}/reprocess", headers=HEADERS, json={})
+    assert response.status_code == 202
+    assert response.json()["job_id"] != source_id
+    join_all(harness)
+    assert len(harness.runs) == 1
+
+
 def test_config_rejects_calibration_of_a_different_frame_size(harness):
     job_id = saved_job(harness)
     response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=config(calibration=calibration(2560, 1440)))
@@ -197,10 +400,105 @@ def test_config_validation_errors_are_specific(harness, change, code):
     assert response.status_code == 422 and response.json()["detail"]["code"] == code
 
 
+def test_removed_crossing_strategy_values_are_rejected(harness):
+    job_id = saved_job(harness)
+    response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS,
+        json=config(crossing_strategy="legacy_corridor"))
+    assert response.status_code == 422
+
+
 def test_disabled_gate_zone_does_not_count_as_defined(harness):
     job_id = saved_job(harness)
     harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=config(zones=[gate_zone(enabled=False)]))
     assert harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()["readiness"]["gate_zone_defined"] is False
+
+
+def test_crossing_zones_are_required_independently_of_entry_exit_line(harness):
+    job_id = saved_job(harness)
+    zones = [gate_zone(), crossing_zones()[0]]
+    response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=config(zones=zones))
+    assert response.status_code == 200
+    readiness = harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()["readiness"]
+    assert readiness["crossing_zones_defined"] is False
+    assert [item["item"] for item in readiness["missing"]] == ["crossing_zones_defined"]
+
+
+def test_three_zone_job_readiness_does_not_require_legacy_corridor(harness):
+    job_id = saved_job(harness)
+    endpoint_zones = [gate_zone(), crossing_zones()[0], crossing_zones()[2]]
+    response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS,
+                                  json=config(zones=endpoint_zones, crossing_strategy="three_zone"))
+    assert response.status_code == 200
+    body = harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()
+    assert body["crossing_strategy"] == "three_zone"
+    assert body["readiness"]["ready"] is True
+
+
+def test_omitting_strategy_while_editing_preserves_selected_job_strategy(harness):
+    job_id = saved_job(harness)
+    assert harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS,
+        json=config(zones=[gate_zone(), crossing_zones()[0], crossing_zones()[2]],
+                    crossing_strategy="three_zone")).status_code == 200
+    response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS,
+        json=config(zones=[gate_zone(), crossing_zones()[0], crossing_zones()[2]]))
+    assert response.status_code == 200
+    assert response.json()["crossing_strategy"] == "three_zone"
+
+
+def test_old_job_snapshot_without_strategy_is_safely_three_zone(harness):
+    job_id = saved_job(harness)
+    # Simulate a pre-strategy persisted job carrying its legacy trigger/corridor records.
+    with video_jobs_module.SessionLocal() as db:
+        row = db.get(GrillGateVideoJob, job_id)
+        row.config_snapshot = {"zones": config()["zones"]}
+        db.commit()
+    body = harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()
+    assert body["crossing_strategy"] == "three_zone"
+
+
+def test_new_job_without_legacy_zones_defaults_to_three_zone(harness):
+    job_id = saved_job(harness)
+    body = harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()
+    assert body["crossing_strategy"] == "three_zone"
+
+
+def test_obsolete_corridor_zones_are_dropped_from_new_configs(harness):
+    job_id = saved_job(harness)
+    zones = [gate_zone(), *crossing_zones()]
+    zones[1]["enabled"] = False
+    response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS,
+                                  json=config(zones=zones, crossing_strategy="three_zone"))
+    assert response.status_code == 200
+    saved = harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()
+    assert any(zone["zone_type"] == "gate_approach" and zone["enabled"] is False for zone in saved["zones"])
+    assert all(zone["zone_type"] not in {"gate_trigger", "gate_crossing"} for zone in saved["zones"])
+
+
+def test_mesh_zone_is_required_only_when_mesh_monitoring_enabled(harness):
+    job_id = saved_job(harness)
+    endpoints = [gate_zone(), crossing_zones()[0], crossing_zones()[2]]
+    payload = config(zones=endpoints, crossing_strategy="three_zone",
+                     alert_configuration={"mesh_occupancy_enabled": True, "max_mesh_occupancy": 2})
+    response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=payload)
+    assert response.status_code == 200
+    readiness = response.json()["readiness"]
+    assert readiness["crossing_zones_defined"] is True
+    assert readiness["mesh_zone_defined"] is False
+    payload["zones"].append({"zone_key": "mesh", "name": "Mesh gathering area", "zone_type": "mesh_area",
+                             "enabled": True, "polygon": [[.2, .2], [.4, .2], [.4, .4], [.2, .4]]})
+    response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=payload)
+    assert response.json()["readiness"]["mesh_zone_defined"] is True
+
+
+def test_calibration_mesh_threshold_also_requires_mesh_zone(harness):
+    job_id = saved_job(harness)
+    calibrated = calibration()
+    calibrated.setdefault("monitoring", {}).update(minimum_mesh_gathering_count=2, thresholds_status="provisional")
+    payload = config(zones=[gate_zone(), crossing_zones()[0], crossing_zones()[2]],
+                     calibration=calibrated, crossing_strategy="three_zone", alert_configuration={})
+    response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=payload)
+    assert response.status_code == 200
+    assert response.json()["readiness"]["mesh_zone_defined"] is False
 
 
 def test_config_locks_at_start_so_the_running_snapshot_cannot_change(harness):
@@ -211,7 +509,8 @@ def test_config_locks_at_start_so_the_running_snapshot_cannot_change(harness):
     join_all(harness)
     response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=config(zones=[]))
     assert response.status_code == 409 and response.json()["detail"]["code"] == "CONFIG_LOCKED"
-    assert [zone["zone_key"] for zone in harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()["zones"]] == ["gate"]
+    assert [zone["zone_key"] for zone in harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()["zones"]] == [
+        "gate", "approach", "corridor", "interior"]
     assert captured["snapshot"]["zone"]["zone_key"] == "gate"
 
 
@@ -235,8 +534,9 @@ def test_copy_from_assignment_brings_alert_rules_as_visible_config(harness, monk
         db.add(CameraUseCaseAssignment(id=assignment_id, camera_id=str(uuid4()), use_case="grill_gate", is_active=True,
                                        configuration={"grill_gate_alerts": rules}, calibration=calibration()))
         db.commit()
-    zone = {**gate_zone(), "id": "z1", "created_at": datetime(2026, 11, 6, tzinfo=timezone.utc)}
-    monkeypatch.setattr(grill_gate.registry, "list_zones", lambda *_args, **_kw: [zone])
+    zone_rows = [{**zone, "id": f"z{index}", "created_at": datetime(2026, 11, 6, tzinfo=timezone.utc)}
+                 for index, zone in enumerate([gate_zone(), *crossing_zones()])]
+    monkeypatch.setattr(grill_gate.registry, "list_zones", lambda *_args, **_kw: zone_rows)
     job_id = saved_job(harness)
     body = harness.client.post(f"{BASE}/{job_id}/config/copy", headers=HEADERS, json={"source_assignment_id": assignment_id}).json()
     assert body["alert_configuration"]["gate_open_enabled"] is True
@@ -245,13 +545,72 @@ def test_copy_from_assignment_brings_alert_rules_as_visible_config(harness, monk
     assert body["readiness"]["ready"] is True
 
 
+def test_live_assignment_strategy_is_loaded_without_touching_gate_calibration(harness, monkeypatch):
+    from app.services import grill_gate_runtime
+
+    assignment_id = str(uuid4())
+    saved_alert_rules = {"gate_open_enabled": True, "max_gate_open_seconds": 3}
+    with video_jobs_module.SessionLocal() as db:
+        db.add(CameraUseCaseAssignment(id=assignment_id, camera_id=str(uuid4()), use_case="grill_gate",
+            is_active=True, configuration={"grill_gate_crossing_strategy": "three_zone",
+                                           "grill_gate_alerts": saved_alert_rules},
+            calibration=calibration()))
+        db.commit()
+    zone_rows = [gate_zone(), crossing_zones()[0], crossing_zones()[2]]
+    monkeypatch.setattr(grill_gate_runtime, "SessionLocal", video_jobs_module.SessionLocal)
+    monkeypatch.setattr(grill_gate_runtime, "list_zones", lambda *_args, **_kwargs: zone_rows)
+    config_loader = grill_gate_runtime._config_loader(assignment_id)
+    loaded = config_loader()
+    assert loaded.calibration == calibration()
+    assert loaded.calibration == calibration()
+    assert loaded.alert_configuration.max_gate_open_seconds == 3
+    assert loaded.alert_configuration.gate_open_enabled is True
+
+
+def test_live_assignment_without_strategy_infers_three_zone_for_new_zones(harness, monkeypatch):
+    from app.services import grill_gate_runtime
+    assignment_id = str(uuid4())
+    with video_jobs_module.SessionLocal() as db:
+        db.add(CameraUseCaseAssignment(id=assignment_id, camera_id=str(uuid4()), use_case="grill_gate",
+            is_active=True, configuration={}, calibration=calibration()))
+        db.commit()
+    zone_rows = [gate_zone(), crossing_zones()[0], crossing_zones()[2]]
+    monkeypatch.setattr(grill_gate_runtime, "SessionLocal", video_jobs_module.SessionLocal)
+    monkeypatch.setattr(grill_gate_runtime, "list_zones", lambda *_args, **_kwargs: zone_rows)
+    assert grill_gate_runtime._config_loader(assignment_id)().zones == zone_rows
+
+
+def test_crossing_readiness_uses_only_three_zone_endpoints(harness):
+    job_id = saved_job(harness)
+    payload = config(zones=[gate_zone(), crossing_zones()[0], crossing_zones()[1], crossing_zones()[2]],
+                     crossing_strategy="three_zone")
+    assert harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=payload).status_code == 200
+    readiness = harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()["readiness"]
+    assert readiness["crossing_zones_defined"] is True
+
+
+def test_live_connect_reports_zones_missing_for_new_three_zone_assignment(harness):
+    assignment_id, location_id, camera_id = str(uuid4()), str(uuid4()), str(uuid4())
+    with video_jobs_module.SessionLocal() as db:
+        db.add(RegistryLocation(id=location_id, code="loc", name="Location"))
+        db.add(RegistryCamera(id=camera_id, location_id=location_id, code="cam", name="Camera"))
+        db.flush()
+        db.add(CameraUseCaseAssignment(id=assignment_id, camera_id=camera_id, use_case="grill_gate",
+                                       is_active=True, configuration={}))
+        db.commit()
+    response = harness.client.post(f"/api/v1/grill-gate/assignments/{assignment_id}/connect", headers=HEADERS)
+    assert response.status_code == 409
+    assert response.json()["detail"] == {"code": "ASSIGNMENT_NOT_READY", "crossing_strategy": "three_zone",
+                                          "missing_zones": ["gate_approach", "gate_interior", "gate_leaf_roi"]}
+
+
 def test_upload_rejects_a_configuration_of_another_frame_size(harness):
     response = upload(harness, configuration=json.dumps(config(calibration=calibration(2560, 1440))))
     assert response.status_code == 422 and response.json()["detail"]["code"] == "FRAME_SIZE_MISMATCH"
     assert list(harness.dir.iterdir()) == []
 
 
-# --- delete keeps the video until the user asks ----------------------------------------------------------------
+# --- explicit asset-group deletion -----------------------------------------------------------------------------
 
 def test_delete_removes_job_events_and_video(harness):
     job_id = saved_job(harness)
@@ -380,6 +739,10 @@ def test_measure_endpoints_reports_edges_not_found(harness, real_video):
     harness.client.put(f"{BASE}/{real_video}/config", headers=HEADERS, json=config())
     response = harness.client.post(f"{BASE}/{real_video}/measure-endpoints", headers=HEADERS, json={"closed_t": 0.5, "open_t": 0.6})
     assert response.status_code == 422 and response.json()["detail"]["code"] == "ENDPOINTS_NOT_FOUND"
+    detail = response.json()["detail"]
+    assert detail["message"] != "Could not find both leaf edges in the open frame; widen the search windows."
+    assert detail["diagnostics"]["open"]["frame_size"] == {"width": WIDTH, "height": HEIGHT}
+    assert set(detail["diagnostics"]["open"]["edges"]) == {"left", "right"}
 
 
 def test_every_video_route_requires_the_key(harness):
@@ -399,21 +762,22 @@ def test_every_video_route_requires_the_key(harness):
 ])
 def test_video_alerts_can_be_acknowledged_and_resolved(harness, monkeypatch, action, path, body):
     job_id = saved_job(harness)
-    calls = []
-
-    def service(method, called_path, **_kwargs):
-        calls.append((method, called_path))
-        return {"id": "a1", "use_case": "grill_gate", "status": "OPEN", "resource_refs": {"video_job_id": job_id}}
-
-    monkeypatch.setattr(grill_gate, "_alert_service_request", service)
-    response = harness.client.post(f"/api/v1/grill-gate/alerts/a1/{action}", headers=HEADERS, json=body)
+    from datetime import datetime, timezone
+    with Session(harness.engine) as db:
+        db.add(GrillGateAlert(id="00000000-0000-0000-0000-0000000000a1", source_event_id="video-event-a1",
+            source_event_type="GATE_OPEN_TOO_LONG", video_job_id=job_id, use_case="grill_gate", severity="WARNING",
+            status="OPEN", title="Gate open too long", summary="Gate remained open",
+            occurred_at=datetime.now(timezone.utc), triggered_at=datetime.now(timezone.utc), row_version=1,
+            resource_refs={"video_job_id": job_id}, domain_data={}, evidence_refs=[]))
+        db.commit()
+    alert_id = "00000000-0000-0000-0000-0000000000a1"
+    response = harness.client.post(f"/api/v1/grill-gate/alerts/{alert_id}/{action}", headers=HEADERS, json=body)
     assert response.status_code == 200, response.text
-    assert ("POST", path) in calls
+    expected = "ACKNOWLEDGED" if action == "acknowledge" else "RESOLVED"
+    assert response.json()["status"] == expected
 
 
 def test_alert_of_an_unknown_job_stays_hidden(harness, monkeypatch):
-    monkeypatch.setattr(grill_gate, "_alert_service_request", lambda *_a, **_k: {
-        "id": "a1", "use_case": "grill_gate", "resource_refs": {"video_job_id": str(uuid4())}})
     assert harness.client.post("/api/v1/grill-gate/alerts/a1/acknowledge", headers=HEADERS, json={"expected_version": 1}).status_code == 404
 
 
@@ -433,6 +797,10 @@ class FakeDetector:
         ended = {"reason": "video ended", "from_state": "OPEN", "to_state": "UNKNOWN", "video_time_seconds": 2.9}
         return {"state": "UNKNOWN", "last_transition": ended, "recent_transitions": [ended], "progress": 0.9,
                 "confidence": 0.8, "gate_open_seconds": 4.5, "error": None,
+                "gate_state": "OPEN", "open_without_crossing_seconds": 2.0,
+                "open_without_crossing_threshold_seconds": 3.0, "threshold_configured": True,
+                "progress_percent": 66.67, "timer_state": "COUNTING",
+                "source_timestamp": "2026-11-06T05:00:02Z", "seconds_since_crossing": None,
                 "processing": {"mesh": {"occupancy_count": 2, "occupied": True}}}
 
 
@@ -449,8 +817,13 @@ class FakeWriter:
         pass
 
 
-def run_worker(harness, monkeypatch, writer):
+def run_worker(harness, monkeypatch, writer, *, alert_configuration=None):
     job_id = ready_job(harness)
+    if alert_configuration:
+        with video_jobs_module.SessionLocal() as db:
+            row = db.get(GrillGateVideoJob, job_id)
+            row.config_snapshot = {**row.config_snapshot, "alert_configuration": alert_configuration}
+            db.commit()
     jobs = GrillGateVideoJobs(upload_dir=harness.dir, max_bytes=1024, max_concurrent=1, max_queued=1,
                               processor_factory=lambda *_a: None, event_writer=writer,
                               alert_publisher=SimpleNamespace(flush=lambda timeout=0: True))
@@ -465,15 +838,22 @@ def run_worker(harness, monkeypatch, writer):
 
 def test_job_is_not_completed_until_its_events_are_stored(harness, monkeypatch):
     writer = FakeWriter(True)
-    job_id = run_worker(harness, monkeypatch, writer)
+    job_id = run_worker(harness, monkeypatch, writer,
+        alert_configuration={"gate_open_enabled": True, "max_gate_open_seconds": 3})
     assert writer.status_at_flush == "PROCESSING"
     job = harness.client.get(f"{BASE}/{job_id}", headers=HEADERS).json()
     assert job["status"] == "COMPLETED" and job["progress"] == 1.0 and job["total_frames"] == 30
     assert job["monitoring"]["gate_open_seconds"] == 4.5 and job["monitoring"]["mesh"]["occupancy_count"] == 2
     assert job["monitoring"]["state"] == "OPEN", "the end of the file is not a gate observation"
+    assert job["monitoring"]["open_without_crossing_seconds"] == 2.0
+    assert job["monitoring"]["open_without_crossing_threshold_seconds"] == 3.0
+    assert job["monitoring"]["threshold_configured"] is True
+    assert job["monitoring"]["progress_percent"] == 66.67
+    assert job["monitoring"]["source_timestamp"] == "2026-11-06T05:00:02Z"
     assert list(harness.dir.iterdir()), "the video stays after processing until Delete"
     results = harness.client.get(f"{BASE}/{job_id}/results", headers=HEADERS).json()
     assert results["transitions"][0]["video_time_seconds"] == 2.9
+    assert results["monitoring"]["open_without_crossing_threshold_seconds"] == 3.0
 
 
 def test_job_fails_when_its_events_could_not_be_stored(harness, monkeypatch):
@@ -592,19 +972,19 @@ def test_events_never_cross_between_a_camera_and_a_job(harness, monkeypatch):
 
 # --- status values ---------------------------------------------------------------------------------------------
 
-def test_gate_open_seconds_accumulates_while_open_and_resets_on_closed():
+def test_gate_open_seconds_counts_only_the_current_confirmed_open_episode():
     from grill_gate_monitoring.services.alert_rule_engine import GrillGateAlertRuleEngine
     engine = GrillGateAlertRuleEngine("c", "a", lambda _command: True)
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    assert engine.gate_open_seconds(start) == 0.0
+    assert engine.gate_open_seconds(start) is None
     engine.on_gate_transition("OPEN", start)
     assert engine.gate_open_seconds(start + timedelta(seconds=5)) == 5.0
     engine.on_gate_transition("CLOSING", start + timedelta(seconds=5))
-    assert engine.gate_open_seconds(start + timedelta(seconds=9)) == 5.0
+    assert engine.gate_open_seconds(start + timedelta(seconds=9)) is None
     engine.on_gate_transition("OPEN", start + timedelta(seconds=9))
-    assert engine.gate_open_seconds(start + timedelta(seconds=10)) == 6.0
+    assert engine.gate_open_seconds(start + timedelta(seconds=10)) == 1.0
     engine.on_gate_transition("CLOSED", start + timedelta(seconds=10))
-    assert engine.gate_open_seconds(start + timedelta(seconds=11)) == 0.0
+    assert engine.gate_open_seconds(start + timedelta(seconds=11)) is None
 
 
 def test_live_detector_status_keeps_only_the_last_transitions():

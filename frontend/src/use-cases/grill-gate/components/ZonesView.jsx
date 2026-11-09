@@ -19,7 +19,7 @@ export default function ZonesView({ item, zones, loading, error, zoneTypes }) {
           {!zones.length && <p className="absolute inset-0 flex items-center justify-center text-sm text-slate-500">{loading ? 'Loading zones…' : 'No zones configured'}</p>}
         </CameraStage>
         <p className="mt-3 text-xs leading-5 text-[#55607A]">
-          Polygons use normalized raw-frame coordinates. The gate_crossing polygon is the corridor; the directional virtual line is set under Calibration.
+          Polygons use normalized raw-frame coordinates. Draw Gate approach and Gate interior endpoints; the ENTRY/EXIT line is a separate calibration reference.
         </p>
       </Card>
       <Card title="Zone types">

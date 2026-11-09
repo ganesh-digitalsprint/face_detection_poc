@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from grill_gate_monitoring.services.gate_geometry import GateCalibration, measure
+from grill_gate_monitoring.services.gate_geometry import GateCalibration, edge_search_diagnostics, measure
 
 
 def calibration():
@@ -37,4 +37,12 @@ def test_geometry_ignores_a_wide_dark_object():
     result = measure(frame_with_runs((30, 151), (20, 30), (170, 180)), calibration())
     assert result["xL_px"] != 30
     assert result["xR_px"] != 150
+
+
+def test_edge_diagnostics_explain_wide_runs_rejected_on_each_side():
+    diagnostics = edge_search_diagnostics(frame_with_runs((30, 151)), calibration())
+    assert diagnostics["frame_size"] == {"width": 200, "height": 100}
+    assert diagnostics["max_run_px"] == 99
+    assert "wider than the configured maximum" in diagnostics["edges"]["left"]["reason"]
+    assert "wider than the configured maximum" in diagnostics["edges"]["right"]["reason"]
 

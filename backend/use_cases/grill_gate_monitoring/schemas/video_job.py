@@ -1,11 +1,12 @@
 """Request models for an uploaded-video job's own zones and calibration."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.camera_registry import RegistryZoneCreate
+from grill_gate_monitoring.schemas.calibration import ReferenceFrame
 
 
 class JobZone(RegistryZoneCreate):
@@ -30,6 +31,47 @@ class JobConfigUpdate(BaseModel):
     calibration: dict[str, Any] | None = None
     zones: list[JobZone] = Field(default_factory=list, max_length=50)
     alert_configuration: dict[str, Any] = Field(default_factory=dict)
+    crossing_strategy: Literal["three_zone"] | None = None
+    zone_configuration_id: str | None = Field(default=None, max_length=64)
+
+
+class NamedZoneConfigurationWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    reference_frame: ReferenceFrame
+    calibration: dict[str, Any]
+    zones: list[JobZone] = Field(min_length=1, max_length=50)
+    alert_configuration: dict[str, Any] = Field(default_factory=dict)
+    crossing_strategy: Literal["three_zone"] = "three_zone"
+
+    @field_validator("name")
+    @classmethod
+    def name_is_not_blank(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("Configuration name cannot be blank")
+        return value
+
+
+class ZoneConfigurationName(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def name_is_not_blank(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("Configuration name cannot be blank")
+        return value
+
+
+class ReprocessVideoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    zone_configuration_id: str | None = Field(default=None, max_length=64)
 
 
 class CopyConfigRequest(BaseModel):

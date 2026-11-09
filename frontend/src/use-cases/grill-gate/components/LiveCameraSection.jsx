@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { describeError } from '../../../utils/errors.js';
 import {
-  acknowledgeGrillGateAlert, createCameraSource, createGrillGateAssignment, createRegistryCamera, getLivePreview,
+  acknowledgeGrillGateAlert, createCameraSource, createGrillGateAssignment, createRegistryCamera, getLiveAlertHistory, getLivePreview,
   listAllRegistryLocations, resolveGrillGateAlert, updateAssignmentConfiguration, updateCameraSource,
 } from '../api/grillGate.js';
 import { mergeAssignmentConfiguration, workerIsActive } from '../grillGateModel.js';
@@ -180,6 +180,10 @@ function LivePreview({ item, worker, cameraName }) {
 export default function LiveCameraSection({ items, item, worker, connection, statusError, busy, actionError, onConnect, onDisconnect, onSelect, onRegistryChanged, monitoring, live }) {
   const [busyAlertId, setBusyAlertId] = useState(null);
   const [alertError, setAlertError] = useState('');
+  const [history, setHistory] = useState([]);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
   const frame = worker?.width && worker?.height ? { width: worker.width, height: worker.height } : item?.assignment.calibration?.reference_frame ?? null;
 
   const actOnAlert = async (alert, action) => {
@@ -197,6 +201,21 @@ export default function LiveCameraSection({ items, item, worker, connection, sta
     }
   };
 
+  const toggleHistory = async () => {
+    if (historyVisible) { setHistoryVisible(false); return; }
+    setHistoryVisible(true);
+    setHistoryLoading(true); setHistoryError('');
+    try {
+      if (!item?.assignment?.id) return;
+      const page = await getLiveAlertHistory(item.assignment.id, { limit: 100, offset: 0 });
+      setHistory(page.items ?? []);
+    } catch (exception) {
+      setHistoryError(describeError(exception).message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const gateNote = monitoring.gateState ? null : connection.key === 'connected' ? 'Waiting for the gate-state detector.' : 'Connect the camera to start gate-state detection.';
   return (
     <div className="space-y-4">
@@ -211,7 +230,9 @@ export default function LiveCameraSection({ items, item, worker, connection, sta
         <div className="min-w-0 space-y-4">
           <GateStatePanel monitoring={monitoring} note={gateNote} />
           <CrossingEventsPanel monitoring={monitoring} />
-          <AlertsPanel monitoring={monitoring} onAction={actOnAlert} busyAlertId={busyAlertId} error={alertError} />
+          <AlertsPanel monitoring={monitoring} onAction={actOnAlert} busyAlertId={busyAlertId} error={alertError}
+            onHistoryToggle={item?.assignment?.id ? toggleHistory : undefined} history={history} historyVisible={historyVisible}
+            historyLoading={historyLoading} historyError={historyError} />
         </div>
       </div>
       <LivePreview item={item} worker={worker} cameraName={item?.camera?.name ?? 'this camera'} />

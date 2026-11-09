@@ -71,6 +71,13 @@ def test_valid_calibration_and_unset_business_thresholds():
     calibration.validate_frame_dimensions(1920, 1080)
 
 
+def test_directional_line_is_optional_for_three_zone_reference_calibration():
+    document = valid_calibration()
+    document.pop("directional_crossing")
+    calibration = GrillGateCalibration.model_validate(document)
+    assert calibration.directional_crossing is None
+
+
 @pytest.mark.parametrize("patch, message", [
     ({"coordinate_system": "normalized_cropped_analysis"}, "coordinate_system"),
     ({"schema_version": 2}, "schema_version"),

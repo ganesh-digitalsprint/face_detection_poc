@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from sqlalchemy import DateTime, Float, Integer, JSON, String, Text, func, Index
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, func, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Uuid
@@ -19,6 +19,7 @@ class GrillGateVideoJob(Base):
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="UPLOADED")
+    asset_job_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), ForeignKey("grill_gate_video_jobs.id"), nullable=True, index=True)
     template_assignment_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False))
     config_snapshot: Mapped[dict] = mapped_column(_JSON, nullable=False, default=dict)
     frame_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

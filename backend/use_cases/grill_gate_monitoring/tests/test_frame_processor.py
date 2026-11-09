@@ -9,9 +9,8 @@ from grill_gate_monitoring.schemas.alerts import GrillGateAlertConfig
 
 ZONES = [
     {"zone_type": "gate_approach", "polygon": [[.05,.1],[.3,.1],[.3,.9],[.05,.9]]},
-    {"zone_type": "gate_crossing", "polygon": [[.4,.1],[.6,.1],[.6,.9],[.4,.9]]},
     {"zone_type": "gate_interior", "polygon": [[.7,.1],[.95,.1],[.95,.9],[.7,.9]]},
-    {"zone_type": "mesh_area", "polygon": [[.3,.2],[.7,.2],[.7,.8],[.3,.8]]},
+    {"zone_type": "mesh_area", "polygon": [[.3,.2],[.95,.2],[.95,.8],[.3,.8]]},
 ]
 
 
@@ -50,7 +49,9 @@ def test_one_detection_and_tracking_result_feed_crossing_and_mesh_and_failure_is
     processor.process_frame(packet(2,.5,.21), gate_state="OPENING")
     processor.process_frame(packet(3,.5,.42), gate_state="OPEN")
     processor.process_frame(packet(4,.8,.63), gate_state="OPEN")
-    assert detector.calls == tracker.calls == 4
+    processor.process_frame(packet(5,.8,.84), gate_state="OPEN")
+    processor.process_frame(packet(6,.8,1.05), gate_state="OPEN")
+    assert detector.calls == tracker.calls == 6
     assert {event["event_type"] for event in submitted} == {
         "CROSSING_COMPLETED", "MESH_PERSON_ENTERED",
     }
@@ -66,6 +67,32 @@ def test_duplicate_frame_sequence_is_not_detected_or_tracked_twice():
     processor.process_frame(item, gate_state="CLOSED")
     processor.process_frame(item, gate_state="CLOSED")
     assert detector.calls == tracker.calls == 1
+
+
+def test_alert_only_configuration_preserves_frame_tracking_and_crossing_state():
+    tracker = Tracker()
+    processor = GrillGateFrameProcessor(person_detector=Detector(), tracker=tracker,
+        event_sink=lambda _event: True, alert_sink=lambda _command: True,
+        camera_id="cam-1", assignment_id="assignment-1")
+    processor.configure(GateDetectorConfig(zone={}, calibration={}, zones_version=1, zones=ZONES,
+        alert_configuration=GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=30)))
+    processor.process_frame(packet(1, .2, 0), gate_state="CLOSED")
+    crossing = processor._three_zone_crossing
+    mesh = processor._mesh
+    active_crossing = processor._active_crossing()
+    reset_calls = tracker.reset_calls
+    crossing_good_frames = processor._crossing_good_frames
+    status_sequence = processor._last_sequence
+
+    processor.configure_alerts(GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=3))
+
+    assert processor._alerts.config.max_gate_open_seconds == 3
+    assert processor._three_zone_crossing is crossing
+    assert processor._mesh is mesh
+    assert processor._active_crossing() is active_crossing
+    assert tracker.reset_calls == reset_calls
+    assert processor._crossing_good_frames == crossing_good_frames
+    assert processor._last_sequence == status_sequence == 1
 
 
 def test_alert_publication_failure_does_not_stop_frame_processing():
@@ -107,7 +134,7 @@ def test_unknown_crossing_recovery_requires_configured_number_of_good_frames():
     assert [job["action"] for job in submitted] == ["create"]
 
 
-def test_real_crossing_detector_suppresses_open_alert_until_destination_completion():
+def test_completed_three_zone_crossing_resets_open_without_crossing_timer():
     submitted = []
     processor = GrillGateFrameProcessor(person_detector=Detector(), tracker=Tracker(),
         event_sink=lambda _event: True, alert_sink=lambda command: submitted.append(command) or True,
@@ -117,7 +144,7 @@ def test_real_crossing_detector_suppresses_open_alert_until_destination_completi
                                                  crossing_unknown_recovery_frames=1)))
     start = datetime.fromtimestamp(1_800_000_000, timezone.utc)
     processor.on_gate_transition({"to_state": "OPEN", "at": start.isoformat()})
-    for seq, x, elapsed in ((1, .2, 0), (2, .5, .21), (3, .5, .42)):
+    for seq, x, elapsed in ((1, .2, 0), (2, .8, .21), (3, .8, .42)):
         item = packet(seq, x, elapsed)
         item.captured_at = start + timedelta(seconds=elapsed)
         processor.process_frame(item, gate_state="OPEN")
@@ -126,5 +153,44 @@ def test_real_crossing_detector_suppresses_open_alert_until_destination_completi
     item = packet(4, .8, .63)
     item.captured_at = start + timedelta(seconds=.63)
     processor.process_frame(item, gate_state="OPEN")
+    assert submitted == []
+    assert processor.status()["open_without_crossing_seconds"] == 0
+    for seq, elapsed in ((5, .84), (6, 1.05)):
+        item = packet(seq, .8, elapsed)
+        item.captured_at = start + timedelta(seconds=elapsed)
+        processor.process_frame(item, gate_state="OPEN")
     assert [job["action"] for job in submitted] == ["create"]
     assert submitted[0]["payload"]["source_event_type"] == "GATE_OPEN_TOO_LONG"
+    assert submitted[0]["payload"]["domain_data"]["configured_threshold_seconds"] == .3
+    assert submitted[0]["payload"]["domain_data"]["camera_id"] == "cam-1"
+    assert submitted[0]["payload"]["domain_data"]["assignment_id"] == "assignment-1"
+
+
+def test_three_zone_strategy_uses_the_existing_tracker_output_and_event_sink():
+    detector, tracker, submitted = Detector(), Tracker(), []
+    processor = GrillGateFrameProcessor(person_detector=detector, tracker=tracker,
+        event_sink=lambda event: submitted.append(event) or True,
+        camera_id="job-1", assignment_id="job-1",
+        settings=DEFAULT_PROCESSING_SETTINGS.model_copy(update={
+            "three_zone_transition_confirmation_frames": 3,
+        }))
+    processor.configure(GateDetectorConfig(zone={}, calibration={}, zones_version=1, zones=ZONES))
+    for seq, x in ((1, .2), (2, .8), (3, .8), (4, .8), (5, .8)):
+        item = packet(seq, x, seq * .21)
+        item.source_type = "UPLOADED_VIDEO"
+        item.video_job_id = "job-1"
+        item.video_time_seconds = seq * .21
+        item.template_assignment_id = "template-1"
+        processor.process_frame(item, gate_state="CLOSED")
+    crossing_events = [event for event in submitted if event["event_type"] == "CROSSING_COMPLETED"]
+    assert len(crossing_events) == 1
+    event = crossing_events[0]
+    assert event["direction"] == "OUTSIDE_TO_INSIDE"
+    assert event["track_id"] == 1
+    assert event["camera_id"] == "cam-1" and event["assignment_id"] == "assignment-1"
+    assert event["source_type"] == "UPLOADED_VIDEO"
+    assert event["video_job_id"] == "job-1" and event["template_assignment_id"] == "template-1"
+    assert event["video_time_seconds"] == .84
+    assert event["occurred_at"] == packet(4, .8, .84).captured_at
+    assert event["metadata"]["frame_sequence"] == 4
+    assert detector.calls == tracker.calls == 5

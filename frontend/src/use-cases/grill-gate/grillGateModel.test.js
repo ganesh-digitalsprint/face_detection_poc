@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  CALIBRATION_STARTING_VALUES, calibrationFormIsBlank, calibrationFromForm, calibrationStatus, calibrationToForm, connectionView, EMPTY_MONITORING, formatClock, formLine, formToCalibration, mergeAssignmentConfiguration,
+  CALIBRATION_STARTING_VALUES, calibrationFormIsBlank, calibrationFromForm, calibrationStatus, calibrationToForm, connectionView, EMPTY_MONITORING, formatClock, formLine, formToCalibration, mergeAssignmentConfiguration, mergeGrillGateAlertConfiguration,
   previewState, workerForAssignment, workerIsActive, workerPollDelay, zoneCoverage,
+  zoneTypesForStrategy,
 } from './grillGateModel.js';
 
 // Shapes copied from GrillGateCameraWorker.status() and GrillGateCalibration (backend Stage 1).
@@ -23,11 +24,29 @@ const calibration = {
     minimum_mesh_gathering_count: null, mesh_gathering_seconds: null, suspicious_activity_seconds: null },
 };
 
+test('only the supported Three-Zone types are offered', () => {
+  const types = ['gate_leaf_roi', 'gate_approach', 'gate_interior', 'mesh_area']
+    .map((key) => ({ key }));
+  assert.deepEqual(zoneTypesForStrategy(types).map(({ key }) => key),
+    ['gate_leaf_roi', 'gate_approach', 'gate_interior', 'mesh_area']);
+});
+
 test('changing the assignment source keeps its alert rules', () => {
   const rules = { gate_open_enabled: true, max_gate_open_seconds: 120 };
   assert.deepEqual(mergeAssignmentConfiguration({ source_id: 'old', grill_gate_alerts: rules }, { source_id: 'new' }),
     { source_id: 'new', grill_gate_alerts: rules });
   assert.deepEqual(mergeAssignmentConfiguration(null, { source_id: 'new' }), { source_id: 'new' });
+});
+
+test('saving alert thresholds preserves the assignment config and other alert rules', () => {
+  const current = { source_id: 'source-1', other_setting: 'keep', grill_gate_alerts: {
+    gate_open_enabled: true, max_gate_open_seconds: 30, mesh_occupancy_enabled: true, max_mesh_occupancy: 8,
+  } };
+  for (const seconds of [3, 4, 10, 30]) {
+    assert.deepEqual(mergeGrillGateAlertConfiguration(current, {
+      ...current.grill_gate_alerts, max_gate_open_seconds: seconds,
+    }), { ...current, grill_gate_alerts: { ...current.grill_gate_alerts, max_gate_open_seconds: seconds } });
+  }
 });
 
 test('calibration form: blank stays unsaved, starting values are explicit, reference positions stay fixed', () => {
@@ -77,15 +96,20 @@ test('calibration status reports missing, mismatch and missing gate zone', () =>
   assert.equal(calibrationStatus({ schema_version: 2 }).key, 'invalid');
 });
 
-test('calibration round-trips through the form without inventing thresholds', () => {
+test('calibration round-trips and supplies defaults for hidden advanced fields', () => {
   const doc = formToCalibration(calibrationToForm(calibration), new Date('2026-11-04T05:00:00Z'));
   assert.deepEqual(doc.directional_crossing, calibration.directional_crossing);
   assert.deepEqual(doc.sliding_gate, calibration.sliding_gate);
   assert.deepEqual(doc.monitoring, calibration.monitoring);
   const blank = formToCalibration(calibrationToForm(null));
   assert.equal(blank.monitoring.maximum_continuous_open_seconds, null);
-  assert.equal(blank.sliding_gate.confidence_threshold, null);
+  assert.equal(blank.sliding_gate.confidence_threshold, 0.5);
   assert.equal(blank.sliding_gate.horizontal_movement_direction, null);
+  assert.equal(blank.directional_crossing, undefined, 'an ENTRY/EXIT line is optional for Three-Zone video processing');
+  const withLine = calibrationFromForm({ ...calibrationToForm(null), line_start_x: '0.1', line_start_y: '0.5',
+    line_end_x: '0.9', line_end_y: '0.5' }, { width: 640, height: 360 });
+  assert.equal(withLine.sliding_gate.position_thresholds.closed_tolerance, 0.1);
+  assert.equal(withLine.directional_crossing.dead_band_fraction, 0.05);
 });
 
 test('line preview requires both endpoints within the normalized range', () => {

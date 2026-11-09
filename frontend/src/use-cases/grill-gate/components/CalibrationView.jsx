@@ -50,7 +50,7 @@ export default function CalibrationView({ form, setField, disabled = false }) {
         <NumberField {...shared} name="partially_open_seconds" text="Confirm PARTIALLY OPEN (s)" min="0" />
         <NumberField {...shared} name="closing_seconds" text="Confirm CLOSING (s)" min="0" />
       </Fieldset>
-      <Fieldset title="ENTRY/EXIT line" hint="Draw the line on the frame, then choose which side of it is outside. ENTRY is outside to inside. Left and right are as seen walking from the line's first point to its second.">
+      <Fieldset title="ENTRY/EXIT reference line (optional)" hint="Three-Zone crossings use the approach and interior polygons. This line can be saved as an optional calibration reference.">
         <SelectField {...shared} name="outside_side" text="Outside is on the line's" options={[['left', 'Left side'], ['right', 'Right side']]} />
         <SelectField {...shared} name="inside_side" text="Inside is on the line's" options={[['left', 'Left side'], ['right', 'Right side']]} />
         <NumberField {...shared} name="dead_band_fraction" text="Dead-band fraction" min="0" max="1" />
