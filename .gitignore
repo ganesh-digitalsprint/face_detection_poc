@@ -31,3 +31,5 @@ wheels/
 # images
 *.png
 *.jpg
+
+/tmp/
