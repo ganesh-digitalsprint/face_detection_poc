@@ -13,6 +13,10 @@
         "open_tolerance": 0.1
       },
       "confidence_threshold": 0.5,
+      "partially_open_threshold_percent": 25.0,
+      "partially_open_exit_threshold_percent": 20.0,
+      "fully_open_threshold_percent": 80.0,
+      "fully_open_hysteresis_percent": 5.0,
       "state_confirmation_durations": {
         "closed_seconds": 0.5,
         "opening_seconds": 0.3,

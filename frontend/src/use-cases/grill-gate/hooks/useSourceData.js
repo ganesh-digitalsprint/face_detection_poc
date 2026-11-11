@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useDispatch } from 'react-redux';
 import { describeError } from '../../../utils/errors.js';
 import {
   getLiveActiveAlerts, getLiveCrossings, getLiveGateState, getLiveMeshEvents, getLiveMeshStatus, listGrillGateVideoJobs,
 } from '../api/grillGate.js';
 import { analysedFps } from '../liveMonitoringModel.js';
+import { updateGateProgress } from '../../../store/slices/gateMonitoringSlice.js';
 
 const LIVE_POLL_MS = 3000;
 const emptyLive = (assignmentId) => ({
@@ -29,6 +31,7 @@ export function fetchLiveMonitoringData(assignmentId, workerActive, signal) {
 
 /** Live-camera data for one assignment. One read cycle at a time; data never survives a change of assignment. */
 export function useLiveMonitoring(assignmentId, workerActive) {
+  const dispatch = useDispatch();
   const [state, setState] = useState(() => emptyLive(assignmentId));
   const runRef = useRef(null);
   const workerActiveRef = useRef(workerActive);
@@ -58,6 +61,11 @@ export function useLiveMonitoring(assignmentId, workerActive) {
       const at = Date.now();
       // gate-state can still be 404 while a detector starts or stops, which is not an error.
       const gateValue = gate.status === 'fulfilled' ? gate.value : null;
+      dispatch(updateGateProgress({
+        sessionId: `live:${assignmentId}`,
+        progress: gateValue?.progress,
+        observedAt: at,
+      }));
       const gateFailed = gate.status === 'rejected' && gate.reason?.response?.status !== 404;
       const failure = [gateFailed ? gate : null, crossings, mesh, meshEvents].find((item) => item?.status === 'rejected');
       if (alerts.status === 'rejected') {
@@ -100,7 +108,7 @@ export function useLiveMonitoring(assignmentId, workerActive) {
       document.removeEventListener('visibilitychange', onVisibility);
       runRef.current = null;
     };
-  }, [assignmentId]);
+  }, [assignmentId, dispatch]);
 
   const refresh = useCallback(() => runRef.current?.(), []);
   return { ...(state.assignmentId === assignmentId ? state : emptyLive(assignmentId)), refresh };

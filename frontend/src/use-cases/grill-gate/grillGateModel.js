@@ -1,8 +1,8 @@
 /**
  * Pure Grill Gate view-model helpers (no React, so `node --test` can cover them).
  *
- * Everything here maps real backend payloads into display state. Nothing derives gate state, crossings,
- * mesh counts or alerts: those belong to backend stages that do not exist yet.
+ * Shared Grill Gate formatting and API-to-view helpers. Current gate state is classified in the persisted
+ * Redux slice from backend progress; crossings, mesh counts and alerts remain backend-derived.
  */
 
 /** Zone types the backend configures for grill_gate (labels come from GET /regions/use-cases). */
@@ -14,15 +14,20 @@ export const ZONE_COLORS = {
 };
 export const zoneColor = (type) => ZONE_COLORS[type] ?? '#94a3b8';
 
-/** Gate states the future backend gate-state service will report; rendered only when supplied. */
+/** Discrete gate classifications and inferred secondary direction. */
 export const GATE_STATES = {
   CLOSED: { label: 'CLOSED', tone: 'text-emerald-700' },
-  OPENING: { label: 'OPENING', tone: 'text-sky-700' },
-  OPEN: { label: 'OPEN', tone: 'text-amber-700' },
+  FULLY_OPEN: { label: 'FULLY OPEN', tone: 'text-amber-700' },
   PARTIALLY_OPEN: { label: 'PARTIALLY OPEN', tone: 'text-amber-700' },
-  CLOSING: { label: 'CLOSING', tone: 'text-sky-700' },
   UNKNOWN: { label: 'UNKNOWN', tone: 'text-[#69758F]' },
 };
+
+/** Normalize older transition names to the current three displayed classifications. */
+export function gateStateView(state) {
+  if (state === 'OPEN') return 'FULLY_OPEN';
+  if (state === 'OPENING' || state === 'CLOSING') return 'PARTIALLY_OPEN';
+  return state ?? null;
+}
 
 /** Worker statuses come from GrillGateCameraWorker.status(); the backend already flips connected -> stale. */
 const CONNECTION = {
@@ -158,6 +163,8 @@ const FIXED_GATE_REFERENCE = { closed_reference_position: '0', open_reference_po
 /** Baseline values used internally while advanced calibration inputs are hidden. */
 export const CALIBRATION_STARTING_VALUES = {
   closed_tolerance: '0.1', open_tolerance: '0.1', confidence_threshold: '0.5', hysteresis_fraction: '0.05',
+  partially_open_threshold_percent: '25', partially_open_exit_threshold_percent: '20',
+  fully_open_threshold_percent: '80', fully_open_hysteresis_percent: '5',
   closed_seconds: '0.5', opening_seconds: '0.3', open_seconds: '0.5', partially_open_seconds: '1', closing_seconds: '0.3',
   outside_side: 'left', inside_side: 'right', dead_band_fraction: '0.05', minimum_crossing_displacement: '0.02',
 };
@@ -195,6 +202,8 @@ export function calibrationToForm(calibration, worker = null) {
   const line = calibration?.directional_crossing ?? {};
   const monitor = calibration?.monitoring ?? {};
   const durations = gate.state_confirmation_durations ?? {};
+  const legacyPartialDefaults = Number(gate.partially_open_threshold_percent) === 30
+    && Number(gate.partially_open_exit_threshold_percent) === 25;
   return {
     width: str(calibration?.reference_frame?.width ?? worker?.width),
     height: str(calibration?.reference_frame?.height ?? worker?.height),
@@ -210,6 +219,10 @@ export function calibrationToForm(calibration, worker = null) {
     partially_open_seconds: str(durations.partially_open_seconds),
     closing_seconds: str(durations.closing_seconds),
     hysteresis_fraction: str(gate.hysteresis_fraction),
+    partially_open_threshold_percent: str(legacyPartialDefaults ? 25 : gate.partially_open_threshold_percent ?? (calibration ? CALIBRATION_STARTING_VALUES.partially_open_threshold_percent : '')),
+    partially_open_exit_threshold_percent: str(legacyPartialDefaults ? 20 : gate.partially_open_exit_threshold_percent ?? (calibration ? CALIBRATION_STARTING_VALUES.partially_open_exit_threshold_percent : '')),
+    fully_open_threshold_percent: str(gate.fully_open_threshold_percent ?? (calibration ? CALIBRATION_STARTING_VALUES.fully_open_threshold_percent : '')),
+    fully_open_hysteresis_percent: str(gate.fully_open_hysteresis_percent ?? (calibration ? CALIBRATION_STARTING_VALUES.fully_open_hysteresis_percent : '')),
     line_start_x: str(line.line_start?.x),
     line_start_y: str(line.line_start?.y),
     line_end_x: str(line.line_end?.x),
@@ -248,6 +261,10 @@ export function formToCalibration(form, calibratedAt = new Date()) {
       horizontal_movement_direction: choice(form.horizontal_movement_direction),
       position_thresholds: { closed_tolerance: num(withDefault('closed_tolerance')), open_tolerance: num(withDefault('open_tolerance')) },
       confidence_threshold: num(withDefault('confidence_threshold')),
+      partially_open_threshold_percent: num(withDefault('partially_open_threshold_percent')),
+      partially_open_exit_threshold_percent: num(withDefault('partially_open_exit_threshold_percent')),
+      fully_open_threshold_percent: num(withDefault('fully_open_threshold_percent')),
+      fully_open_hysteresis_percent: num(withDefault('fully_open_hysteresis_percent')),
       state_confirmation_durations: {
         closed_seconds: num(withDefault('closed_seconds')),
         opening_seconds: num(withDefault('opening_seconds')),

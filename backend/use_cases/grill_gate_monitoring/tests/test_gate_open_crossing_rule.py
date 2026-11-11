@@ -31,7 +31,7 @@ def test_open_without_completed_crossing_triggers_once_at_configured_threshold()
     payload = commands[0]["payload"]
     assert payload["domain_data"]["configured_threshold_seconds"] == 3
     assert payload["domain_data"]["open_without_crossing_seconds"] == 3
-    assert payload["domain_data"]["gate_state"] == "OPEN"
+    assert payload["domain_data"]["gate_state"] == "FULLY_OPEN"
     assert payload["domain_data"]["camera_id"] == "camera-1"
     assert payload["domain_data"]["assignment_id"] == "assignment-1"
 
@@ -114,7 +114,7 @@ def test_status_contract_uses_the_rule_timer_and_suppression_pauses_only_alertin
     rule.on_crossing_activity(0, True, START)
     rule.on_crossing_activity(1, True, START + timedelta(seconds=3))
     status = rule.monitoring_status(START + timedelta(seconds=3))
-    assert status["timer_state"] == "PAUSED"
+    assert status["timer_state"] == "COUNTING"
     assert status["open_without_crossing_seconds"] == 3
     assert status["gate_open_since"] == START.isoformat().replace("+00:00", "Z")
     assert not commands

@@ -59,6 +59,19 @@ def test_one_detection_and_tracking_result_feed_crossing_and_mesh_and_failure_is
     assert processor.mesh_status()["occupancy_count"] == 1
 
 
+def test_confirmed_full_open_timer_counts_without_alert_publisher_or_crossing():
+    processor = GrillGateFrameProcessor(person_detector=Detector(), tracker=Tracker(),
+                                        event_sink=lambda _event: True)
+    opened_at = datetime.now(timezone.utc) - timedelta(seconds=5)
+    processor.on_gate_transition({"to_state": "FULLY_OPEN", "at": opened_at.isoformat()})
+    processor.on_measurement_availability(False, opened_at + timedelta(seconds=1))
+    status = processor.status()
+    assert status["gate_state"] == "FULLY_OPEN"
+    assert status["timer_state"] == "COUNTING"
+    assert status["gate_open_seconds"] >= 4.9
+    assert status["open_without_crossing_seconds"] >= 4.9
+
+
 def test_duplicate_frame_sequence_is_not_detected_or_tracked_twice():
     detector, tracker = Detector(), Tracker()
     processor = GrillGateFrameProcessor(person_detector=detector, tracker=tracker, event_sink=lambda _: True)

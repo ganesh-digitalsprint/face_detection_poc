@@ -1,6 +1,13 @@
 import { BellOff, History, Users } from 'lucide-react';
+import { useSelector } from 'react-redux';
 import { formatClock, GATE_STATES } from '../grillGateModel.js';
 import { btnGhost, Card, Pill, StatCard } from './ui.jsx';
+
+const UNKNOWN_GATE = Object.freeze({ gateState: 'UNKNOWN', direction: null });
+function useGateClassification(monitoring) {
+  const current = useSelector((state) => state.gateMonitoring);
+  return monitoring.gateSessionId && current.sessionId === monitoring.gateSessionId ? current : UNKNOWN_GATE;
+}
 
 /**
  * Dashboard panels for one source. They render a monitoring snapshot from liveMonitoring() or videoMonitoring() and
@@ -22,53 +29,55 @@ function EmptyState({ icon: Icon, children }) {
 const gateLabel = (state) => GATE_STATES[state]?.label ?? state;
 
 function LegacyMonitoringStats({ monitoring }) {
-  const state = monitoring.gateState;
+  const gate = useGateClassification(monitoring);
+  const state = gate.gateState;
   const tone = GATE_STATES[state]?.tone ?? 'text-[#69758F]';
   return (
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
       <StatCard label="Gate state" value={state ? gateLabel(state) : '—'} valueClass={state && state !== 'UNKNOWN' ? tone : 'text-[#69758F]'}
         sub={monitoring.gateStateTimeLabel ? `At crossing ${monitoring.gateStateTimeLabel}` : null} />
-      <StatCard label="Open without crossing" value={state === 'OPEN' ? clock(monitoring.openWithoutCrossingSeconds) : 'â€”'} valueClass="text-[#0F1B3D]" />
+      <StatCard label="Open without crossing" value={state === 'FULLY_OPEN' ? clock(monitoring.openWithoutCrossingSeconds) : 'â€”'} valueClass="text-[#0F1B3D]" />
       <StatCard label="People in mesh area" value={monitoring.meshPeopleCount} valueClass="text-[#0F1B3D]" />
     </div>
   );
 }
 
 export function MonitoringStats({ monitoring }) {
-  const state = monitoring.gateState;
+  const gate = useGateClassification(monitoring);
+  const state = gate.gateState;
   const threshold = monitoring.openWithoutCrossingThresholdSeconds;
   const elapsed = monitoring.openWithoutCrossingSeconds;
   const percent = Number.isFinite(monitoring.timerProgressPercent)
     ? Math.max(0, Math.min(100, monitoring.timerProgressPercent)) : null;
-  const timerState = monitoring.timerState ?? (state === 'OPEN' ? 'TIMER_UNAVAILABLE' : 'NOT_COUNTING');
+  const timerState = monitoring.timerState ?? (state === 'FULLY_OPEN' ? 'TIMER_UNAVAILABLE' : 'NOT_COUNTING');
   const thresholdConfigured = monitoring.thresholdConfigured === true
     || (monitoring.thresholdConfigured == null && threshold != null);
   const oldCompletedJob = monitoring.source === 'video' && monitoring.finalTimer && !monitoring.timerRecorded;
-  const timerUnavailable = state === 'OPEN' && !oldCompletedJob
+  const timerUnavailable = state === 'FULLY_OPEN' && !oldCompletedJob
     && (elapsed == null || monitoring.gateOpenSeconds == null || timerState === 'TIMER_UNAVAILABLE');
-  const pillTone = timerState === 'ALERT_RAISED' ? 'bad' : timerState === 'PAUSED' || timerState === 'NOT_COUNTING' ? 'idle' : 'info';
+  const pillTone = timerState === 'ALERT_RAISED' ? 'bad' : timerState === 'NOT_COUNTING' ? 'idle' : 'info';
   const openSince = monitoring.source === 'video'
     ? (monitoring.videoTimeSeconds != null && monitoring.gateOpenSeconds != null ? clock(Math.max(0, monitoring.videoTimeSeconds - monitoring.gateOpenSeconds)) : null)
     : monitoring.gateOpenSince ? new Date(monitoring.gateOpenSince).toLocaleTimeString(undefined, { hourCycle: 'h23' }) : null;
-  const gateSub = state === 'OPEN' ? `Since ${openSince ?? '\u2014'}` : state === 'CLOSING' ? 'Gate is closing' : state === 'CLOSED' ? 'Gate is closed' : 'Gate state unknown';
+  const gateSub = state === 'FULLY_OPEN' ? `Since ${openSince ?? '\u2014'}` : state === 'CLOSED' ? 'Gate is closed' : state === 'PARTIALLY_OPEN' ? `Gate is partially open${monitoring.gateDirection ? ` · ${monitoring.gateDirection.toLowerCase()}` : ''}` : 'Gate state unknown';
   const finished = monitoring.finalTimer;
   const timerNotRecorded = oldCompletedJob;
   const value = timerNotRecorded ? 'Timer data not recorded for this job. Upload the video again to capture it.'
     : timerUnavailable ? '\u2014'
-      : state !== 'OPEN' ? '\u2014'
+      : state !== 'FULLY_OPEN' ? '\u2014'
         : `${clock(elapsed)} / ${thresholdConfigured && threshold != null ? clock(threshold) : '\u2014'}`;
   const lastCrossingText = monitoring.lastCrossingAt
     ? `Last crossing: ${Math.max(0, Math.round(monitoring.secondsSinceCrossing ?? 0))} seconds ago`
     : 'No crossing since gate opened';
   const supportText = timerNotRecorded ? '' : timerUnavailable ? 'Timer data unavailable'
-    : state === 'OPEN' && !thresholdConfigured ? 'Threshold not configured'
-      : state === 'OPEN' ? lastCrossingText
+    : state === 'FULLY_OPEN' && !thresholdConfigured ? 'Threshold not configured'
+      : state === 'FULLY_OPEN' ? lastCrossingText
         : state === 'CLOSED' ? 'Gate is closed' : state ? `Gate is ${gateLabel(state).toLowerCase()}` : '';
   const chip = timerNotRecorded ? 'FINAL' : finished ? 'FINAL'
     : timerUnavailable ? 'TIMER UNAVAILABLE'
       : timerState === 'ALERT_RAISED' ? 'ALERT RAISED'
-        : state === 'OPEN' ? 'COUNTING' : 'NOT COUNTING';
-  const canShowProgress = state === 'OPEN' && thresholdConfigured && threshold > 0 && percent != null && !timerUnavailable && !timerNotRecorded;
+    : state === 'FULLY_OPEN' ? 'COUNTING' : 'NOT COUNTING';
+  const canShowProgress = state === 'FULLY_OPEN' && thresholdConfigured && threshold > 0 && percent != null && !timerUnavailable && !timerNotRecorded;
   return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1.7fr_1fr]">
     <StatCard label="Gate state" value={state ? gateLabel(state) : '\u2014'} valueClass={state && state !== 'UNKNOWN' ? (GATE_STATES[state]?.tone ?? 'text-[#69758F]') : 'text-[#69758F]'} sub={monitoring.gateStateTimeLabel || 'Confirmed state'} />
     <StatCard label="Gate open" value={monitoring.gateOpenSeconds == null ? '\u2014' : clock(monitoring.gateOpenSeconds)} valueClass="text-[#0F1B3D]" sub={`${monitoring.finalTimer ? 'Final · ' : ''}${gateSub}`} />
@@ -88,16 +97,23 @@ export function MonitoringStats({ monitoring }) {
 }
 
 export function GateStatePanel({ monitoring, note }) {
-  const state = monitoring.gateState;
-  const tone = state === 'CLOSED' ? 'ok' : ['OPEN', 'PARTIALLY_OPEN'].includes(state) ? 'warn' : ['OPENING', 'CLOSING'].includes(state) ? 'info' : 'idle';
-  const progress = Number.isFinite(monitoring.gateProgress) ? `${Math.round(Math.max(0, Math.min(1, monitoring.gateProgress)) * 100)}%` : '—';
-  const confidence = Number.isFinite(monitoring.gateConfidence) ? monitoring.gateConfidence.toFixed(2) : '—';
+  const gate = useGateClassification(monitoring);
+  const state = gate.gateState;
+  const tone = state === 'CLOSED' ? 'ok' : ['FULLY_OPEN', 'PARTIALLY_OPEN'].includes(state) ? 'warn' : 'idle';
+  const states = [
+    ['CLOSED', 'CLOSED'],
+    ['PARTIALLY_OPEN', 'PARTIALLY OPEN'],
+    ['FULLY_OPEN', 'FULLY OPEN'],
+  ];
   return (
-    <Card title="Gate State" aside={<Pill tone={tone} className="!rounded-full">{state ? gateLabel(state) : monitoring.status}</Pill>}>
-      <dl className="grid grid-cols-2 gap-3">
-        <div><dt className="text-xs text-[#55607A]">Gate progress</dt><dd className="mt-1 text-2xl font-bold text-[#0F1B3D]">{progress}</dd></div>
-        <div><dt className="text-xs text-[#55607A]">Confidence</dt><dd className="mt-1 text-2xl font-bold text-[#0F1B3D]">{confidence}</dd></div>
-      </dl>
+    <Card title="Gate State" aside={<Pill tone={tone} className="!rounded-full">{state || monitoring.status}</Pill>}>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {states.map(([key, label]) => <div key={key} aria-current={state === key ? 'true' : undefined}
+          className={`rounded-lg border p-3 ${state === key ? 'border-indigo-400 bg-indigo-50 text-[#0F1B3D]' : 'border-[#E3E7F0] bg-[#F7F8FC] text-[#69758F]'}`}>
+          <p className="text-sm font-semibold">{label}</p>
+          {state === key && key === 'PARTIALLY_OPEN' && gate.direction && <p className="mt-1 text-xs">{gate.direction}</p>}
+        </div>)}
+      </div>
       {note && <p className="mt-3 text-xs text-[#55607A]">{note}</p>}
     </Card>
   );
@@ -259,17 +275,25 @@ export function PreviewStage({ url, alt, message, badge, aspect = 16 / 9, tracks
             if (![x1, y1, x2, y2].every(Number.isFinite) || x2 <= x1 || y2 <= y1) return null;
             const foot = Array.isArray(track.foot_point) ? track.foot_point.map(Number) : [(x1 + x2) / 2, y2];
             const zones = Array.isArray(track.zone_membership) ? track.zone_membership : [];
-            const labelY = Math.max(22, y1 - 7);
-            const fontSize = Math.max(22, frameWidth / 40);
+            const fontSize = Math.max(14, frameWidth / 72);
+            const lineHeight = fontSize * 1.18;
+            const padding = fontSize * 0.35;
+            const lines = [
+              `ID ${trackId} · Zone: ${zones.length ? zones.join(', ') : 'unknown'}`,
+              `Origin: ${track.origin_zone || 'unknown'}`,
+              `Pending: ${track.pending_destination || 'none'} (${track.destination_frames ?? 0}/${track.required_destination_frames ?? 0})`,
+            ];
+            const labelWidth = Math.min(frameWidth - x1, Math.max(...lines.map((line) => line.length)) * fontSize * 0.58 + padding * 2);
+            const labelY = Math.max(fontSize + padding, y1 + fontSize);
+            const labelHeight = lineHeight * lines.length + padding * 2;
             return (
               <g key={trackId}>
                 <rect x={x1} y={y1} width={x2 - x1} height={y2 - y1} fill="none" stroke="#34D399" strokeWidth={Math.max(3, frameWidth / 640)} />
                 {foot.every(Number.isFinite) && <circle cx={foot[0]} cy={foot[1]} r={Math.max(8, frameWidth / 100)} fill="#F97316" stroke="#FFFFFF" strokeWidth={Math.max(3, frameWidth / 500)} />}
-                <text x={x1} y={labelY} fill="#FFFFFF" stroke="#111827" strokeWidth={Math.max(3, frameWidth / 500)} paintOrder="stroke" fontSize={fontSize} fontWeight="700">
-                  <tspan x={x1} dy="0">ID {trackId}</tspan>
-                  <tspan x={x1} dy={fontSize * 1.15}>Zone: {zones.length ? zones.join(', ') : 'unknown'}</tspan>
-                  <tspan x={x1} dy={fontSize * 1.15}>Origin: {track.origin_zone || 'unknown'}</tspan>
-                  <tspan x={x1} dy={fontSize * 1.15}>Pending: {track.pending_destination || 'none'} ({track.destination_frames ?? 0}/{track.required_destination_frames ?? 0})</tspan>
+                <rect x={x1} y={labelY - fontSize - padding} width={labelWidth} height={labelHeight}
+                  rx={fontSize * 0.22} fill="#111827" fillOpacity="0.82" />
+                <text x={x1 + padding} y={labelY} fill="#FFFFFF" fontSize={fontSize} fontWeight="600">
+                  {lines.map((line, index) => <tspan key={index} x={x1 + padding} dy={index === 0 ? 0 : lineHeight}>{line}</tspan>)}
                 </text>
               </g>
             );

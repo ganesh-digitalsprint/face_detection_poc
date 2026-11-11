@@ -22,11 +22,33 @@ test('live alert monitoring distinguishes waiting, empty success, and an attempt
 });
 
 test('open-without-crossing display consumes the backend rule timer and contract states', () => {
-  const open = liveMonitoring({ gate: { state: 'OPEN', open_without_crossing_seconds: 2.5 } });
+  const open = liveMonitoring({ gate: { state: 'CLOSED', open_without_crossing_seconds: 2.5 } }, { gateState: 'FULLY_OPEN' });
   assert.equal(open.openWithoutCrossingSeconds, 2.5);
-  assert.equal(open.timerState, 'NOT_COUNTING');
-  const unknown = liveMonitoring({ gate: { state: 'UNKNOWN', open_without_crossing_seconds: 12 } });
-  assert.equal(unknown.openWithoutCrossingSeconds, 12);
-  const closed = liveMonitoring({ gate: { state: 'CLOSED', open_without_crossing_seconds: null } });
+  assert.equal(open.timerState, 'COUNTING');
+  const unknown = liveMonitoring({ gate: { state: 'FULLY_OPEN', open_without_crossing_seconds: 12 } }, { gateState: 'UNKNOWN' });
+  assert.equal(unknown.openWithoutCrossingSeconds, null);
+  const closed = liveMonitoring({ gate: { state: 'FULLY_OPEN', open_without_crossing_seconds: null } }, { gateState: 'CLOSED' });
   assert.equal(closed.openWithoutCrossingSeconds, null);
+});
+
+test('live full-open timers derive elapsed seconds from the confirmed episode timestamps', () => {
+  const start = Date.parse('2026-11-10T10:00:00Z');
+  const snapshot = liveMonitoring({
+    now: start + 15_000,
+    gate: {
+      state: 'FULLY_OPEN', gate_open_since: '2026-11-10T10:00:00Z',
+      last_crossing_at: '2026-11-10T10:00:10Z', gate_open_seconds: 0,
+      open_without_crossing_seconds: 0,
+    },
+  }, { gateState: 'FULLY_OPEN' });
+  assert.equal(snapshot.gateOpenSeconds, 15);
+  assert.equal(snapshot.openWithoutCrossingSeconds, 5);
+  assert.equal(snapshot.timerState, 'COUNTING');
+
+  const noCrossing = liveMonitoring({
+    now: start + 15_000,
+    gate: { state: 'FULLY_OPEN', gate_open_since: '2026-11-10T10:00:00Z', timer_state: 'COUNTING' },
+  }, { gateState: 'FULLY_OPEN' });
+  assert.equal(noCrossing.gateOpenSeconds, 15);
+  assert.equal(noCrossing.openWithoutCrossingSeconds, 15);
 });

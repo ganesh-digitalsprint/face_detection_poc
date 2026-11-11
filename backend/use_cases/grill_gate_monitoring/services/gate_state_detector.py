@@ -67,6 +67,9 @@ class GrillGateStateDetector:
         self._transitions: deque[dict] = deque(maxlen=transition_history)
         self._status: dict = {"camera_id": self.camera_id, "assignment_id": self.assignment_id, "state": "UNKNOWN",
                               "since": None, "progress": None, "progress_smooth": None, "velocity": None,
+                              "last_valid_position": None, "latest_measurement": None,
+                              "direction": None, "last_valid_measurement_at": None,
+                              "using_fallback": False, "measurement_stale": True,
                               "confidence": 0.0, "sequence_number": None, "last_frame_at": None,
                               "zones_version": None, "processed_frames": 0, "last_transition": None, "error": None}
         self._thread = threading.Thread(target=self._run, name=f"grill-gate-state-{self.camera_id[:8]}", daemon=True)
@@ -96,6 +99,17 @@ class GrillGateStateDetector:
                         "open_without_crossing_threshold_seconds", "last_crossing_at", "last_crossing_direction",
                         "timer_state"):
                 result[key] = result["processing"].get(key)
+            if result["state"] != "FULLY_OPEN":
+                result["gate_open_seconds"] = None
+                result["gate_open_since"] = None
+                result["open_without_crossing_seconds"] = None
+                result["last_crossing_at"] = None
+                result["last_crossing_direction"] = None
+                result["seconds_since_crossing"] = None
+                result["timer_state"] = "NOT_COUNTING"
+        # The calibrated-position state machine is authoritative. This also
+        # keeps the legacy gate_state alias aligned with the public state.
+        result["gate_state"] = result["state"]
         return result
 
     def mesh_status(self) -> dict:
@@ -109,12 +123,13 @@ class GrillGateStateDetector:
         with self._lock:
             self._status.update(kw)
 
-    def _emit(self, tr: Transition | None, pkt=None) -> None:
+    def _emit(self, tr: Transition | None, pkt=None, *, status_updates: dict | None = None) -> None:
         if tr is None:
             return
         at = pkt.captured_at if pkt is not None else datetime.now(timezone.utc)
         event = {"assignment_id": self.assignment_id, "camera_id": self.camera_id, "from_state": tr.from_state,
-                 "to_state": tr.to_state, "at": at.isoformat(), "progress": tr.progress, "reason": tr.reason,
+                 "to_state": tr.to_state, "at": at.isoformat(), "progress": tr.progress,
+                 "direction": tr.direction, "reason": tr.reason,
                  "sequence_number": getattr(pkt, "sequence_number", None)}
         if pkt is not None and getattr(pkt, "source_type", "LIVE_CAMERA") == "UPLOADED_VIDEO":
             event.update(source_type="UPLOADED_VIDEO", video_job_id=pkt.video_job_id,
@@ -124,10 +139,14 @@ class GrillGateStateDetector:
                        level=logging.WARNING if tr.reason == "measurement lost (occlusion or low confidence)" else logging.INFO,
                        category="STATE", **_packet_log_context(pkt, self.camera_id),
                        from_state=tr.from_state, to_state=tr.to_state, progress=tr.progress,
-                       reason=tr.reason, transition_timestamp=event["at"])
+                       direction=tr.direction, reason=tr.reason, transition_timestamp=event["at"])
         with self._lock:
             self._transitions.append(event)
-        self._set(state=tr.to_state, since=event["at"], last_transition=event)
+            self._status.update(status_updates or {})
+            self._status.update(state=tr.to_state, since=event["at"], last_transition=event,
+                                direction=tr.direction,
+                                measurement_stale=(tr.to_state == "UNKNOWN"),
+                                using_fallback=False)
         if self._on_change:
             try:
                 self._on_change(event)
@@ -167,7 +186,11 @@ class GrillGateStateDetector:
                         machine = GateStateMachine(StateMachineParams.from_calibration(cfg.calibration, **self._overrides))
                         if self._frame_processor is not None:
                             self._frame_processor.configure(cfg)
-                        self._set(error=None, zones_version=cfg.zones_version, state="UNKNOWN", since=None)
+                        self._set(error=None, zones_version=cfg.zones_version, state="UNKNOWN", since=None,
+                                  direction=None, last_valid_measurement_at=None,
+                                  progress=None, progress_smooth=None, velocity=None,
+                                  last_valid_position=None, latest_measurement=None, confidence=None,
+                                  using_fallback=False, measurement_stale=True)
                     elif alert_configuration_changed:
                         cfg = new
                         if self._frame_processor is not None:
@@ -180,12 +203,14 @@ class GrillGateStateDetector:
             now = self._clock()
             if pkt is None:
                 if self._subscription_closed():
-                    self._emit(machine.mark_unknown(now, "video ended" if getattr(self._sub, "source_type", "LIVE_CAMERA") == "UPLOADED_VIDEO" else "camera worker stopped"), last_packet)
+                    machine.mark_unknown(now, "video ended" if getattr(self._sub, "source_type", "LIVE_CAMERA") == "UPLOADED_VIDEO" else "camera worker stopped")
+                    self._measurement_availability(machine, False, datetime.now(timezone.utc))
                     if getattr(self._sub, "source_type", "LIVE_CAMERA") != "UPLOADED_VIDEO":
                         self._set(error="camera subscription closed")
                     break
                 if now - last_frame > self._no_frame_s:
-                    self._emit(machine.mark_unknown(now, "no fresh frames"))
+                    machine.mark_unknown(now, "no fresh frames")
+                    self._measurement_availability(machine, False, datetime.now(timezone.utc))
                     if self._frame_processor is not None:
                         self._frame_processor.process_gap(now)
                 continue
@@ -198,7 +223,8 @@ class GrillGateStateDetector:
 
             ref = cfg.calibration.get("reference_frame") or {}
             if (pkt.width, pkt.height) != (ref.get("width"), ref.get("height")):
-                self._emit(machine.mark_unknown(t, "frame size differs from calibration"), pkt)
+                machine.mark_unknown(t, "frame size differs from calibration")
+                self._measurement_availability(machine, False, pkt.captured_at)
                 self._set(error=f"frame is {pkt.width}x{pkt.height}; calibration is {ref.get('width')}x{ref.get('height')}")
                 self._process_person_frame(pkt, machine.state)
                 continue
@@ -208,24 +234,38 @@ class GrillGateStateDetector:
                     geo = calibration_from_zone(cfg.zone, pkt.width, pkt.height)
                     geo_key, prev = key, None
                 except (ValueError, LookupError, TypeError) as exc:
-                    self._emit(machine.mark_unknown(t, "invalid gate geometry"), pkt)
+                    machine.mark_unknown(t, "invalid gate geometry")
+                    self._measurement_availability(machine, False, pkt.captured_at)
                     self._set(error=f"invalid gate geometry: {exc}")
                     self._process_person_frame(pkt, machine.state)
                     continue
 
-            res = measure(pkt.frame, geo, prev)
+            try:
+                res = measure(pkt.frame, geo, prev)
+                if not isinstance(res, dict):
+                    res = {}
+            except Exception as exc:
+                logger.warning("gate measurement failed camera=%s error_type=%s",
+                               self.camera_id, type(exc).__name__)
+                res = {}
+            measured_position = res.get("P")
+            measured_confidence = res.get("conf")
+            normalized_position = machine.normalize_position(measured_position, machine.p.position_scale)
+            numeric_confidence = _finite_number(measured_confidence)
+            valid_measurement = (normalized_position is not None and numeric_confidence is not None
+                                 and numeric_confidence >= machine.p.confidence_threshold)
             source_timestamp = (getattr(pkt, "video_time_seconds", None)
                                 if getattr(pkt, "source_type", "LIVE_CAMERA") == "UPLOADED_VIDEO"
                                 else pkt.captured_at.isoformat())
             context = _packet_log_context(pkt, self.camera_id)
             log_diagnostic(logger, "gate_frame_processed", level=logging.DEBUG, category="FRAME",
-                           **context, gate_state=machine.state, progress=res["P"], confidence=res["conf"])
+                           **context, gate_state=machine.state, progress=measured_position, confidence=measured_confidence)
             log_diagnostic(logger, "gate_measurement", level=logging.DEBUG, category="MEASUREMENT",
-                           **context, source_timestamp=source_timestamp, left_endpoint_px=res["xL_px"],
-                           right_endpoint_px=res["xR_px"], left_progress=res["P_L"],
-                           right_progress=res["P_R"], progress=res["P"], confidence=res["conf"],
-                           valid=res["P"] is not None and res["conf"] > 0)
-            if res["xL_px"] is None or res["xR_px"] is None:
+                           **context, source_timestamp=source_timestamp, left_endpoint_px=res.get("xL_px"),
+                           right_endpoint_px=res.get("xR_px"), left_progress=res.get("P_L"),
+                           right_progress=res.get("P_R"), progress=measured_position, confidence=measured_confidence,
+                           valid=valid_measurement)
+            if res.get("xL_px") is None or res.get("xR_px") is None:
                 if measurement_lost_since is None:
                     measurement_lost_since = t
                 loss_duration = max(0.0, t - measurement_lost_since)
@@ -235,7 +275,7 @@ class GrillGateStateDetector:
                     details = {"diagnostics_error": type(exc).__name__}
                 log_diagnostic(logger, "gate_endpoint_missing", level=logging.WARNING,
                                category="ENDPOINT", **context, source_timestamp=source_timestamp,
-                               left_endpoint_px=res["xL_px"], right_endpoint_px=res["xR_px"],
+                               left_endpoint_px=res.get("xL_px"), right_endpoint_px=res.get("xR_px"),
                                measurement_loss_duration_seconds=round(loss_duration, 3),
                                rejection_details=details.get("edges"),
                                diagnostics_error=details.get("diagnostics_error"))
@@ -243,19 +283,60 @@ class GrillGateStateDetector:
                 log_diagnostic(logger, "gate_measurement_recovered", level=logging.INFO,
                                category="MEASUREMENT", **context, source_timestamp=source_timestamp,
                                measurement_loss_duration_seconds=round(max(0.0, t - measurement_lost_since), 3),
-                               left_endpoint_px=res["xL_px"], right_endpoint_px=res["xR_px"])
+                               left_endpoint_px=res.get("xL_px"), right_endpoint_px=res.get("xR_px"))
                 measurement_lost_since = None
-            if res["conf"] > 0:
+            if numeric_confidence is not None and numeric_confidence > 0 and normalized_position is not None:
                 prev = res
-            self._emit(machine.update(t, res["P"], res["conf"]), pkt)
+            # This normalized value is the one measurement shared by the
+            # classifier and every public position field in the status object.
+            transition = machine.update(t, normalized_position, measured_confidence)
+            valid_measurement = not machine.measurement_stale
+            current_state = machine.state
+            current_position = machine.last_valid_position
             with self._lock:
-                self._status.update(progress=res["P"], progress_smooth=machine.p_smooth, velocity=machine.velocity,
-                                    confidence=res["conf"], sequence_number=pkt.sequence_number,
-                                    last_frame_at=pkt.captured_at.isoformat(), error=None,
-                                    processed_frames=self._status["processed_frames"] + 1)
-                if machine.state != self._status["state"]:
-                    self._status["state"] = machine.state
-            self._process_person_frame(pkt, machine.state)
+                status_updates = {
+                    "state": current_state,
+                    # The machine owns the last valid position. Invalid samples
+                    # leave it unchanged; never copy a diagnostic/fallback value
+                    # from an independent status field.
+                    "progress": current_position,
+                    "last_valid_position": current_position,
+                    "latest_measurement": (current_position if valid_measurement else None),
+                    "progress_smooth": machine.p_smooth, "velocity": machine.velocity,
+                    "confidence": numeric_confidence, "sequence_number": pkt.sequence_number,
+                    "last_frame_at": pkt.captured_at.isoformat(), "error": None,
+                    "last_valid_measurement_at": (pkt.captured_at.isoformat()
+                                                  if valid_measurement else self._status.get("last_valid_measurement_at")),
+                    "using_fallback": (not valid_measurement and machine.last_confirmed_gate_state != "UNKNOWN"),
+                    "measurement_stale": not valid_measurement,
+                    "processed_frames": self._status["processed_frames"] + 1,
+                }
+            if transition is not None:
+                self._emit(transition, pkt, status_updates=status_updates)
+            else:
+                self._set(**status_updates)
+            self._measurement_availability(machine, valid_measurement, pkt.captured_at)
+            self._process_person_frame(pkt, current_state)
+
+    def _measurement_availability(self, machine, available: bool, at: datetime) -> None:
+        stale = not available
+        if stale:
+            # No measurement exists for the current frame/time. Preserve the
+            # machine's last valid position and its timestamp, but clear the
+            # current measurement field in live and final video snapshots.
+            self._set(progress=machine.last_valid_position,
+                      last_valid_position=machine.last_valid_position,
+                      latest_measurement=None,
+                      measurement_stale=True,
+                      using_fallback=machine.last_confirmed_gate_state != "UNKNOWN")
+        else:
+            self._set(measurement_stale=False, using_fallback=False)
+        if self._frame_processor is not None:
+            try:
+                self._frame_processor.on_measurement_availability(available, at)
+            except Exception:
+                logger.exception("Grill Gate timer measurement availability callback failed camera=%s",
+                                 self.camera_id)
 
     def _process_person_frame(self, packet, gate_state: str) -> None:
         if self._frame_processor is None:
@@ -277,3 +358,13 @@ def _packet_log_context(packet, camera_id: str) -> dict:
             "video_job_id": getattr(packet, "video_job_id", None),
             "frame_index": getattr(packet, "sequence_number", None),
             "video_source_timestamp": getattr(packet, "video_time_seconds", None)}
+
+
+def _finite_number(value) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return result if result == result and abs(result) != float("inf") else None

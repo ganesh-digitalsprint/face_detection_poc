@@ -65,6 +65,25 @@ test('poller reads the job configuration when status omits its threshold', async
   assert.equal(received.alert_configuration.max_gate_open_seconds, 3);
 });
 
+test('poller publishes only the progress field from the results monitoring object', async () => {
+  let received;
+  const progress = 0.8244978822243475;
+  const poller = createVideoJobPoller({
+    jobId: 'job-1',
+    api: {
+      getJob: async () => job('PROCESSING'),
+      getResults: async () => ({ monitoring: { progress, state: 'CLOSED', gate_state: 'CLOSED' }, items: [], transitions: [], alerts: [] }),
+      describeError: String,
+    },
+    onUpdate: (value) => { received = value; },
+  });
+  await poller.start();
+  assert.equal(received.monitoring.progress, progress);
+  assert.equal(received.monitoring.state, 'CLOSED');
+  assert.equal(received.monitoring.gate_state, 'CLOSED');
+  poller.stop();
+});
+
 test('polling runs while active, then stops after a terminal status', async () => {
   const { poller, timers, updates, calls } = harness([job('PROCESSING'), job('PROCESSING', { frame_count: 50 }), job('COMPLETED', { frame_count: 90 })]);
   await poller.start();
@@ -200,6 +219,7 @@ test('a video with required zones does not need a directional line or measured e
 
 test('video snapshot reports backend values and leaves unreported ones null', () => {
   const view = videoMonitoring({
+    gateClassification: { sessionId: 'video:job-1', gateState: 'PARTIALLY_OPEN', direction: 'CLOSING' },
     job: job('PROCESSING', { progress_seconds: 30 }),
     events: [crossing('a', 10), crossing('b', 20, 'INSIDE_TO_OUTSIDE', 'PARTIALLY_OPEN'),
       mesh('m1', 5, 'MESH_PERSON_ENTERED', 1), mesh('m2', 6, 'MESH_PERSON_ENTERED', 2), mesh('m3', 8, 'MESH_PERSON_EXITED', 1)]
@@ -210,7 +230,7 @@ test('video snapshot reports backend values and leaves unreported ones null', ()
     ],
   });
   assert.equal(view.gateState, 'PARTIALLY_OPEN');
-  assert.equal(view.gateStateTimeLabel, '00:20.0');
+  assert.equal(view.gateStateTimeLabel, '');
   assert.equal(view.gateOpenSeconds, null);
   assert.equal(view.openWithoutCrossingSeconds, null);
   assert.equal(view.meshGatheringSeconds, null);
@@ -224,10 +244,10 @@ test('video snapshot reports backend values and leaves unreported ones null', ()
   assert.equal(view.alerts[0].timeLabel, '00:12.5');
 });
 
-test('video open-without-crossing display consumes backend timer and contract state', () => {
+test('video open-without-crossing display uses frontend state and consumes backend timer data', () => {
   const open = videoMonitoring({ job: job('PROCESSING', {
     monitoring: { state: 'OPEN', open_without_crossing_seconds: 2.75 },
-  }) });
+  }) , gateClassification: { gateState: 'FULLY_OPEN' } });
   assert.equal(open.openWithoutCrossingSeconds, 2.75);
   const unknown = videoMonitoring({ job: job('PROCESSING', {
     monitoring: { state: 'UNKNOWN', open_without_crossing_seconds: 9 },
@@ -235,12 +255,23 @@ test('video open-without-crossing display consumes backend timer and contract st
   assert.equal(unknown.openWithoutCrossingSeconds, 9);
 });
 
+test('backend state and transition history cannot override the Redux gate classification', () => {
+  const view = videoMonitoring({
+    job: job('PROCESSING', { monitoring: { state: 'CLOSED', progress: 0.10, direction: 'CLOSING' } }),
+    monitoring: { progress: 0.85, state: 'CLOSED', gate_state: 'CLOSED' },
+    transitions: [{ from_state: 'FULLY_OPEN', to_state: 'CLOSED', progress: 0.16 }],
+    gateClassification: { sessionId: 'video:job-1', gateState: 'FULLY_OPEN', direction: 'OPENING' },
+  });
+  assert.equal(view.gateState, 'FULLY_OPEN');
+  assert.equal(view.gateDirection, 'OPENING');
+});
+
 test('video monitoring distinguishes configured, unset, unavailable and final timer data', () => {
   const configured = videoMonitoring({ job: job('PROCESSING', { monitoring: {
     state: 'OPEN', gate_open_seconds: 2, open_without_crossing_seconds: 2,
     open_without_crossing_threshold_seconds: 3, threshold_configured: true,
     progress_percent: 66.67, timer_state: 'COUNTING', source_timestamp: '2026-11-06T05:00:02Z',
-  } }) });
+  } }), gateClassification: { gateState: 'FULLY_OPEN' } });
   assert.equal(configured.timerState, 'COUNTING');
   assert.equal(configured.timerProgressPercent, 66.67);
   assert.equal(configured.thresholdConfigured, true);
@@ -248,7 +279,8 @@ test('video monitoring distinguishes configured, unset, unavailable and final ti
     state: 'OPEN', open_without_crossing_seconds: 2, threshold_configured: false, timer_state: 'COUNTING',
   } }) });
   assert.equal(unset.thresholdConfigured, false);
-  const missing = videoMonitoring({ job: job('PROCESSING', { monitoring: { state: 'OPEN' } }) });
+  const missing = videoMonitoring({ job: job('PROCESSING', { monitoring: { state: 'OPEN' } }),
+    gateClassification: { gateState: 'FULLY_OPEN' } });
   assert.equal(missing.timerState, 'TIMER_UNAVAILABLE');
   assert.notEqual(missing.timerState, 'NOT_COUNTING');
   const old = videoMonitoring({ job: job('COMPLETED') });
@@ -257,7 +289,7 @@ test('video monitoring distinguishes configured, unset, unavailable and final ti
   const finalClosed = videoMonitoring({ job: job('COMPLETED', { monitoring: {
     state: 'CLOSED', open_without_crossing_seconds: null, threshold_configured: false,
     timer_state: 'NOT_COUNTING', source_timestamp: '2026-11-06T05:00:02Z',
-  } }) });
+  } }), gateClassification: { gateState: 'CLOSED' } });
   assert.equal(finalClosed.timerRecorded, true, 'a recorded inactive timer may legitimately have a null elapsed value');
 });
 
@@ -281,7 +313,7 @@ test('the crossing total counts every event even though the list is capped', () 
 
 test('an empty job shows no invented gate state or crossing timer', () => {
   const view = videoMonitoring({ job: job('PROCESSING') });
-  assert.equal(view.gateState, null);
+  assert.equal(view.gateState, 'UNKNOWN');
   assert.equal(view.secondsSinceCrossing, null);
   assert.equal(view.meshPeopleCount, 0);
   assert.deepEqual(view.crossings, []);
@@ -302,6 +334,7 @@ test('progress is only reported when the backend supports it', () => {
 
 test('the timeline merges gate transitions with events, leaves out the end of the file and shows real values', () => {
   const view = videoMonitoring({
+    gateClassification: { sessionId: 'video:job-1', gateState: 'PARTIALLY_OPEN' },
     job: job('PROCESSING', { progress: 0.42, monitoring: { state: 'OPENING', progress: 0.62, confidence: 0.91, gate_open_seconds: 3, mesh: { occupancy_count: 4 } } }),
     events: [crossing('a', 7.4)],
     transitions: [
@@ -313,7 +346,9 @@ test('the timeline merges gate transitions with events, leaves out the end of th
   assert.deepEqual(view.events.map((row) => [row.timeLabel, row.title]), [
     ['00:07.4', 'Entry crossing · track #4'], ['00:05.1', 'Gate opened'], ['00:02.2', 'Gate opening started'],
   ]);
-  assert.deepEqual([view.gateState, view.gateProgress, view.gateConfidence, view.gateOpenSeconds, view.meshPeopleCount], ['OPENING', 0.62, 0.91, 3, 4]);
+  assert.deepEqual([view.gateState, view.gateOpenSeconds, view.meshPeopleCount], ['PARTIALLY_OPEN', 3, 4]);
+  assert.equal('gateProgress' in view, false);
+  assert.equal('gateConfidence' in view, false);
   assert.equal(jobPillLabel(job('PROCESSING', { progress: 0.42 })), 'PROCESSING 42%');
   assert.equal(jobPillLabel(null), 'NONE');
 });

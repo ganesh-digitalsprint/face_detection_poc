@@ -216,7 +216,7 @@ export default function LiveCameraSection({ items, item, worker, connection, sta
     }
   };
 
-  const gateNote = monitoring.gateState ? null : connection.key === 'connected' ? 'Waiting for the gate-state detector.' : 'Connect the camera to start gate-state detection.';
+  const gateNote = monitoring.gateState !== 'UNKNOWN' ? null : connection.key === 'connected' ? 'Waiting for the gate-state detector.' : 'Connect the camera to start gate-state detection.';
   return (
     <div className="space-y-4">
       {live.error && <ErrorNote>Could not refresh live monitoring: {live.error}</ErrorNote>}

@@ -41,6 +41,49 @@ def test_gate_open_thresholds_of_three_and_four_seconds_use_continuous_open_dura
         assert sent[0]["payload"]["domain_data"]["configured_threshold_seconds"] == threshold
 
 
+def test_fully_open_timer_keeps_running_through_unknown_and_duplicate_predictions():
+    rule, sent = engine(GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=10))
+    rule.on_gate_transition("CLOSED", T0)
+    rule.on_gate_transition("PARTIALLY_OPEN", T0 + timedelta(seconds=1))
+    assert rule.monitoring_status(T0 + timedelta(seconds=2))["gate_open_seconds"] is None
+
+    started = T0 + timedelta(seconds=3)
+    rule.on_gate_transition("FULLY_OPEN", started)
+    rule.on_gate_transition("FULLY_OPEN", started + timedelta(seconds=1))
+    assert rule.monitoring_status(started + timedelta(seconds=4))["gate_open_seconds"] == 4.0
+
+    unknown_at = started + timedelta(seconds=4)
+    rule.on_gate_transition("UNKNOWN", unknown_at)
+    assert rule.monitoring_status(unknown_at + timedelta(seconds=1))["gate_open_seconds"] == 5.0
+    resumed = unknown_at + timedelta(seconds=6)
+    rule.tick(resumed - timedelta(milliseconds=1))
+    assert sent == []
+    rule.tick(resumed)
+    assert [command["payload"]["source_event_type"] for command in sent if command["action"] == "create"] == ["GATE_OPEN_TOO_LONG"]
+    rule.on_gate_transition("FULLY_OPEN", resumed)
+    rule.on_measurement_availability(True, resumed)
+    assert rule.monitoring_status(resumed)["gate_open_seconds"] == 10.0
+    assert [command["payload"]["source_event_type"] for command in sent if command["action"] == "create"] == ["GATE_OPEN_TOO_LONG"]
+
+
+def test_measurement_unavailable_keeps_timer_counting_and_alert_duration_continuous():
+    rule, sent = engine(GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=5))
+    rule.on_gate_transition("FULLY_OPEN", T0)
+    rule.on_measurement_availability(False, T0 + timedelta(seconds=3))
+    unavailable = rule.monitoring_status(T0 + timedelta(seconds=20))
+    assert unavailable["gate_state"] == "FULLY_OPEN"
+    assert unavailable["timer_state"] == "COUNTING"
+    assert unavailable["gate_open_seconds"] == 20.0
+    assert rule.monitoring_status(T0 + timedelta(seconds=20))["open_without_crossing_seconds"] == 20.0
+    assert sent == []
+
+    resumed_at = T0 + timedelta(seconds=23)
+    rule.on_measurement_availability(True, resumed_at)
+    assert rule.monitoring_status(resumed_at)["gate_open_seconds"] == 23.0
+    assert rule.monitoring_status(resumed_at)["timer_state"] == "ALERT_RAISED"
+    assert [item["payload"]["source_event_type"] for item in sent if item["action"] == "create"] == ["GATE_OPEN_TOO_LONG"]
+
+
 def test_uploaded_video_timer_advances_and_alerts_exactly_at_threshold_once():
     sent = []
     rule = GrillGateAlertRuleEngine("job", "job", lambda command: sent.append(command) or True,

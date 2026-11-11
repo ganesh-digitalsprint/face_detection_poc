@@ -50,8 +50,11 @@ class GrillGateFrameProcessor:
         self._clock = monotonic
         self._three_zone_crossing = ThreeZoneCrossingDetector(settings)
         self._mesh = MeshAreaMonitor(settings)
-        self._alerts = (GrillGateAlertRuleEngine(camera_id, assignment_id, alert_sink,
-                      config=DEFAULT_GRILL_GATE_ALERT_CONFIG, source_context=alert_source_context) if alert_sink else None)
+        # The rule engine also owns confirmed gate timers, which must work even
+        # when this composition does not provide an alert publisher.
+        self._alerts = GrillGateAlertRuleEngine(
+            camera_id, assignment_id, alert_sink or (lambda _command: False),
+            config=DEFAULT_GRILL_GATE_ALERT_CONFIG, source_context=alert_source_context)
         self._active_alert_loader = active_alert_loader
         self._crossing_good_frames = 0
         self._crossing_recovery_frames = 2
@@ -225,7 +228,7 @@ class GrillGateFrameProcessor:
         timestamp = datetime.now(timezone.utc) if timestamp is None else timestamp
         with self._lock:
             if self._alerts is not None and timestamp is not None:
-                self._alerts.on_gate_transition("UNKNOWN", timestamp)
+                self._alerts.on_measurement_availability(False, timestamp)
             self._active_crossing().mark_unreliable()
             self._crossing_good_frames = 0
             self._active_crossing().expire(now_monotonic)
@@ -337,14 +340,11 @@ class GrillGateFrameProcessor:
             result["frame_height"] = getattr(packet, "height", None)
             result["frame_number"] = getattr(packet, "sequence_number", None)
             result["video_timestamp"] = getattr(packet, "video_time_seconds", None)
-            result["gate_open_seconds"] = (self._alerts.gate_open_seconds(self._current_packet.captured_at)
-                                           if self._alerts is not None and self._current_packet is not None else None)
-            result["open_without_crossing_seconds"] = (
-                self._alerts.open_without_crossing_seconds(self._current_packet.captured_at)
-                if self._alerts is not None and self._current_packet is not None else None)
+            timer_at = (packet.captured_at if packet is not None
+                        and getattr(packet, "source_type", "LIVE_CAMERA") == "UPLOADED_VIDEO"
+                        else datetime.now(timezone.utc))
             if self._alerts is not None:
-                result.update(self._alerts.monitoring_status(
-                    self._current_packet.captured_at if self._current_packet is not None else None))
+                result.update(self._alerts.monitoring_status(timer_at))
             return result
 
     def mesh_status(self) -> dict:
@@ -383,3 +383,9 @@ class GrillGateFrameProcessor:
                 if self._alerts is not None and packet_time is not None:
                     self._alerts.update_source_context(video_time_seconds=packet_time)
                 self._alerts.on_gate_transition(transition.get("to_state", "UNKNOWN"), at)
+
+    def on_measurement_availability(self, available: bool, at: datetime) -> None:
+        if self._alerts is None:
+            return
+        with self._lock:
+            self._alerts.on_measurement_availability(bool(available), at)

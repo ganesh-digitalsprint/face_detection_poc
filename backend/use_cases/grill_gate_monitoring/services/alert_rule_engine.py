@@ -42,6 +42,7 @@ class GrillGateAlertRuleEngine:
         self._crossing_reliable = False
         self._active: dict[str, _ActiveCondition] = {}
         self._last_open_diagnostic_at: datetime | None = None
+        self._unknown_since: datetime | None = None
 
     @property
     def config(self) -> GrillGateAlertConfig:
@@ -51,26 +52,25 @@ class GrillGateAlertRuleEngine:
         self._config = config
 
     def gate_open_seconds(self, at: datetime) -> float | None:
-        """Elapsed time in the current confirmed OPEN episode."""
-        return round(max(0.0, (_utc(at) - self._open_episode_since).total_seconds()), 3) if self._state == "OPEN" and self._open_episode_since else None
+        """Elapsed time in the current confirmed FULLY_OPEN episode."""
+        if self._state != "FULLY_OPEN" or self._open_episode_since is None:
+            return None
+        return round(max(0.0, (_utc(at) - self._open_episode_since).total_seconds()), 3)
 
     def open_without_crossing_seconds(self, at: datetime) -> float | None:
-        """Return the rule timer only while the gate is confirmed OPEN."""
-        if self._state != "OPEN":
+        """Return the rule timer only while FULLY_OPEN is confirmed."""
+        if self._state != "FULLY_OPEN" or self._open_episode_since is None:
             return None
         since = self._last_completed_crossing_at or self._open_episode_since
         return round(max(0.0, (_utc(at) - since).total_seconds()), 3) if since else None
 
     def monitoring_status(self, at: datetime | None) -> dict:
-        counting = self._state == "OPEN"
+        counting = self._state == "FULLY_OPEN" and self._open_episode_since is not None
         elapsed = self.open_without_crossing_seconds(at) if counting and at is not None else None
         threshold = self._config.max_gate_open_seconds
         seconds_since_crossing = (round(max(0.0, (_utc(at) - self._last_completed_crossing_at).total_seconds()), 3)
                                   if counting and at is not None and self._last_completed_crossing_at else None)
-        suppressed = self._active_crossings > 0 or not self._crossing_reliable
-        uploaded_video = self._source_context.get("source_type") == "UPLOADED_VIDEO"
-        timer_state = ("NOT_COUNTING" if not counting else "ALERT_RAISED" if self._open_alert_raised
-                       else "COUNTING" if uploaded_video else "PAUSED" if suppressed else "COUNTING")
+        timer_state = ("NOT_COUNTING" if not counting else "ALERT_RAISED" if self._open_alert_raised else "COUNTING")
         return {"gate_state": self._state, "gate_open_seconds": self.gate_open_seconds(at) if counting and at is not None else None,
                 "gate_open_since": _iso(self._open_episode_since) if counting and self._open_episode_since else None,
                 "open_without_crossing_seconds": elapsed,
@@ -109,43 +109,41 @@ class GrillGateAlertRuleEngine:
         at = _utc(at)
         previous = self._state
         self._state = str(state).upper()
-        if self._state == "UNKNOWN":
-            log_diagnostic(logger, "open_timer_paused", level=logging.INFO, category="TIMER",
-                           **self._timer_log_context(at), from_state=previous, gate_state=self._state,
-                           timer_action="PAUSE", reason="gate state unknown")
-            self._open_since = self._open_episode_since = None
-            self._partial_since = None
-            return
+        # Accept old transition producers while keeping the public state vocabulary current.
         if self._state == "OPEN":
-            if previous != "OPEN" or self._open_episode_since is None:
-                self._open_episode_since = at
-                self._last_completed_crossing_at = None
-                self._last_crossing_direction = None
-                self._open_alert_raised = False
-            if previous != "OPEN" or self._open_since is None:
+            self._state = "FULLY_OPEN"
+        elif self._state in {"OPENING", "CLOSING"}:
+            self._state = "PARTIALLY_OPEN"
+        if self._state == "UNKNOWN":
+            # UNKNOWN from an unavailable observation is not a confirmed state
+            # transition. Retain the previous state and any active timer episode.
+            self._state = previous
+            return
+        self.on_measurement_availability(True, at, previous_state=previous)
+        if self._state == "FULLY_OPEN":
+            if self._open_episode_since is None:
+                self._start_open_episode(at, previous)
+            if self._open_since is None:
                 self._open_since = at
-                log_diagnostic(logger, "open_timer_started", level=logging.INFO, category="TIMER",
-                               **self._timer_log_context(at), from_state=previous, gate_state=self._state,
-                               timer_action="START", gate_open_since=_iso(self._open_episode_since),
-                               threshold_configured=self._config.max_gate_open_seconds is not None,
-                               threshold_seconds=self._config.max_gate_open_seconds,
-                               alert_enabled=self._config.gate_open_enabled)
             self._partial_since = None
+            self._unknown_since = None
             self._resolve("GATE_PARTIALLY_OPEN_TOO_LONG", at, "Gate is no longer partially open")
         elif self._state == "PARTIALLY_OPEN":
-            log_diagnostic(logger, "open_timer_paused", level=logging.INFO, category="TIMER",
+            log_diagnostic(logger, "open_timer_stopped", level=logging.INFO, category="TIMER",
                            **self._timer_log_context(at), from_state=previous, gate_state=self._state,
-                           timer_action="PAUSE", reason="gate is partially open")
+                           timer_action="STOP_RESET", reason="gate is partially open")
             self._open_since = self._open_episode_since = None
+            self._unknown_since = None
             self._resolve("GATE_OPEN_WITHOUT_CROSSING", at, "Gate is no longer fully open")
             self._resolve("GATE_OPEN_TOO_LONG", at, "Gate is no longer fully open")
-            if previous != "PARTIALLY_OPEN":
+            if self._partial_since is None:
                 self._partial_since = at
         elif self._state == "CLOSED":
             log_diagnostic(logger, "open_timer_stopped", level=logging.INFO, category="TIMER",
                            **self._timer_log_context(at), from_state=previous, gate_state=self._state,
                            timer_action="STOP_RESET", reason="gate closed")
             self._open_since = self._open_episode_since = None
+            self._unknown_since = None
             self._open_elapsed_seconds = 0.0
             self._open_alert_raised = False
             self._last_completed_crossing_at = None
@@ -155,11 +153,29 @@ class GrillGateAlertRuleEngine:
             self._resolve("GATE_OPEN_TOO_LONG", at, "Gate closed")
             self._resolve("GATE_PARTIALLY_OPEN_TOO_LONG", at, "Gate returned to a valid state")
         else:  # OPENING/CLOSING are transitional; pause duration and wait for a stable state.
-            log_diagnostic(logger, "open_timer_paused", level=logging.INFO, category="TIMER",
+            log_diagnostic(logger, "open_timer_stopped", level=logging.INFO, category="TIMER",
                            **self._timer_log_context(at), from_state=previous, gate_state=self._state,
-                           timer_action="PAUSE", reason="gate is transitional")
+                           timer_action="STOP_RESET", reason="gate is transitional")
             self._open_since = self._open_episode_since = None
+            self._unknown_since = None
             self._partial_since = None
+        self.tick(at)
+
+    def _start_open_episode(self, at: datetime, previous: str) -> None:
+        self._open_episode_since = at
+        self._open_since = at
+        self._last_completed_crossing_at = None
+        self._last_crossing_direction = None
+        self._open_alert_raised = False
+        log_diagnostic(logger, "open_timer_started", level=logging.INFO, category="TIMER",
+                       **self._timer_log_context(at), from_state=previous, gate_state=self._state,
+                       timer_action="START", gate_open_since=_iso(at),
+                       threshold_configured=self._config.max_gate_open_seconds is not None,
+                       threshold_seconds=self._config.max_gate_open_seconds,
+                       alert_enabled=self._config.gate_open_enabled)
+
+    def on_measurement_availability(self, available: bool, at: datetime, *, previous_state: str | None = None) -> None:
+        """Track availability without pausing a timer based on the confirmed state."""
         self.tick(at)
 
     def on_crossing_activity(self, active_count: int, reliable: bool, at: datetime) -> None:
@@ -178,8 +194,9 @@ class GrillGateAlertRuleEngine:
         self._last_completed_crossing_at = at
         self._last_crossing_direction = "ENTRY" if direction in {"OUTSIDE_TO_INSIDE", "ENTRY"} else "EXIT"
         self._open_elapsed_seconds = 0.0
-        self._open_episode_since = self._open_episode_since if self._state == "OPEN" else None
-        self._open_since = at if self._state == "OPEN" else None
+        if self._state != "UNKNOWN":
+            self._open_episode_since = self._open_episode_since if self._state == "FULLY_OPEN" else None
+        self._open_since = at if self._state == "FULLY_OPEN" else None
         self._open_alert_raised = False
         log_diagnostic(logger, "open_timer_reset_by_completed_crossing", level=logging.INFO,
                        category="TIMER", **self._timer_log_context(at), gate_state=self._state,
@@ -197,7 +214,7 @@ class GrillGateAlertRuleEngine:
         now = _utc(now)
         uploaded_video = self._source_context.get("source_type") == "UPLOADED_VIDEO"
         crossing_allows_alert = uploaded_video or (self._active_crossings == 0 and self._crossing_reliable)
-        if self._state == "OPEN" and (self._last_open_diagnostic_at is None
+        if self._state == "FULLY_OPEN" and (self._last_open_diagnostic_at is None
                 or (now - self._last_open_diagnostic_at).total_seconds() >= 5):
             elapsed = self.open_without_crossing_seconds(now)
             log_diagnostic(logger, "open_timer_status", level=logging.INFO, category="TIMER",
@@ -210,7 +227,7 @@ class GrillGateAlertRuleEngine:
                            active_crossings=self._active_crossings,
                            crossing_reliable=self._crossing_reliable, eligible=crossing_allows_alert)
             self._last_open_diagnostic_at = now
-        if (self._state == "OPEN" and crossing_allows_alert and not self._open_alert_raised
+        if (self._state == "FULLY_OPEN" and crossing_allows_alert and not self._open_alert_raised
                 and self._config.gate_open_enabled
                 and self._config.max_gate_open_seconds is not None):
             since = self._last_completed_crossing_at or self._open_episode_since

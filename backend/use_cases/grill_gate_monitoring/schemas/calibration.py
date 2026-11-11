@@ -62,14 +62,33 @@ class SlidingGateCalibration(StrictModel):
     confidence_threshold: Annotated[float, Field(gt=0.0, le=1.0)]
     state_confirmation_durations: GateStateConfirmation
     hysteresis_fraction: Annotated[float, Field(gt=0.0, lt=0.5)]
+    partially_open_threshold_percent: Annotated[float, Field(gt=0.0, le=100.0)] = 25.0
+    partially_open_exit_threshold_percent: Annotated[float, Field(ge=0.0, lt=100.0)] = 20.0
+    fully_open_threshold_percent: Annotated[float, Field(gt=0.0, le=100.0)] = 80.0
+    fully_open_hysteresis_percent: Annotated[float, Field(ge=0.0, lt=100.0)] = 5.0
 
     @model_validator(mode="after")
     def references_and_thresholds_are_distinguishable(self):
+        # 30/25 were the prior application defaults. Treat that exact legacy
+        # pair as defaults so existing assignments pick up the new 25/20 band.
+        if (self.partially_open_threshold_percent == 30.0
+                and self.partially_open_exit_threshold_percent == 25.0):
+            self.partially_open_threshold_percent = 25.0
+            self.partially_open_exit_threshold_percent = 20.0
         separation = abs(self.open_reference_position - self.closed_reference_position)
         if separation <= 1e-6:
             raise ValueError("closed_reference_position and open_reference_position must be distinguishable")
         if self.position_thresholds.closed_tolerance + self.position_thresholds.open_tolerance >= separation:
             raise ValueError("closed/open position tolerances must not overlap the calibrated positions")
+        if self.fully_open_threshold_percent <= self.fully_open_hysteresis_percent:
+            raise ValueError("fully_open_threshold_percent must exceed fully_open_hysteresis_percent")
+        if self.partially_open_threshold_percent <= self.partially_open_exit_threshold_percent:
+            raise ValueError("partially_open_threshold_percent must exceed partially_open_exit_threshold_percent")
+        if self.fully_open_threshold_percent <= self.partially_open_threshold_percent:
+            raise ValueError("fully_open_threshold_percent must exceed partially_open_threshold_percent")
+        if (self.fully_open_threshold_percent - self.fully_open_hysteresis_percent
+                < self.partially_open_threshold_percent):
+            raise ValueError("fully-open exit threshold must not be below partially-open entry threshold")
         moves_right = self.horizontal_movement_direction == "left_to_right"
         if (moves_right and self.open_reference_position <= self.closed_reference_position) or (
             not moves_right and self.open_reference_position >= self.closed_reference_position
@@ -174,6 +193,10 @@ def default_video_calibration(width: int, height: int) -> dict:
             "state_confirmation_durations": {"closed_seconds": 0.5, "opening_seconds": 0.3,
                 "open_seconds": 0.5, "partially_open_seconds": 1.0, "closing_seconds": 0.3},
             "hysteresis_fraction": 0.05,
+            "partially_open_threshold_percent": 25.0,
+            "partially_open_exit_threshold_percent": 20.0,
+            "fully_open_threshold_percent": 80.0,
+            "fully_open_hysteresis_percent": 5.0,
         },
         "monitoring": {"thresholds_status": "unset"},
     }

@@ -592,12 +592,33 @@ def get_video_results(job_id: str, db: Db, caller: Caller,
     rows = db.scalars(query.offset(offset).limit(limit)).all()
     alerts = _job_alerts(db, job_id)
     monitoring = get_grill_gate_video_jobs().monitoring(job_id) or (job.config_snapshot or {}).get("final_status") or {}
-    response = {"transitions": monitoring.get("transitions", []), "items": [{"event_id": row.id, "event_type": row.event_type, "track_id": row.track_id,
+    crossing = monitoring.get("crossing") or {}
+    mesh = monitoring.get("mesh") or {}
+    simple_monitoring = {
+        "progress": monitoring.get("progress"),
+        "processed_frames": (monitoring.get("processed_frames")
+                             if monitoring.get("processed_frames") is not None else job.frame_count),
+        "frame_number": monitoring.get("frame_number"),
+        "video_timestamp": monitoring.get("video_timestamp"),
+        "frame_width": monitoring.get("frame_width"),
+        "frame_height": monitoring.get("frame_height"),
+        "crossing": {"status": crossing.get("status"), "active_tracks": crossing.get("active_tracks", 0),
+                     "reliable": bool(crossing.get("reliable", False))},
+        "mesh": {"occupancy_count": mesh.get("occupancy_count", 0), "occupied": bool(mesh.get("occupied")),
+                 "config_status": mesh.get("config_status")},
+        "tracks": monitoring.get("tracks") or [],
+        "error": monitoring.get("error"),
+    }
+    response = {"video_job_id": str(job.id),
+        "assignment_id": monitoring.get("assignment_id") or str(job.id),
+        "camera_id": monitoring.get("camera_id") or str(job.id),
+        "status": job.status,
+        "monitoring": simple_monitoring,
+        "transitions": monitoring.get("transitions", []), "items": [{"event_id": row.id, "event_type": row.event_type, "track_id": row.track_id,
         "direction": row.direction, "source_zone": row.source_zone,
         "destination_zone": row.destination_zone, "video_time_seconds": row.video_time_seconds,
         "occurred_at": row.occurred_at, "metadata": row.metadata_json} for row in rows],
-        "alerts": alerts, "alerts_available": True, "monitoring": monitoring or None,
-        "status": job.status, "limit": limit, "offset": offset}
+        "alerts": alerts, "alerts_available": True, "limit": limit, "offset": offset}
     log_diagnostic(logger, "video_results_response", level=logging.INFO, category="API",
                    video_job_id=job_id, status=job.status, returned_events=len(rows),
                    returned_transitions=len(response["transitions"]), returned_alerts=len(alerts),
@@ -687,7 +708,7 @@ def get_gate_state(assignment_id: str, caller: Caller):
     status = dict(status)
     processing = status.get("processing") or {}
     status["open_without_crossing_seconds"] = (
-        processing.get("open_without_crossing_seconds") if status.get("state") == "OPEN" else None)
+        processing.get("open_without_crossing_seconds") if status.get("state") == "FULLY_OPEN" else None)
     return status
 
 

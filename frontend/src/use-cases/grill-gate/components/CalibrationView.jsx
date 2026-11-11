@@ -39,16 +39,15 @@ export default function CalibrationView({ form, setField, disabled = false }) {
   const shared = { form, setField, disabled };
   return (
     <div className="space-y-3">
-      <Fieldset title="Gate state" hint="The gate's closed and open positions are fixed at 0 and 1: gate progress is measured between the endpoints from Measure endpoints.">
-        <NumberField {...shared} name="closed_tolerance" text="Closed tolerance" min="0" max="1" />
-        <NumberField {...shared} name="open_tolerance" text="Open tolerance" min="0" max="1" />
+      <Fieldset title="Gate state" hint="Opening position is measured between the calibrated closed and open endpoints. FULLY OPEN starts at the configured threshold and remains active until it falls below the threshold minus hysteresis.">
+        <NumberField {...shared} name="partially_open_threshold_percent" text="Partially open threshold (%)" min="1" max="100" />
+        <NumberField {...shared} name="partially_open_exit_threshold_percent" text="Partially open exit threshold (%)" min="0" max={Math.max(0, (Number(form.partially_open_threshold_percent) || 0) - 0.01)} />
+        <NumberField {...shared} name="fully_open_threshold_percent" text="Fully open threshold (%)" min={Number(form.partially_open_threshold_percent) || 1} max="100" />
+        <NumberField {...shared} name="fully_open_hysteresis_percent" text="Fully open hysteresis (percentage points)" min="0" max={Math.max(0, (Number(form.fully_open_threshold_percent) || 0) - (Number(form.partially_open_threshold_percent) || 0))} />
         <NumberField {...shared} name="confidence_threshold" text="Confidence threshold" min="0" max="1" />
-        <NumberField {...shared} name="hysteresis_fraction" text="Hysteresis (below 0.5)" min="0" max="0.5" />
         <NumberField {...shared} name="closed_seconds" text="Confirm CLOSED (s)" min="0" />
-        <NumberField {...shared} name="opening_seconds" text="Confirm OPENING (s)" min="0" />
-        <NumberField {...shared} name="open_seconds" text="Confirm OPEN (s)" min="0" />
+        <NumberField {...shared} name="open_seconds" text="Confirm FULLY OPEN (s)" min="0" />
         <NumberField {...shared} name="partially_open_seconds" text="Confirm PARTIALLY OPEN (s)" min="0" />
-        <NumberField {...shared} name="closing_seconds" text="Confirm CLOSING (s)" min="0" />
       </Fieldset>
       <Fieldset title="ENTRY/EXIT reference line (optional)" hint="Three-Zone crossings use the approach and interior polygons. This line can be saved as an optional calibration reference.">
         <SelectField {...shared} name="outside_side" text="Outside is on the line's" options={[['left', 'Left side'], ['right', 'Right side']]} />

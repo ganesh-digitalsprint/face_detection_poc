@@ -1,8 +1,8 @@
 /**
  * Pure uploaded-video view models (no React, so `node --test` can cover them).
  *
- * Everything maps GET /grill-gate/videos[/{id}[/results]] payloads into display state. The backend does the
- * decoding and detection; nothing here estimates progress or creates monitoring values.
+ * Maps GET /grill-gate/videos[/{id}[/results]] payloads into display state. The backend calculates gate geometry
+ * and normalized progress; the persisted Redux slice classifies gate state from that progress.
  */
 
 /** Statuses written by GrillGateVideoJobs. UPLOADED is the only state POST .../start accepts. */
@@ -201,8 +201,9 @@ function timelineView(event) {
 }
 
 const TRANSITION_TITLES = {
-  CLOSED: 'Gate closed', OPENING: 'Gate opening started', OPEN: 'Gate opened', PARTIALLY_OPEN: 'Gate partially open',
-  CLOSING: 'Gate closing started', UNKNOWN: 'Gate state unknown',
+  CLOSED: 'Gate closed', FULLY_OPEN: 'Gate fully open', PARTIALLY_OPEN: 'Gate partially open',
+  UNKNOWN: 'Gate state unknown',
+  OPEN: 'Gate opened', OPENING: 'Gate opening started', CLOSING: 'Gate closing started',
 };
 export const transitionTitle = (transition) => TRANSITION_TITLES[transition.to_state] ?? `Gate ${transition.to_state}`;
 const transitionId = (transition) => `gate-${transition.sequence_number ?? transition.at}-${transition.to_state}`;
@@ -220,12 +221,14 @@ export function mergeTimeline(events, transitions, { keyOf, labelOf, limit = 30 
  * The dashboard snapshot for one video job, in the same shape as EMPTY_MONITORING. A null value means the backend
  * does not report it for video jobs, which panels show as "—" rather than as zero.
  */
-export function videoMonitoring({ job, events = [], transitions = [], alerts = [], alertsAvailable = true } = {}) {
+export function videoMonitoring({ job, monitoring = null, gateClassification = {}, events = [], transitions = [], alerts = [], alertsAvailable = true } = {}) {
   const crossings = events.filter((event) => event.event_type === 'CROSSING_COMPLETED');
   const mesh = events.filter((event) => event.event_type !== 'CROSSING_COMPLETED');
-  const lastCrossing = crossings.at(-1);
   const alertViews = alerts.map((alert) => alertView(alert)).sort((a, b) => Number(b.active) - Number(a.active));
-  const reported = job?.monitoring ?? null;
+  const reported = job?.monitoring || monitoring
+    ? { ...(job?.monitoring ?? {}), ...(monitoring ?? {}) }
+    : null;
+  const gateState = gateClassification.gateState ?? 'UNKNOWN';
   const jobThreshold = job?.alert_configuration?.max_gate_open_seconds ?? null;
   const hasJobAlertConfiguration = Boolean(job && Object.hasOwn(job, 'alert_configuration'));
   const thresholdSeconds = hasJobAlertConfiguration ? jobThreshold
@@ -240,10 +243,10 @@ export function videoMonitoring({ job, events = [], transitions = [], alerts = [
     source: 'video',
     status: job ? videoJobStatus(job.status).label.toUpperCase() : 'NO VIDEO',
     statusTone: job ? videoJobStatus(job.status).tone : 'idle',
-    gateState: reported?.state ?? lastCrossing?.metadata?.gate_state ?? null,
-    gateStateTimeLabel: !reported?.state && lastCrossing?.metadata?.gate_state ? formatVideoTime(lastCrossing.video_time_seconds) : '',
-    gateProgress: reported?.progress ?? null,
-    gateConfidence: reported?.confidence ?? null,
+    gateState,
+    gateSessionId: gateClassification.sessionId ?? null,
+    gateStateTimeLabel: '',
+    gateDirection: gateClassification.direction ?? null,
     gateOpenSeconds: reported?.gate_open_seconds ?? null,
     videoTimeSeconds: reported?.video_timestamp ?? job?.video_time_seconds ?? job?.progress_seconds ?? null,
     gateOpenSince: reported?.gate_open_since ?? null,
@@ -254,10 +257,11 @@ export function videoMonitoring({ job, events = [], transitions = [], alerts = [
     timerSourceTimestamp: reported?.source_timestamp ?? null,
     lastCrossingAt: reported?.last_crossing_at ?? null,
     lastCrossingDirection: reported?.last_crossing_direction ?? null,
-    timerState: reported?.state === 'OPEN'
-      ? (reported.open_without_crossing_seconds == null || reported.gate_open_seconds == null
-        ? 'TIMER_UNAVAILABLE' : reported.timer_state === 'ALERT_RAISED' ? 'ALERT_RAISED' : 'COUNTING')
-      : reported?.timer_state ?? 'NOT_COUNTING',
+    timerState: gateState === 'FULLY_OPEN'
+      ? (reported?.open_without_crossing_seconds == null || reported?.gate_open_seconds == null
+        ? 'TIMER_UNAVAILABLE' : reported.timer_state === 'PAUSED' ? 'COUNTING'
+          : reported.timer_state === 'ALERT_RAISED' ? 'ALERT_RAISED' : 'COUNTING')
+      : 'NOT_COUNTING',
     timerRecorded: Boolean(reported && ['threshold_configured', 'timer_state', 'source_timestamp']
       .some((key) => Object.hasOwn(reported, key))),
     secondsSinceCrossing: reported?.seconds_since_crossing ?? null,

@@ -853,7 +853,14 @@ def test_job_is_not_completed_until_its_events_are_stored(harness, monkeypatch):
     assert list(harness.dir.iterdir()), "the video stays after processing until Delete"
     results = harness.client.get(f"{BASE}/{job_id}/results", headers=HEADERS).json()
     assert results["transitions"][0]["video_time_seconds"] == 2.9
-    assert results["monitoring"]["open_without_crossing_threshold_seconds"] == 3.0
+    assert set(results) == {"video_job_id", "assignment_id", "camera_id", "status", "monitoring",
+                            "transitions", "items", "alerts", "alerts_available", "limit", "offset"}
+    assert results["video_job_id"] == results["assignment_id"] == results["camera_id"] == job_id
+    assert results["status"] == "COMPLETED"
+    assert set(results["monitoring"]) == {"progress", "processed_frames", "frame_number", "video_timestamp",
+        "frame_width", "frame_height", "crossing", "mesh", "tracks", "error"}
+    assert results["monitoring"]["progress"] == 0.9
+    assert results["monitoring"]["mesh"] == {"occupancy_count": 2, "occupied": True, "config_status": None}
 
 
 def test_job_fails_when_its_events_could_not_be_stored(harness, monkeypatch):
@@ -924,13 +931,13 @@ def test_real_pipeline_and_demo_script_from_upload_to_transitions(harness, monke
     job, results = outcome["job"], outcome["results"]
     assert job["status"] == "COMPLETED", job
     assert job["processed_frames"] == 80 and job["progress"] == 1.0 and job["processing_fps"] > 0
-    assert job["monitoring"]["state"] == "OPEN", job["monitoring"]
+    assert job["monitoring"]["state"] == "FULLY_OPEN", job["monitoring"]
     assert 2.0 < job["monitoring"]["gate_open_seconds"] <= 6.0, job["monitoring"]
     states = [item["to_state"] for item in results["transitions"]]
-    assert "OPEN" in states, results["transitions"]
-    opened_at = next(item["video_time_seconds"] for item in results["transitions"] if item["to_state"] == "OPEN")
+    assert "FULLY_OPEN" in states, results["transitions"]
+    opened_at = next(item["video_time_seconds"] for item in results["transitions"] if item["to_state"] == "FULLY_OPEN")
     assert 1.5 <= opened_at <= 4.0, results["transitions"]
-    assert any("-> OPEN" in line for line in printed)
+    assert any("-> FULLY_OPEN" in line for line in printed)
 
 
 # --- parallel operation: nothing crosses between sources ------------------------------------------------------
@@ -994,6 +1001,23 @@ def test_live_detector_status_keeps_only_the_last_transitions():
     for state in ("OPENING", "OPEN", "CLOSING"):
         detector._emit(Transition(from_state="X", to_state=state, t=1.0, progress=0.5, reason="test"))
     assert [item["to_state"] for item in detector.status()["recent_transitions"]] == ["OPEN", "CLOSING"]
+
+
+def test_video_monitoring_summary_uses_current_state_instead_of_transition_history():
+    current_transition = {"from_state": "CLOSED", "to_state": "FULLY_OPEN", "progress": 0.8244978822243475}
+    summary = video_jobs_module.monitoring_summary({
+        "state": "FULLY_OPEN", "gate_state": "CLOSED", "progress": 0.8244978822243475,
+        "last_valid_position": 0.8244978822243475, "latest_measurement": None,
+        "last_valid_measurement_at": "2026-11-11T10:00:00+00:00",
+        "measurement_stale": True, "using_fallback": True,
+        "last_transition": current_transition, "recent_transitions": [current_transition],
+    })
+    assert summary["state"] == summary["gate_state"] == "FULLY_OPEN"
+    assert summary["progress"] == summary["last_valid_position"] == 0.8244978822243475
+    assert summary["latest_measurement"] is None
+    assert summary["last_valid_measurement_at"] == "2026-11-11T10:00:00+00:00"
+    assert summary["measurement_stale"] is True and summary["using_fallback"] is True
+    assert summary["last_transition"] == current_transition
 
 
 # --- assignment configuration is merged, never wiped -----------------------------------------------------------

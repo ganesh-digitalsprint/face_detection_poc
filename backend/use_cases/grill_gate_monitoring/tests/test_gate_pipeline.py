@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from grill_gate_monitoring.services.gate_state_machine import (
-    CLOSED, CLOSING, OPEN, OPENING, PARTIALLY_OPEN, UNKNOWN,
+    CLOSED, FULLY_OPEN, PARTIALLY_OPEN,
     GateStateMachine, StateMachineParams,
 )
 
@@ -10,7 +10,7 @@ from grill_gate_monitoring.services.gate_state_machine import (
 CALIBRATION = json.loads((Path(__file__).parent / "grill_gate_calibration_example.json").read_text())
 
 
-def test_synthetic_progress_pipeline_has_expected_states_and_occlusion_timeout():
+def test_synthetic_progress_pipeline_keeps_last_confirmed_state_through_occlusion():
     machine = GateStateMachine(StateMachineParams.from_calibration(CALIBRATION))
     now = 0.0
     transitions = []
@@ -41,11 +41,15 @@ def test_synthetic_progress_pipeline_has_expected_states_and_occlusion_timeout()
     ramp(0.5, 1.0, 15)
     hold(1.0, 20)
 
+    transition_count_before_loss = len(transitions)
     for _ in range(15):
         feed(None, 0.0)
-    assert machine.state == OPEN  # one second of lost measurements holds the last state
+    assert machine.state == FULLY_OPEN
     for _ in range(31):
         feed(None, 0.0)
 
-    assert transitions == [CLOSED, OPENING, OPEN, CLOSING, CLOSED, OPENING, PARTIALLY_OPEN, OPENING, OPEN, UNKNOWN]
-    assert machine.state == UNKNOWN
+    assert len(transitions) == transition_count_before_loss
+    assert transitions == [CLOSED, PARTIALLY_OPEN, FULLY_OPEN, PARTIALLY_OPEN,
+                           CLOSED, PARTIALLY_OPEN, FULLY_OPEN]
+    assert machine.state == FULLY_OPEN
+    assert machine.measurement_stale is True

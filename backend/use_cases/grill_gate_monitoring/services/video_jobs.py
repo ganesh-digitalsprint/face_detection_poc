@@ -44,15 +44,18 @@ def monitoring_summary(status: dict) -> dict:
     processing = status.get("processing") or {}
     mesh = processing.get("mesh") or {}
     crossing = processing.get("crossing") or {}
-    transition = status.get("last_transition") or {}
     state = status.get("state")
-    if state == "UNKNOWN" and transition.get("reason") == "video ended":
-        # The end of the file is not a gate observation; report the last state seen before it.
-        state = transition.get("from_state") or state
+    transition = status.get("last_transition")
     summary = {"state": state, "since": status.get("since"), "progress": status.get("progress"),
-               "confidence": status.get("confidence"), "gate_open_seconds": status.get("gate_open_seconds"),
+               "confidence": status.get("confidence"), "direction": status.get("direction"),
+               "last_valid_measurement_at": status.get("last_valid_measurement_at"),
+               "last_valid_position": status.get("last_valid_position"),
+               "latest_measurement": status.get("latest_measurement"),
+               "using_fallback": status.get("using_fallback"),
+               "measurement_stale": status.get("measurement_stale"),
+               "gate_open_seconds": status.get("gate_open_seconds"),
                "open_without_crossing_seconds": status.get("open_without_crossing_seconds"),
-               **{key: status.get(key) for key in ("gate_state", "gate_open_since", "open_without_crossing_threshold_seconds",
+               **{key: status.get(key) for key in ("gate_open_since", "open_without_crossing_threshold_seconds",
                    "threshold_configured", "progress_percent", "source_timestamp", "last_crossing_at",
                    "last_crossing_direction", "seconds_since_crossing", "timer_state")},
                "processed_frames": status.get("processed_frames"), "last_transition": transition or None,
@@ -67,6 +70,9 @@ def monitoring_summary(status: dict) -> dict:
                             "reliable": crossing.get("reliable", False)},
                "mesh": {"occupancy_count": mesh.get("occupancy_count", 0), "occupied": bool(mesh.get("occupied")),
                         "last_updated_at": mesh.get("last_updated_at"), "config_status": mesh.get("config_status")}}
+    # The detector's current state is authoritative. Never infer it from history
+    # or the separate alert timer's state alias.
+    summary["gate_state"] = state
     log_diagnostic(logger, "monitoring_snapshot_before_serialization", level=logging.DEBUG,
                    category="MONITORING", video_job_id=status.get("camera_id"),
                    frame_index=status.get("sequence_number"),

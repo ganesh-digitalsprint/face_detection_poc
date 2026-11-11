@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   CALIBRATION_STARTING_VALUES, calibrationFormIsBlank, calibrationFromForm, calibrationStatus, calibrationToForm, connectionView, EMPTY_MONITORING, formatClock, formLine, formToCalibration, mergeAssignmentConfiguration, mergeGrillGateAlertConfiguration,
-  previewState, workerForAssignment, workerIsActive, workerPollDelay, zoneCoverage,
+  gateStateView, previewState, workerForAssignment, workerIsActive, workerPollDelay, zoneCoverage,
   zoneTypesForStrategy,
 } from './grillGateModel.js';
 
@@ -17,6 +17,8 @@ const calibration = {
   sliding_gate: { gate_roi_zone_key: 'gate_leaf_roi', closed_reference_position: 0.2, open_reference_position: 0.8,
     horizontal_movement_direction: 'left_to_right', position_thresholds: { closed_tolerance: 0.05, open_tolerance: 0.05 },
     confidence_threshold: 0.6, hysteresis_fraction: 0.1,
+    partially_open_threshold_percent: 25, partially_open_exit_threshold_percent: 20,
+    fully_open_threshold_percent: 80, fully_open_hysteresis_percent: 5,
     state_confirmation_durations: { closed_seconds: 1, opening_seconds: 1, open_seconds: 1, partially_open_seconds: 1, closing_seconds: 1 } },
   directional_crossing: { line_start: { x: 0.1, y: 0.5 }, line_end: { x: 0.9, y: 0.5 }, outside_side: 'left', inside_side: 'right',
     entry_direction: 'outside_to_inside', exit_direction: 'inside_to_outside', dead_band_fraction: 0.02, minimum_crossing_displacement: 0.05 },
@@ -29,6 +31,13 @@ test('only the supported Three-Zone types are offered', () => {
     .map((key) => ({ key }));
   assert.deepEqual(zoneTypesForStrategy(types).map(({ key }) => key),
     ['gate_leaf_roi', 'gate_approach', 'gate_interior', 'mesh_area']);
+});
+
+test('legacy transitional and OPEN states map to the three gate cards', () => {
+  assert.equal(gateStateView('OPEN'), 'FULLY_OPEN');
+  assert.equal(gateStateView('OPENING'), 'PARTIALLY_OPEN');
+  assert.equal(gateStateView('CLOSING'), 'PARTIALLY_OPEN');
+  assert.equal(gateStateView('UNKNOWN'), 'UNKNOWN');
 });
 
 test('changing the assignment source keeps its alert rules', () => {
@@ -110,6 +119,14 @@ test('calibration round-trips and supplies defaults for hidden advanced fields',
     line_end_x: '0.9', line_end_y: '0.5' }, { width: 640, height: 360 });
   assert.equal(withLine.sliding_gate.position_thresholds.closed_tolerance, 0.1);
   assert.equal(withLine.directional_crossing.dead_band_fraction, 0.05);
+});
+
+test('legacy partial-open defaults migrate to the 25/20 percent hysteresis band', () => {
+  const legacy = { ...calibration, sliding_gate: { ...calibration.sliding_gate,
+    partially_open_threshold_percent: 30, partially_open_exit_threshold_percent: 25 } };
+  const form = calibrationToForm(legacy);
+  assert.equal(form.partially_open_threshold_percent, '25');
+  assert.equal(form.partially_open_exit_threshold_percent, '20');
 });
 
 test('line preview requires both endpoints within the normalized range', () => {

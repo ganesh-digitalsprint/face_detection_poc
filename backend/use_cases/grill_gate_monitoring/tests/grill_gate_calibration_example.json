@@ -17,7 +17,11 @@
       "partially_open_seconds": 1.0,
       "closing_seconds": 0.3
     },
-    "hysteresis_fraction": 0.05
+    "hysteresis_fraction": 0.05,
+    "partially_open_threshold_percent": 25.0,
+    "partially_open_exit_threshold_percent": 20.0,
+    "fully_open_threshold_percent": 80.0,
+    "fully_open_hysteresis_percent": 5.0
   },
   "directional_crossing": {
     "line_start": {"x": 0.40, "y": 0.55},

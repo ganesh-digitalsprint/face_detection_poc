@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { useSearchParams } from 'react-router-dom';
 import { describeError } from '../../../utils/errors.js';
 import { connectGrillGateAssignment, disconnectGrillGateAssignment } from '../api/grillGate.js';
@@ -12,6 +13,7 @@ import LiveCameraSection from '../components/LiveCameraSection.jsx';
 import UploadedVideoSection from '../components/UploadedVideoSection.jsx';
 import ZonesSection from '../components/ZonesSection.jsx';
 import { ErrorNote, Pill } from '../components/ui.jsx';
+import { restoreGateMonitoring, selectGateMonitoring } from '../../../store/slices/gateMonitoringSlice.js';
 
 const TABS = [['live', 'Live Camera'], ['video', 'Uploaded Video Processing'], ['zones', 'Zones & Regions']];
 // Old links keep working: each earlier ?view= value lands on the tab that now holds its content.
@@ -49,6 +51,8 @@ function ProcessingBar({ job, fps }) {
 
 export default function GrillGatePage() {
   const [params, setParams] = useSearchParams();
+  const dispatch = useDispatch();
+  const gateMonitoring = useSelector(selectGateMonitoring);
   const registry = useGrillGateRegistry();
   const requested = params.get('assignment');
   const item = registry.items.find((entry) => entry.assignment.id === requested) ?? registry.items[0] ?? null;
@@ -72,7 +76,6 @@ export default function GrillGatePage() {
   const worker = workerForAssignment(workers.workers, assignmentId);
   const live = useLiveMonitoring(assignmentId, workerIsActive(worker));
   const connection = connectionView(worker, { statusError: workers.error, loaded: workers.loaded });
-  const liveView = useMemo(() => liveMonitoring(live), [live]);
 
   const upload = useVideoUpload();
   const [listKey, setListKey] = useState(0);
@@ -81,8 +84,29 @@ export default function GrillGatePage() {
   // Without a choice in the URL, the newest saved video is selected so the top bar can follow it.
   const selectedJobId = requestedJob ?? selectionList.jobs[0]?.job_id ?? null;
   const videoJob = useVideoJob(selectedJobId);
-  const { job, events, transitions, alerts, alertsAvailable } = videoJob;
-  const videoView = useMemo(() => videoMonitoring({ job, events, transitions, alerts, alertsAvailable }), [job, events, transitions, alerts, alertsAvailable]);
+  const { job, monitoring: resultMonitoring, events, transitions, alerts, alertsAvailable } = videoJob;
+  const liveSessionId = assignmentId ? `live:${assignmentId}` : null;
+  const videoSessionId = selectedJobId ? `video:${selectedJobId}` : null;
+  const activeSessionId = view === 'live' ? liveSessionId : view === 'video' ? videoSessionId : null;
+  useEffect(() => {
+    if (activeSessionId) dispatch(restoreGateMonitoring({ sessionId: activeSessionId }));
+  }, [activeSessionId, dispatch]);
+
+  const liveClassification = {
+    sessionId: liveSessionId,
+    gateState: gateMonitoring.sessionId === liveSessionId ? gateMonitoring.gateState : 'UNKNOWN',
+    direction: gateMonitoring.sessionId === liveSessionId ? gateMonitoring.direction : null,
+  };
+  const videoClassification = {
+    sessionId: videoSessionId,
+    gateState: gateMonitoring.sessionId === videoSessionId ? gateMonitoring.gateState : 'UNKNOWN',
+    direction: gateMonitoring.sessionId === videoSessionId ? gateMonitoring.direction : null,
+  };
+  const liveView = useMemo(() => liveMonitoring(live, liveClassification), [live, liveClassification.gateState,
+    liveClassification.direction, liveClassification.sessionId]);
+  const videoView = useMemo(() => videoMonitoring({ job, monitoring: resultMonitoring, gateClassification: videoClassification,
+    events, transitions, alerts, alertsAvailable }), [job, resultMonitoring, videoClassification.gateState,
+    videoClassification.direction, videoClassification.sessionId, events, transitions, alerts, alertsAvailable]);
   const jobStatus = job?.status;
   useEffect(() => { setListKey((value) => value + 1); }, [selectedJobId, jobStatus]);
   useEffect(() => { if (videoJob.notFound && requestedJob) setParam('job', null); }, [videoJob.notFound, requestedJob]); // eslint-disable-line react-hooks/exhaustive-deps

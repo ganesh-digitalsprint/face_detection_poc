@@ -172,7 +172,7 @@ function JobPreview({ job, onProcess, onCancel, onReprocess, action, zoneConfigu
 function gateNote(job, monitoring) {
   if (!job) return 'Upload a video to see its results.';
   if (jobCanStart(job)) return 'Select Process Video to start this job.';
-  if (monitoring.gateState) return null;
+  if (monitoring.gateState && monitoring.gateState !== 'UNKNOWN') return null;
   return jobIsActive(job) ? 'Waiting for the first gate measurement.' : 'This job reported no gate state.';
 }
 
