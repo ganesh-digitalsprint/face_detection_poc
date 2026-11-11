@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Camera } from 'lucide-react';
 import { alertSourceLink, alertSourceLabel, evidenceLabel, grillAlertMetadata, grillSnapshotRefs, useCaseLabel } from '../../api/alertServiceModel.js';
 import { getGrillGateSnapshot } from '../../use-cases/grill-gate/api/grillGate.js';
 import { loadSnapshot } from './snapshotResource.js';
@@ -10,7 +11,7 @@ export function AlertBadge({ children }) {
   return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone[children] || 'bg-slate-100 text-slate-700'}`}>{children}</span>;
 }
 
-export function AlertSnapshot({ alert, large = false, evidenceIndex = 0 }) {
+export function AlertSnapshot({ alert, large = false, evidenceIndex = 0, compact = false }) {
   const ref = grillSnapshotRefs(alert)[evidenceIndex];
   const [retry, setRetry] = useState(0);
   const key = JSON.stringify([alert.sourceEventId || alert.id, ref?.retrieval_path, alert.evidenceStatus, retry]);
@@ -22,6 +23,11 @@ export function AlertSnapshot({ alert, large = false, evidenceIndex = 0 }) {
   }, [key]); // The key includes source, evidence, and capture state.
   const current = image.key === key ? image : { loading: alert.useCase === 'grill_gate' && Boolean(ref), url: '', error: '' };
   const fallback = current.loading ? 'Loading snapshot\u2026' : current.error || (alert.evidenceStatus === 'PENDING' ? 'Snapshot capture pending' : alert.evidenceStatus === 'CAPTURED' ? 'Captured snapshot reference is missing.' : 'No captured snapshot is attached to this incident.');
+  // The right-side card owns the single details button; no nested image button.
+  if (compact) return <span className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl bg-[#202530] text-[#B7BED0]">
+    {current.url ? <img src={current.url} alt="Captured alert snapshot" className="h-full w-full object-cover" onError={() => setImage((old) => ({ ...old, url: '', error: 'Snapshot could not be displayed.' }))} />
+      : <><Camera className="h-7 w-7" strokeWidth={1.7} aria-hidden="true" /><span className="sr-only">{fallback}</span></>}
+  </span>;
   return <div className={`overflow-hidden rounded-xl ${large ? 'bg-[#18223c]' : 'bg-slate-100'}`}>
     {current.url ? <>
       <button type="button" onClick={() => dialog.current?.showModal()} className="block w-full" aria-label="Expand captured snapshot">

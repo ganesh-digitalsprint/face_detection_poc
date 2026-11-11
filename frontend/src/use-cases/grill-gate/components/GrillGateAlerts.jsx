@@ -1,3 +1,4 @@
+import GrillGateAlertCard from './GrillGateAlertCard.jsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import useServiceAlerts from '../../../hooks/useServiceAlerts.js';
@@ -62,7 +63,7 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
     {feed.loading && !feed.items.length && <p role="status" className="text-sm text-[#55607A]">Loading alerts...</p>}
     {!feed.loading && !feed.error && !feed.items.length && (assignmentId || jobId) && <p className="text-sm text-[#55607A]">{status === 'ACTIVE' ? (adapter.count('HISTORY') > 0 ? 'No active alerts. Resolved or dismissed incidents are available in History.' : 'No active alerts.') : feed.hasMore ? 'No matching alerts on this page. Load more alerts below.' : 'No historical alerts.'}</p>}
     <div className={`grid gap-3 ${!compact && selected ? 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]' : ''}`}>
-      <div className="min-w-0 space-y-3">{feed.items.map((alert) => <AlertCard key={alert.id} alert={alert} compact={compact} selected={selected?.id === alert.id} onSelect={setSelectedId} />)}</div>
+      <div className="min-w-0 space-y-3">{feed.items.map((alert) => compact ? <GrillGateAlertCard key={alert.id} alert={alert} selected={selected?.id === alert.id} onSelect={setSelectedId} /> : <AlertCard key={alert.id} alert={alert} selected={selected?.id === alert.id} onSelect={setSelectedId} />)}</div>
       {selected && <div className="min-w-0">{detailLoading && <p role="status" className="mb-2 text-xs text-slate-500">Refreshing alert details...</p>}{detailError && <p role="alert" className="mb-2 text-sm text-red-800">Could not load latest details: {detailError}</p>}<SourceAlertDetail alert={detail?.id === selected.id ? detail : selected} onClose={() => setSelectedId('')}>
         <div className="flex flex-wrap gap-2">{(detail?.id === selected.id ? detail : selected).allowedActions.filter((action) => ['ACKNOWLEDGED','RESOLVED'].includes(action)).map((target) => <button key={target} type="button" disabled={pending} onClick={() => act(target)} className="rounded-lg border border-[#D0D7E6] px-4 py-2 text-sm font-semibold text-[#34479B] disabled:opacity-50">{target === 'ACKNOWLEDGED' ? 'Acknowledge' : 'Resolve'}</button>)}</div>
       </SourceAlertDetail></div>}
