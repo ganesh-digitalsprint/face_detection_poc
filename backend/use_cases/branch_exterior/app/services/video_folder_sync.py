@@ -23,7 +23,7 @@ import re
 from pathlib import Path
 
 from app.core.config import get_settings
-from app.core.paths import SAMPLE_VIDEO_DIR, ensure_directories
+from app.core.paths import ensure_directories, sample_video_directories
 from app.db.repositories.interfaces import Repositories
 from app.schemas.camera import CameraCreate, CameraUpdate
 from app.services.camera_manager import manager as camera_manager
@@ -70,10 +70,15 @@ async def sync_sample_videos(repos: Repositories, start_workers: bool = True) ->
 
 async def _sync_locked(repos: Repositories, start_workers: bool) -> list[str]:
     ensure_directories()
-    files = sorted(
-        p for p in SAMPLE_VIDEO_DIR.glob("*")
-        if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS
-    )
+    # Preserve the existing one-camera-per-filename behavior, preferring the current
+    # directory if the same sample exists in both old and new locations.
+    available = {}
+    for folder in sample_video_directories():
+        for path in sorted(folder.iterdir()):
+            if (path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
+                    and path.resolve().is_relative_to(folder.resolve())):
+                available.setdefault(path.name.lower(), path.resolve())
+    files = sorted(available.values())
     by_name = {p.name.lower(): p for p in files}
     cameras = await repos.cameras.list()  # oldest first
 

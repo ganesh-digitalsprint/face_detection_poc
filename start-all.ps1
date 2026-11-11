@@ -4,6 +4,7 @@ param(
     [ValidateRange(15, 600)][int]$AlertTimeoutSeconds = 60,
     [ValidateRange(15, 600)][int]$VaultTimeoutSeconds = 180,
     [ValidateRange(15, 600)][int]$BranchTimeoutSeconds = 150,
+    [ValidateRange(15, 600)][int]$FaceMaskTimeoutSeconds = 90,
     [ValidateRange(15, 600)][int]$FrontendTimeoutSeconds = 60
 )
 
@@ -118,6 +119,10 @@ try {
     $vaultPython = Join-Path $vaultDir '.venv\Scripts\python.exe'
     $branchPython = Join-Path $branchDir '.venv\Scripts\python.exe'
     $alertPython = Join-Path $alertDir '.venv\Scripts\python.exe'
+    # Face Mask is included when its service directory exists; prepare its isolated environment on first start.
+    $faceMaskDir = Join-Path $repoRoot 'backend\use_cases\face_mask'
+    $faceMaskPython = Join-Path $faceMaskDir '.venv\Scripts\python.exe'
+    $faceMaskEnabled = Test-Path -LiteralPath $faceMaskDir -PathType Container
     $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
     $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
 
@@ -140,6 +145,31 @@ try {
     Assert-PythonEnvironment -Label 'Vault Monitoring' -PythonPath $vaultPython -AllowedMinorVersions @(12) -RequiredModules @('fastapi','uvicorn','sqlalchemy','psycopg2','qdrant_client')
     Assert-PythonEnvironment -Label 'Branch Exterior Monitoring' -PythonPath $branchPython -AllowedMinorVersions @(11) -RequiredModules @('fastapi','uvicorn','sqlalchemy','cv2','aiosqlite','rfdetr','rtmlib')
     Assert-PythonEnvironment -Label 'Alert Service' -PythonPath $alertPython -AllowedMinorVersions @(11,12) -RequiredModules @('fastapi','uvicorn','sqlalchemy','httpx')
+    if ($faceMaskEnabled) {
+        if (-not (Test-Path -LiteralPath $faceMaskPython -PathType Leaf)) {
+            if ($PreflightOnly) { throw 'Face Mask environment is missing. Run start-all.ps1 normally for automatic first-run setup, or run uv sync --locked --python 3.11 --link-mode copy in backend/use_cases/face_mask.' }
+            $uvCommand = Get-Command uv.exe -ErrorAction SilentlyContinue
+            if (-not $uvCommand) { throw 'Face Mask first-run setup requires uv. Install uv, then run start-all.ps1 again.' }
+            Write-Host 'SETUP Face Mask: installing locked dependencies into its own Python 3.11 environment...' -ForegroundColor Cyan
+            & $uvCommand.Source sync --project $faceMaskDir --locked --python $branchPython --link-mode copy
+            if ($LASTEXITCODE -ne 0) { throw 'Face Mask dependency setup failed. Review the installation output above and retry uv sync in backend/use_cases/face_mask.' }
+        }
+        Assert-PythonEnvironment -Label 'Face Mask Monitoring' -PythonPath $faceMaskPython -AllowedMinorVersions @(11) -RequiredModules @('fastapi','uvicorn','sqlalchemy','aiosqlite','yaml','cv2','mediapipe','httpx','scipy')
+        Push-Location -LiteralPath $faceMaskDir
+        try {
+            $missingModels = (& $faceMaskPython -c "import json; from app.core.settings_store import load_effective_config; c=load_effective_config(); print(json.dumps([n for n in (c.models.person_detector,c.models.face_detector,c.models.pose) if not c.models.path(n).is_file()]))" | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'Face Mask model configuration could not be validated.' }
+            if ($missingModels -ne '[]') {
+                if ($PreflightOnly) { throw 'Face Mask model files are missing. Run start-all.ps1 normally for automatic setup, or run .venv/Scripts/python.exe scripts/download_models.py --only person yunet pose in backend/use_cases/face_mask.' }
+                Write-Host 'SETUP Face Mask: downloading missing required detection models...' -ForegroundColor Cyan
+                & $faceMaskPython -u scripts/download_models.py --only person yunet pose
+                if ($LASTEXITCODE -ne 0) { throw 'Face Mask model setup failed. Review the download output above and retry its scripts/download_models.py command.' }
+            }
+        } finally { Pop-Location }
+
+    } else {
+        Add-LauncherWarning 'Face Mask service directory is absent; it will not be started.'
+    }
 
     $nodeVersionText = (& $nodeCommand.Source --version 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $nodeVersionText -notmatch '^v?(\d+)\.(\d+)\.(\d+)') { throw 'Node.js could not report its version.' }
@@ -239,6 +269,7 @@ try {
         @{ Name = 'Branch Exterior Monitoring'; Port = 8011; Health = 'http://127.0.0.1:8011/api/health' },
         @{ Name = 'Frontend'; Port = 3000; Health = 'http://127.0.0.1:3000/' }
     )
+    if ($faceMaskEnabled) { $portSpecs += @{ Name = 'Face Mask Monitoring'; Port = 8014; Health = 'http://127.0.0.1:8014/api/health' } }
 
     $existingEntries = @(Read-LauncherManifest -Path $manifestPath)
     if ($existingEntries.Count -gt 0) {
@@ -269,6 +300,11 @@ try {
         @{ Service = 'Branch Exterior Monitoring'; Exe = $branchPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8011'); Cwd = $branchDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8011'; Uri = 'http://127.0.0.1:8011/api/health'; Timeout = $BranchTimeoutSeconds; Env = @{} },
         @{ Service = 'Frontend'; Exe = $nodeCommand.Source; Args = @('node_modules/vite/bin/vite.js','--host','127.0.0.1'); Cwd = $frontendDir; Marker = 'vite/bin/vite.js --host 127.0.0.1'; Uri = 'http://127.0.0.1:3000/'; Timeout = $FrontendTimeoutSeconds; Env = @{} }
     )
+    if ($faceMaskEnabled) {
+        $faceMaskSpec = @{ Service = 'Face Mask Monitoring'; Exe = $faceMaskPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8014'); Cwd = $faceMaskDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8014'; Uri = 'http://127.0.0.1:8014/api/health'; Timeout = $FaceMaskTimeoutSeconds; Env = @{} }
+        # Keep Frontend last: Alert, Vault, Branch, Face Mask, Frontend.
+        $launchSpecs = @($launchSpecs[0..2]) + @($faceMaskSpec) + @($launchSpecs[3])
+    }
 
     foreach ($spec in $launchSpecs) {
         $safeName = $spec.Service.ToLowerInvariant() -replace '[^a-z0-9]+','-'
@@ -285,7 +321,7 @@ try {
     }
 
     Write-Host ''
-    Write-Host 'All four applications passed their readiness checks.' -ForegroundColor Green
+    Write-Host "All $($launchSpecs.Count) applications passed their readiness checks." -ForegroundColor Green
     Write-Host "Logs: $logDir"
     Write-Host "Process metadata (no secrets): $manifestPath"
     if ($warnings.Count -gt 0) { Write-Host 'Some optional alert workflows need the credentials listed in the warnings above.' -ForegroundColor Yellow }

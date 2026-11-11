@@ -1,0 +1,33 @@
+# Face Mask Monitoring. CPU only, no torch, no YOLO/ultralytics. Python 3.11 (same as branch_exterior).
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/app/.venv/bin:$PATH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libgl1 libglib2.0-0 libgomp1 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --create-home --home-dir /home/app app
+
+WORKDIR /app
+# requirements.txt is generated from uv.lock (uv export) and fully pinned, so no dependency resolution happens here.
+# --no-deps keeps pip from adding mediapipe's own opencv wheel next to the single headless build.
+COPY backend/use_cases/face_mask/requirements.txt ./
+RUN python -m venv /app/.venv && pip install --no-cache-dir --no-deps -r requirements.txt
+
+COPY backend/use_cases/face_mask/app ./app
+COPY backend/use_cases/face_mask/scripts ./scripts
+COPY config/use_cases/face_mask.yaml ./config/face_mask.yaml
+
+# Free, permissively licensed models (docs/face_mask/MODEL_LICENSES.md); SHA256 is verified by the script.
+RUN python scripts/download_models.py \
+    && mkdir -p /app/storage && chown -R app:app /app /home/app
+
+USER 10001:10001
+EXPOSE 8014
+HEALTHCHECK --interval=30s --timeout=8s --start-period=60s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8014/api/health', timeout=6).read()" || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8014", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]

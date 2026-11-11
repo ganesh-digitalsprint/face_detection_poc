@@ -129,3 +129,9 @@ test('stale conflicts trigger a reload; other errors do not', () => {
   assert.equal(isStaleConflict(describeServiceError(failure(404, { code: 'ALERT_NOT_FOUND', message: 'x' }))), true);
   assert.equal(isStaleConflict(describeServiceError(failure(401, { code: 'UNAUTHENTICATED', message: 'x' }))), false);
 });
+
+test('Face Mask alerts have a source label (and so appear in the source filter)', async () => {
+  const { USE_CASE_LABELS, useCaseLabel } = await import('./alertServiceModel.js');
+  assert.equal(useCaseLabel('face_mask'), 'Face Mask');
+  assert.ok(Object.keys(USE_CASE_LABELS).includes('face_mask'));
+});

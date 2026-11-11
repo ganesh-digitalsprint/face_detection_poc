@@ -57,7 +57,8 @@ test('Employees is also active on nested authorized-registration routes', () => 
 });
 
 test('soon items are never active', () => {
-  assert.ok(!isItemActive(byId('face-concealment'), '/'));
+  assert.ok(!isItemActive({ id: 'placeholder', soon: true }, '/'));
+  assert.equal(byId('face-concealment'), undefined);
   assert.ok(!linkTargets(NAV_SECTIONS).some((t) => t.includes('concealment')));
 });
 

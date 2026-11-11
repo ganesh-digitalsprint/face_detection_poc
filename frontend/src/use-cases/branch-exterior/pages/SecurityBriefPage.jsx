@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, bxApiUrl } from '../api/index.js';
+import { api as fmApi } from '../../face-mask/api/index.js';
+import FaceMaskBriefSection from '../../face-mask/components/FaceMaskSummary.jsx';
+import { serviceById, unavailableMessage } from '../../../config/serviceRegistry.js';
+import BriefFilterBar from '../components/BriefFilterBar.jsx';
+import { downloadBriefCsv } from '../briefDownload.js';
+import {
+  branchBriefParams, cameraValue, DEFAULT_FILTERS, describeFilters, includesUseCase, resolveRange,
+} from '../briefFilters.js';
 
 const SEV_COLOR = { critical: '#dc2626', high: '#ea580c', medium: '#ca8a04', low: '#16a34a', info: '#64748b' };
 const when = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -19,18 +27,56 @@ function Bars({ rows, labelKey }) {
   ));
 }
 
+const toQuery = (params) => `?${new URLSearchParams(params).toString()}`;
+
 export default function SecurityBriefPage() {
-  const [hours, setHours] = useState('24');
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [format, setFormat] = useState('pdf');
+  const [cameras, setCameras] = useState([]);
   const [b, setB] = useState(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const range = useMemo(() => resolveRange(filters), [filters]);
+  const showBranch = includesUseCase(filters, 'branch_exterior');
+  const showFaceMask = includesUseCase(filters, 'face_mask');
+  const showVault = filters.useCase === 'vault_access';
+  const cameraNames = useMemo(() => Object.fromEntries(cameras.map((c) => [cameraValue(c.useCase, c.id), c.label])), [cameras]);
+  const filterKey = JSON.stringify(filters);
+
+  useEffect(() => {
+    let alive = true;
+    const load = (useCase, label, promise) => promise
+      .then((list) => list.map((c) => ({ useCase, id: c.id, name: c.name, label: `${label}: ${c.name}` })))
+      .catch(() => []);
+    Promise.all([load('branch_exterior', 'Branch', api.get('/cameras')), load('face_mask', 'Face Mask', fmApi.get('/cameras'))])
+      .then((lists) => { if (alive) setCameras(lists.flat()); });
+    return () => { alive = false; };
+  }, []);
 
   const load = useCallback(async () => {
-    try { setB(await api.get(`/brief?hours=${hours}`)); setError(''); } catch (e) { setError(e.message); }
-  }, [hours]);
+    if (!showBranch || range.error) { setB(null); setError(''); return; }
+    try {
+      const { params } = branchBriefParams(filters);
+      setB(await api.get(`/brief${toQuery(params)}`)); setError('');
+    } catch (e) { setB(null); setError(e.message); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, showBranch, range.error]);
   useEffect(() => { load(); }, [load]);
 
-  if (error) return <div className="bx-card"><ul className="bx-headline"><li style={{ color: '#dc2626' }}>Could not load the brief: {error}. Copy the latest backend files and restart the server.</li></ul></div>;
+  const download = async () => {
+    if (format === 'pdf') { window.print(); return; }
+    setBusy(true); setNotice(null);
+    try {
+      const result = await downloadBriefCsv(filters, cameraNames);
+      setNotice(result.fileName
+        ? { kind: 'ok', text: `Downloaded ${result.fileName}.`, skipped: result.skipped }
+        : { kind: 'warn', text: 'Nothing was downloaded.', skipped: result.skipped });
+    } catch (e) { setNotice({ kind: 'warn', text: `Download failed: ${e.message}`, skipped: [] }); } finally { setBusy(false); }
+  };
 
+  // A stopped service must never break the whole brief: the Branch part shows its own message and every other
+  // section (controls, Face Mask) still renders. With all services up the output is unchanged.
   const t = b?.totals;
   const kp = t ? [['Incidents', t.events, ''], ['High / critical', t.high_critical, t.high_critical ? '#dc2626' : ''], ['Critical', t.critical, t.critical ? '#dc2626' : ''],
     ['With evidence saved', t.with_evidence, ''], ['Cameras involved', t.cameras, ''], ['Marked false positive', t.false_positive, '']] : [];
@@ -38,20 +84,39 @@ export default function SecurityBriefPage() {
 
   return (
     <>
-      <div className="bx-section-title bx-no-print">
-        <div className="bx-row bx-gap-12">
-          <label className="bx-field" style={{ margin: 0 }}>Period
-            <select className="bx-input" value={hours} onChange={(e) => setHours(e.target.value)}>
-              <option value="6">Last 6 hours</option><option value="24">Last 24 hours</option><option value="72">Last 3 days</option>
-              <option value="168">Last 7 days</option><option value="720">Last 30 days</option>
-            </select>
-          </label>
-          <button type="button" className="bx-btn" style={{ alignSelf: 'flex-end' }} onClick={load}>↻ Refresh</button>
-        </div>
-        <button type="button" className="bx-btn bx-btn-primary" onClick={() => window.print()}>🖨 Print / Save as PDF</button>
+      <BriefFilterBar value={filters} onChange={(next) => { setFilters(next); setNotice(null); }} cameras={cameras} />
+      <div className="bx-row bx-gap-8 bx-wrap bx-mb-16 bx-no-print" style={{ alignItems: 'flex-end' }}>
+        <button type="button" className="bx-btn" onClick={() => { load(); setFilters((f) => ({ ...f })); }}>↻ Refresh</button>
+        <label className="bx-field" style={{ margin: 0 }}>Format
+          <select className="bx-input" value={format} onChange={(e) => setFormat(e.target.value)} aria-label="Download format">
+            <option value="pdf">PDF</option><option value="csv">CSV</option>
+          </select>
+        </label>
+        <button type="button" className="bx-btn bx-btn-primary" onClick={download} disabled={busy || Boolean(range.error)}>
+          {busy ? 'Preparing…' : 'Download'}
+        </button>
       </div>
+      <p className="bx-print-only" style={{ margin: '0 0 12px' }}><b>Security Brief</b> · {describeFilters(filters, cameraNames)} · generated {new Date().toLocaleString()}</p>
+      {range.error && <div className="bx-diag bx-no-print" role="alert">{range.error}</div>}
+      {notice && (
+        <div className={`bx-${notice.kind === 'ok' ? 'hint' : 'diag'} bx-no-print`} role="status">
+          {notice.text}
+          {notice.skipped.length > 0 && (
+            <ul style={{ margin: '6px 0 0 18px' }}>{notice.skipped.map((x) => <li key={x.label}><b>Skipped {x.label}:</b> {x.reason}</li>)}</ul>
+          )}
+        </div>
+      )}
+      {showVault && <div className="bx-card" role="status"><b>Vault Access</b> has no section or export on this page yet: it is not connected to the brief.</div>}
+      {showBranch && branchBriefParams(filters).capped && (
+        <p className="bx-muted bx-no-print" style={{ fontSize: 12 }}>The Branch Exterior summary covers at most the last 30 days.</p>
+      )}
 
-      {!b && <div className="bx-row bx-gap-8 bx-muted" style={{ padding: 30, justifyContent: 'center' }}><span className="bx-spinner" /> Loading…</div>}
+      {error && (
+        <div className="bx-card" role="alert"><ul className="bx-headline"><li style={{ color: '#dc2626' }}>
+          {unavailableMessage(serviceById('branch'))} ({error})
+        </li></ul></div>
+      )}
+      {showBranch && !b && !error && !range.error && <div className="bx-row bx-gap-8 bx-muted" style={{ padding: 30, justifyContent: 'center' }}><span className="bx-spinner" /> Loading…</div>}
       {b && (
         <>
           <div className="bx-card bx-mb-16">
@@ -112,6 +177,7 @@ export default function SecurityBriefPage() {
           <p className="bx-hint" style={{ marginTop: 12 }}>AI-assisted indications - every incident must be verified by a person before any action is taken.</p>
         </>
       )}
+      {showFaceMask && !range.error && <FaceMaskBriefSection filters={filters} />}
     </>
   );
 }

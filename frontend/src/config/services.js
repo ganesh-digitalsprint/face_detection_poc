@@ -25,3 +25,6 @@ export const ALERT_SERVICE_ACTIONS_ENABLED = String(env.VITE_ALERT_SERVICE_ACTIO
 
 /** Alert Service list refresh interval in milliseconds. */
 export const ALERT_POLL_MS = Math.max(3000, Number(env.VITE_ALERT_POLL_MS) || 10000);
+
+/** Face Mask Monitoring backend (visible vs concealed face at entrances; never identifies anyone). */
+export const FACE_MASK_BASE_URL = trimSlash(env.VITE_FACE_MASK_API_BASE_URL) || 'http://localhost:8014';

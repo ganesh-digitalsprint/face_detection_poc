@@ -128,6 +128,9 @@ function Test-LauncherHealthyEndpoint {
         if ($Service -eq 'Alert Service') {
             return $body.status -eq 'ok' -and $body.service -eq 'alert-service'
         }
+        if ($Service -eq 'Face Mask Monitoring') {
+            return $body.service -eq 'face_mask' -and $body.status -eq 'ok' -and $body.db -eq 'ok'
+        }
         if ($Service -eq 'Vault Monitoring') {
             return $body.status -eq 'ok' -and $body.database -eq 'ok' -and $body.qdrant -eq 'ok'
         }

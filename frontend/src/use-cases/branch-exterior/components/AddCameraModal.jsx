@@ -109,7 +109,7 @@ export default function AddCameraModal({ onClose, onCreated, start = true }) {
               {browse.files.map((f) => <option key={f.path} value={f.path}>{f.name} ({f.source})</option>)}
             </select>
           </label>
-          <div className="bx-hint">Lists files from backend/storage/sample_videos and backend/storage/uploads. If nothing appears, confirm the file is actually in one of those folders, then reopen this dialog.</div>
+          <div className="bx-hint">Lists current Branch sample videos, uploads, and backend/branch-exterior-monitoring/storage/sample_videos. If nothing appears, confirm the file is actually in one of those folders, then reopen this dialog.</div>
         </>
       )}
       <label className="bx-field" style={{ marginTop: 12 }}>Location / notes

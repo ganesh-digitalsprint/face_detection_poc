@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { Film, Radio, ScanFace, ScanSearch, ShieldCheck, UserPlus, Video } from 'lucide-react';
+import { EyeOff, Film, Radio, ScanFace, ScanSearch, ShieldCheck, UserPlus, Video } from 'lucide-react';
+import FaceMaskDashboardSection from '../use-cases/face-mask/components/FaceMaskDashboardSection.jsx';
 import StatusBadge from '../components/common/StatusBadge.jsx';
 import useHealth from '../hooks/useHealth.js';
 
@@ -11,6 +12,7 @@ const FEATURES = [
   { to: '/live', icon: Radio, title: 'Live Monitoring', text: 'Webcam / CCTV' },
   { to: '/video', icon: Film, title: 'Video Recognition', text: 'Process recorded video' },
   { to: '/branch-exterior/live', icon: Video, title: 'Branch Exterior Monitoring', text: 'Live analysis, zones, alerts & security brief' },
+  { to: '/face-mask/live', icon: EyeOff, title: 'Face Mask Monitoring', text: 'Visible vs concealed face at entrances' },
 ];
 
 const BADGE = { ok: 'CONNECTED', degraded: 'DEGRADED', offline: 'OFFLINE', checking: 'CHECKING' };
@@ -46,6 +48,8 @@ export default function Dashboard() {
           </Link>
         ))}
       </div>
+
+      <FaceMaskDashboardSection />
     </div>
   );
 }

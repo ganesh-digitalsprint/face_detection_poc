@@ -3,6 +3,7 @@ export const SETTINGS_TABS = [
   { id: 'general', label: 'General' },
   { id: 'policies', label: 'Policies' },
   { id: 'integrations', label: 'Integrations' },
+  { id: 'face-mask', label: 'Face Mask' },
 ];
 
 export const resolveSettingsTab = (value) => SETTINGS_TABS.find((t) => t.id === value)?.id ?? SETTINGS_TABS[0].id;

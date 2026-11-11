@@ -1,0 +1,59 @@
+[project]
+name = "face-mask"
+version = "0.1.0"
+description = "Face Mask & Face Concealment Detection - backend (FastAPI). Visible vs concealed only; never identifies anyone."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.4.0",
+    "sqlalchemy[asyncio]>=2.0.32",
+    "aiosqlite>=0.20.0",
+    "asyncpg>=0.29.0",
+    "pyyaml>=6.0.1",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.1",
+    "numpy>=1.26.0",
+    "scipy>=1.11.0",                              # Hungarian matching in the tracker
+    "opencv-contrib-python-headless>=4.10.0",     # ONE cv2 build only: YuNet (cv2.FaceDetectorYN), video IO (Apache-2.0)
+    "mediapipe>=0.10.14",                         # person detector (EfficientDet-Lite) + Pose Landmarker (Apache-2.0)
+    "onnxruntime>=1.18.0",                        # optional concealment classifier (MIT)
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.27.0",
+    "ruff>=0.6.0",
+]
+# Optional, NOT installed by default: `uv sync --group train`
+train = [
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.uv]
+default-groups = ["dev"]
+# mediapipe depends on the regular opencv wheels. Two cv2 builds in one environment overwrite each
+# other, so those names are disabled and the single contrib-headless build above is used (same
+# approach as branch_exterior).
+override-dependencies = [
+    "opencv-python; sys_platform == 'never'",
+    "opencv-python-headless; sys_platform == 'never'",
+    "opencv-contrib-python; sys_platform == 'never'",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

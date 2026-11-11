@@ -34,15 +34,16 @@ test('moved Branch pages redirect from /branch-exterior and keep ?camera= and ot
 test('every redirect lands on an alerts tab or a moved Branch page, and every tab is a distinct /alerts path', () => {
   const tabs = ALERT_TABS.map((t) => t.to);
   assert.equal(new Set(tabs).size, tabs.length);
-  for (const [, to] of LEGACY_REDIRECTS) assert.ok(tabs.includes(to) || MOVED_BRANCH_PAGES.includes(to), to);
+  for (const [, to] of LEGACY_REDIRECTS) assert.ok(tabs.includes(to) || MOVED_BRANCH_PAGES.includes(to) || to === '/regions', to);
   const sources = LEGACY_REDIRECTS.map(([from]) => from);
   assert.equal(new Set(sources).size, sources.length);
   for (const [, to] of LEGACY_REDIRECTS) assert.ok(!sources.includes(to), `redirect loop: ${to}`);
 });
 
 test('Branch header controls show only where BxLayout is mounted', () => {
-  for (const p of ['/branch-exterior/live', '/branch-exterior', '/alerts/branch', '/alerts/branch/', '/regions', '/guards', '/settings']) assert.ok(showsBranchChrome(p), p);
-  for (const p of ['/alerts/vault', '/alerts/all', '/alerts', '/branch-exteriors', '/regionsx', '/vault-access', '/registration/employees']) {
+  for (const p of ['/branch-exterior/live', '/branch-exterior', '/alerts/branch', '/alerts/branch/', '/guards', '/settings']) assert.ok(showsBranchChrome(p), p);
+  // /regions is the common Regions & Zones page: it is not rendered inside BxLayout.
+  for (const p of ['/regions', '/alerts/vault', '/alerts/all', '/alerts', '/branch-exteriors', '/regionsx', '/vault-access', '/registration/employees']) {
     assert.ok(!showsBranchChrome(p), p);
   }
 });
@@ -50,7 +51,6 @@ test('Branch header controls show only where BxLayout is mounted', () => {
 test('BxLayout sub-bar key: Branch events tab is the old dashboard; Branch pages keep their segment', () => {
   assert.equal(bxPageKey('/alerts/branch'), 'dashboard');
   assert.equal(bxPageKey('/guards'), 'guards');
-  assert.equal(bxPageKey('/regions'), 'regions');
   assert.equal(bxPageKey('/settings'), 'settings');
   assert.equal(bxPageKey('/branch-exterior/system-check'), 'system-check');
   assert.equal(bxPageKey('/branch-exterior'), 'live');
@@ -73,7 +73,7 @@ test('App registers a redirect for every legacy URL and no page still renders at
 
 test('Settings tabs: unknown or missing ?tab= falls back to General', async () => {
   const { SETTINGS_TABS, resolveSettingsTab } = await import('../use-cases/branch-exterior/settingsTabs.js');
-  assert.deepEqual(SETTINGS_TABS.map((t) => t.id), ['general', 'policies', 'integrations']);
+  assert.deepEqual(SETTINGS_TABS.map((t) => t.id), ['general', 'policies', 'integrations', 'face-mask']);
   assert.equal(resolveSettingsTab('policies'), 'policies');
   for (const v of [null, undefined, '', 'users', '__proto__']) assert.equal(resolveSettingsTab(v), 'general');
 });

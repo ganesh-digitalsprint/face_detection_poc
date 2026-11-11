@@ -1,0 +1,86 @@
+# Face Mask - tunable settings (SPEC FM-10: no threshold is hard-coded in code).
+# Values are the "to be confirmed with the client" defaults; all are editable here and in the UI.
+# Override the file location with FACE_MASK_CONFIG_PATH.
+# Paths that are not absolute are resolved against the repository root.
+
+models:
+  # Free, permissive-licence models only (see docs/face_mask/MODEL_LICENSES.md). No YOLO. Download with:
+  #   uv run python scripts/download_models.py
+  dir: data/model_weights/face_mask
+  person_detector: efficientdet_lite0.tflite        # MediaPipe ObjectDetector, COCO (Apache-2.0)
+  face_detector: face_detection_yunet_2023mar.onnx   # OpenCV Zoo YuNet via cv2.FaceDetectorYN (MIT)
+  pose: pose_landmarker_lite.task                    # MediaPipe Pose Landmarker lite (Apache-2.0)
+  face_landmarker: face_landmarker.task              # MediaPipe Face Landmarker (Apache-2.0), optional
+  face_landmarker_enabled: false                     # optional extra signal; off by default (CPU cost)
+  classifier: face_mask_visibility.onnx              # optional; used automatically when the file exists
+
+visibility:
+  analyzer: heuristic            # heuristic | classifier (classifier falls back to heuristic if its file is missing)
+  threshold: 0.60                # CONCEALED score needed to count a frame as concealed
+  # What to do when the head is down / face not visible and nothing is identifiable:
+  #   unable                                    -> never alert; UNABLE_TO_ASSESS if no usable view appears
+  #   concealed_if_frontal_body_and_no_skin     -> body faces the camera (both shoulders visible, frontal) AND no skin
+  #                                                found on the head => treat as a cap/covering hiding the face.
+  # Default is the second: the rules require "cap hiding the face while looking down" to alert, while a head
+  # turned away has a non-frontal body and stays not-concealed. Use `unable` if false alerts are a problem.
+  head_down_policy: concealed_if_frontal_body_and_no_skin
+  min_face_score: 0.60           # YuNet confidence needed to trust a detected face
+  skin_chroma_k: 3.0             # skin tolerance = k x spread of the reference skin patches (forehead / under-eye)
+  skin_luma_tolerance: 60.0      # a region much darker/brighter than the face's own skin (e.g. a dark scarf) is not skin
+  min_skin_cr: 133.0            # skin is reddish (YCrCb Cr); white / grey / blue pixels fall below and are never skin
+  no_skin_ratio: 0.12           # head crop with less skin than this counts as "no skin" (head-down policy)
+
+confirmation:
+  frames_to_confirm: 5           # N concealed frames ...
+  confirm_window: 8              # ... out of the last M evaluated frames
+
+quality_gate:
+  min_head_height_px: 48
+  min_sharpness: 60.0            # variance of Laplacian
+  min_brightness: 40.0
+  max_brightness: 230.0
+  max_yaw_degrees: 50.0
+
+entering:
+  window_frames: 10              # movement is measured over the last N frames
+  min_inward_displacement_px: 12.0
+  head_crop_ratio: 0.30          # fallback head box: top part of the person box
+
+evidence:
+  clip_pre_seconds: 5.0
+  clip_post_seconds: 5.0
+  snapshot_quality: 85
+
+cooldown:
+  seconds: 10.0                  # suppress duplicate events from track fragmentation ...
+  radius_px: 120.0               # ... near the same place on the same camera
+
+alerts:
+  severity: high
+  channels:
+    dashboard: true
+    sms: false
+    email: false
+    app: false
+
+stream:
+  processing_fps: 6              # low by default so CPU stays reasonable
+  frame_width: 960
+  reconnect_initial_seconds: 1.0 # wait before re-opening a lost live source (doubles up to the cap)
+  reconnect_max_seconds: 15.0
+  offline_after_seconds: 30.0    # RECONNECTING becomes OFFLINE after this long without a frame
+  file_realtime: false           # video files: false = as fast as the CPU allows, true = real-time pacing
+
+detector:
+  person_confidence: 0.40
+  person_max_results: 10
+
+tracker:
+  low_confidence: 0.20           # second (ByteTrack-style) stage; the first stage uses detector.person_confidence
+  iou_threshold: 0.30
+  min_hits: 2
+  max_lost_seconds: 3.0
+
+uploads:
+  max_size_mb: 1024
+  allowed_extensions: [".mp4", ".avi", ".mov", ".mkv", ".webm"]

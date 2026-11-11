@@ -9,6 +9,7 @@ import {
 } from '../api/alertServiceModel.js';
 import { ALERT_POLL_MS, ALERT_SERVICE_ACTIONS_ENABLED } from '../config/services.js';
 import useServiceAlerts from '../hooks/useServiceAlerts.js';
+import { faceMaskEventLink } from '../layouts/routes.js';
 
 const SEVERITY_STYLE = {
   CRITICAL: 'bg-red-100 text-red-800', HIGH: 'bg-orange-100 text-orange-800',
@@ -18,6 +19,10 @@ const STATUS_STYLE = {
   OPEN: 'bg-red-50 text-red-700', ACKNOWLEDGED: 'bg-amber-50 text-amber-800',
   RESOLVED: 'bg-emerald-50 text-emerald-700', DISMISSED: 'bg-slate-100 text-slate-600',
 };
+const SOURCE_LINK = { vault_monitoring: '/alerts/vault', branch_exterior: '/alerts/branch', face_mask: '/alerts/face-mask' };
+/** Where "Open in <source>" goes. Face Mask alerts deep-link to the exact event (its id is the alert's source_event_id). */
+const linkFor = (alert) => (alert.useCase === 'face_mask' && alert.sourceEventId
+  ? faceMaskEventLink(alert.sourceEventId) : SOURCE_LINK[alert.useCase]);
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—');
 
 function Pill({ className, children }) {

@@ -9,6 +9,7 @@ export const USE_CASE_LABELS = {
   vault_monitoring: 'Vault Monitoring',
   branch_exterior: 'Branch Exterior',
   grill_gate: 'Grill Gate Monitoring',
+  face_mask: 'Face Mask',
 };
 
 /** Lifecycle actions as the contract names them: target status -> endpoint segment. */

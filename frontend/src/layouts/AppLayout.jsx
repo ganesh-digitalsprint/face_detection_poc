@@ -3,7 +3,8 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { ChevronsLeft, ChevronsRight, Menu, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import HeaderControls from '../use-cases/branch-exterior/components/HeaderControls.jsx';
 import StatusBadge from '../components/common/StatusBadge.jsx';
-import useHealth from '../hooks/useHealth.js';
+import ServiceDots from '../components/common/ServiceDots.jsx';
+import useServicesHealth from '../hooks/useServicesHealth.js';
 import useSidebar from '../hooks/useSidebar.js';
 import Sidebar from './Sidebar.jsx';
 import { showsBranchChrome } from './routes.js';
@@ -16,6 +17,8 @@ const TITLES = [
   ['/branch-exterior/brief', 'Security Brief'],
   ['/branch-exterior/system-check', 'System Check'],
   ['/branch-exterior', 'Branch Exterior Monitoring'],
+  ['/face-mask/live', 'Face Mask · Live monitoring'],
+  ['/face-mask', 'Face Mask'],
   ['/registration/authorized', 'Authorized Employee Registration'],
   ['/registration/employees', 'Employee Registration'],
   ['/vault-alerts/incidents', 'Incident detail'],
@@ -84,7 +87,7 @@ export default function AppLayout() {
   const sidebar = useSidebar();
   const { isDesktop, collapsed, drawerOpen, expanded, toggle, toggleCollapsed, closeDrawer } = sidebar;
   const { pathname } = useLocation();
-  const { status } = useHealth();
+  const { status, services } = useServicesHealth();
   const drawerRef = useRef(null);
   const toggleRef = useRef(null);
   const onBranchChrome = showsBranchChrome(pathname);
@@ -165,7 +168,7 @@ export default function AppLayout() {
           <div className="ml-auto flex items-center gap-3">
             {onBranchChrome && <HeaderControls />}
             <div className="app-muted flex items-center gap-2 text-xs text-slate-500">
-              API <StatusBadge status={BADGE[status]} />
+              API <StatusBadge status={BADGE[status]} /><ServiceDots services={services} />
             </div>
           </div>
         </header>

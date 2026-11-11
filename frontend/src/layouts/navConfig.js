@@ -59,7 +59,12 @@ export const NAV_SECTIONS = [
           { id: 'gate-mesh-zones', label: 'Zones & Regions', to: '/grill-gate?view=zones', searchParam: ['view', 'zones'] },
         ],
       },
-      { id: 'face-concealment', label: 'Face Concealment', icon: EyeOff, soon: true },
+      {
+        id: 'face-mask',
+        label: 'Face Mask',
+        icon: EyeOff,
+        children: [{ id: 'fm-live', label: 'Live monitoring', to: '/face-mask/live' }],
+      },
     ],
   },
   {

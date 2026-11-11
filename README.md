@@ -2,7 +2,7 @@
 
 ## Repository
 
-This repository contains the Vault Monitoring, Branch Exterior Monitoring and Alert Service backends with a shared React frontend. See [docker/README.md](docker/README.md) for the production Compose deployment, HTTPS ingress, private service networking, persistent volumes and configuration.
+This repository contains the Vault Monitoring, Branch Exterior Monitoring and Alert Service backends with a shared React frontend. Face Mask Monitoring (scaffold stage, optional) is being added as a third use case. See [docker/README.md](docker/README.md) for the production Compose deployment, HTTPS ingress, private service networking, persistent volumes and configuration.
 
 <!-- backend/use_cases/vault_monitoring/ - Vault Monitoring, Python 3.12 -->
 <!-- backend/use_cases/branch_exterior/ - Branch Exterior Monitoring, Python 3.11 -->
@@ -61,6 +61,22 @@ if (!(Test-Path .env)) { Copy-Item .env.example .env }
 <!-- Optional in backend/use_cases/branch_exterior/.env: API_KEY, ALERT_SERVICE_BASE_URL, ALERT_SERVICE_TOKEN -->
 <!-- Health: http://127.0.0.1:8011/api/health -->
 <!-- API docs: http://127.0.0.1:8011/docs -->
+
+## Face Mask Monitoring (scaffold stage)
+
+Detects whether a face is visible or concealed at an entrance; it never identifies anyone. Only the service, config, database and health endpoint exist so far. See [backend/use_cases/face_mask/README.md](backend/use_cases/face_mask/README.md).
+
+```powershell
+cd backend\use_cases\face_mask
+uv venv --python 3.11 .venv
+$env:UV_LINK_MODE = 'copy'
+uv pip install --python .venv\Scripts\python.exe -r requirements.txt
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8014
+```
+
+<!-- Health: http://127.0.0.1:8014/api/health -->
+<!-- start-all.ps1 starts it only when backend\use_cases\face_mask\.venv exists -->
 
 ## Alert Service
 

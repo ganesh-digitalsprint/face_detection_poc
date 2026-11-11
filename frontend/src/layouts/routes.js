@@ -8,10 +8,14 @@ export const ALERT_TABS = [
   { id: 'all', label: 'All alerts', to: `${ALERTS_BASE}/all` },
   { id: 'grill', label: 'Gate & Mesh', to: `${ALERTS_BASE}/all?use_case=grill_gate` },
   { id: 'branch', label: 'Branch events', to: `${ALERTS_BASE}/branch` },
+  { id: 'face-mask', label: 'Face Mask events', to: `${ALERTS_BASE}/face-mask` },
 ];
 
+/** Deep link to one Face Mask event inside the Alerts page (opens the detail panel). */
+export const faceMaskEventLink = (eventId) => `${ALERTS_BASE}/face-mask?event=${encodeURIComponent(eventId)}`;
+
 /** Branch pages that moved out of /branch-exterior (still rendered inside BxLayout). */
-export const MOVED_BRANCH_PAGES = ['/regions', '/guards', '/settings'];
+export const MOVED_BRANCH_PAGES = ['/guards', '/settings'];
 
 /** Old URL -> new URL. Each is registered as a redirect that keeps the query string and hash. */
 export const LEGACY_REDIRECTS = [

@@ -37,3 +37,10 @@ def ensure_directories() -> None:
         ALERT_OUTBOX_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)
+
+
+def sample_video_directories() -> list[Path]:
+    """Read both current and pre-consolidation sample locations without moving media."""
+    repo_root = BACKEND_ROOT.parents[2]
+    legacy = repo_root / "backend" / "branch-exterior-monitoring" / "storage" / "sample_videos"
+    return list(dict.fromkeys(path.resolve() for path in (SAMPLE_VIDEO_DIR, legacy) if path.is_dir()))

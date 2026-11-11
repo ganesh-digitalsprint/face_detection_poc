@@ -33,3 +33,6 @@ wheels/
 *.jpg
 
 /tmp/
+
+# clips
+/backend/branch-exterior-monitoring/storage/clips/

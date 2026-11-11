@@ -308,3 +308,7 @@
   .app-aside, .app-header, .app-drawer, .bx-no-print, .bx-toast-root { display: none !important; }
   body { background: #fff !important; color: #000 !important; }
 }
+
+/* Print-only header (applied filters on the Security Brief PDF). */
+.bx-print-only { display: none; }
+@media print { .bx-print-only { display: block; } }

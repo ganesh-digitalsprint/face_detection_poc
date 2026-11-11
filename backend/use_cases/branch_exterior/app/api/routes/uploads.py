@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, UploadFile
 
-from app.core.paths import SAMPLE_VIDEO_DIR, UPLOAD_DIR, ensure_directories
+from app.core.paths import UPLOAD_DIR, ensure_directories, sample_video_directories
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
@@ -19,9 +19,9 @@ async def browse_sample_videos() -> dict:
     files, so they can be picked without re-uploading."""
     ensure_directories()
     files = []
-    for folder, label in ((SAMPLE_VIDEO_DIR, "sample"), (UPLOAD_DIR, "upload")):
+    for folder, label in [*((folder, "sample") for folder in sample_video_directories()), (UPLOAD_DIR, "upload")]:
         for p in sorted(folder.glob("*")):
-            if p.suffix.lower() in _VIDEO_EXT:
+            if p.is_file() and p.suffix.lower() in _VIDEO_EXT and p.resolve().is_relative_to(folder.resolve()):
                 files.append({"path": str(p), "name": p.name, "source": label})
     return {"files": files}
 
