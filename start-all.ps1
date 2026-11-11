@@ -202,12 +202,27 @@ try {
         $processValue = [Environment]::GetEnvironmentVariable($name, 'Process')
         if (-not [string]::IsNullOrEmpty($processValue)) { $callerAlertEnv[$name] = $processValue }
     }
+    $effectiveVaultEnv = @{}
+    foreach ($key in $vaultEnv.Keys) { $effectiveVaultEnv[$key] = $vaultEnv[$key] }
+    foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN','GRILL_GATE_ALERT_SERVICE_TOKEN','ALERT_SERVICE_OPERATOR_TOKEN')) {
+        $processValue = [Environment]::GetEnvironmentVariable($name, 'Process')
+        if (-not [string]::IsNullOrEmpty($processValue)) { $effectiveVaultEnv[$name] = $processValue }
+    }
+    $localAlerts = Get-LauncherGrillGateEnvironment -VaultValues $effectiveVaultEnv -BranchValues $branchEnv -AlertValues $callerAlertEnv
+    $callerAlertEnv = $localAlerts.AlertEnvironment
+    $vaultScopedEnv = $localAlerts.VaultEnvironment
+    foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN','ALERT_SERVICE_OPERATOR_TOKEN')) {
+        if (-not [string]::IsNullOrWhiteSpace($effectiveVaultEnv[$name])) { $vaultScopedEnv[$name] = $effectiveVaultEnv[$name] }
+    }
+    $effectiveVaultEnv['GRILL_GATE_ALERT_SERVICE_TOKEN'] = $vaultScopedEnv['GRILL_GATE_ALERT_SERVICE_TOKEN']
+    $effectiveVaultEnv['ALERT_SERVICE_BASE_URL'] = $vaultScopedEnv['ALERT_SERVICE_BASE_URL']
+    Write-Host 'PASS  Local Grill Gate producer provisioned automatically in child environments' -ForegroundColor Green
     $producerCredentials = Get-LauncherEnvValue -Values $callerAlertEnv -Name 'ALERT_PRODUCER_CREDENTIALS'
     $operatorCredentials = Get-LauncherEnvValue -Values $callerAlertEnv -Name 'ALERT_OPERATOR_CREDENTIALS'
     if (-not (Test-AlertCredentialsMap -Value $producerCredentials -Kind producer -RequiredUseCase 'grill_gate')) { Add-LauncherWarning 'Alert Service has no valid Grill Gate producer registration; Grill Gate alert publication requires a producer token mapped to use_case=grill_gate and producer=grill-gate-monitoring.' }
     if (-not (Test-AlertCredentialsMap -Value $operatorCredentials -Kind operator -RequiredUseCase 'grill_gate')) { Add-LauncherWarning 'Alert Service has no operator credential scoped to grill_gate; Grill Gate alert listing and active-condition recovery will fail.' }
-    foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN','ALERT_SERVICE_OPERATOR_TOKEN')) {
-        if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $vaultEnv -Name $name))) {
+    foreach ($name in @('ALERT_SERVICE_BASE_URL','GRILL_GATE_ALERT_SERVICE_TOKEN','ALERT_SERVICE_OPERATOR_TOKEN')) {
+        if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveVaultEnv -Name $name))) {
             $purpose = if ($name -eq 'ALERT_SERVICE_OPERATOR_TOKEN') { 'Grill Gate alert listing and active-condition recovery' } else { 'Grill Gate alert publication' }
             Add-LauncherWarning "Vault $name is unset; $purpose is unavailable. Configure it in backend/use_cases/vault_monitoring/.env."
         }
@@ -250,7 +265,7 @@ try {
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
     $launchSpecs = @(
         @{ Service = 'Alert Service'; Exe = $alertPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8012'); Cwd = $alertDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8012'; Uri = 'http://127.0.0.1:8012/health'; Timeout = $AlertTimeoutSeconds; Env = $callerAlertEnv },
-        @{ Service = 'Vault Monitoring'; Exe = $vaultPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8010'); Cwd = $vaultDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8010'; Uri = 'http://127.0.0.1:8010/api/v1/health'; Timeout = $VaultTimeoutSeconds; Env = @{} },
+        @{ Service = 'Vault Monitoring'; Exe = $vaultPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8010'); Cwd = $vaultDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8010'; Uri = 'http://127.0.0.1:8010/api/v1/health'; Timeout = $VaultTimeoutSeconds; Env = $vaultScopedEnv },
         @{ Service = 'Branch Exterior Monitoring'; Exe = $branchPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8011'); Cwd = $branchDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8011'; Uri = 'http://127.0.0.1:8011/api/health'; Timeout = $BranchTimeoutSeconds; Env = @{} },
         @{ Service = 'Frontend'; Exe = $nodeCommand.Source; Args = @('node_modules/vite/bin/vite.js','--host','127.0.0.1'); Cwd = $frontendDir; Marker = 'vite/bin/vite.js --host 127.0.0.1'; Uri = 'http://127.0.0.1:3000/'; Timeout = $FrontendTimeoutSeconds; Env = @{} }
     )

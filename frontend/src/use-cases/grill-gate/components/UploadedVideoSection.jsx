@@ -1,9 +1,11 @@
+import { videoAlertSession } from '../grillAlertFeed.js';
+import GrillGateAlerts from './GrillGateAlerts.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 import { describeError } from '../../../utils/errors.js';
 import {
-  acknowledgeGrillGateAlert, cancelGrillGateVideoJob, deleteGrillGateVideoJob, getVideoJobFrame, getVideoJobPreview,
-  listGrillGateZoneConfigurations, reprocessGrillGateVideoJob, resolveGrillGateAlert, startGrillGateVideoJob,
+  cancelGrillGateVideoJob, deleteGrillGateVideoJob, getVideoJobFrame, getVideoJobPreview,
+  listGrillGateZoneConfigurations, reprocessGrillGateVideoJob, startGrillGateVideoJob,
 } from '../api/grillGate.js';
 import { formatClock } from '../grillGateModel.js';
 import {
@@ -14,7 +16,7 @@ import { useAuthorizedJpeg } from '../hooks/useSourceData.js';
 import {
   jobCanCancel, jobCanStart, jobErrorMessage, jobIsActive, validateVideoFile, videoJobStatus,
 } from '../videoJobModel.js';
-import { AlertsPanel, CrossingEventsPanel, GateStatePanel, MeshPanel, MonitoringStats, PreviewStage, TimelinePanel } from './MonitoringPanels.jsx';
+import { CrossingEventsPanel, GateStatePanel, MeshPanel, MonitoringStats, PreviewStage, TimelinePanel } from './MonitoringPanels.jsx';
 import { btnGhost, btnPrimary, Card, ErrorNote, Pill } from './ui.jsx';
 
 const ACCEPT = 'video/mp4,video/x-msvideo,video/avi,.mp4,.avi';
@@ -176,13 +178,12 @@ function gateNote(job, monitoring) {
   return jobIsActive(job) ? 'Waiting for the first gate measurement.' : 'This job reported no gate state.';
 }
 
-export default function UploadedVideoSection({ videoJob, jobs, jobsError, selectedJobId, onSelectJob, onJobsChanged, upload, monitoring, onOpenZones, assignmentItem }) {
+export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsError, selectedJobId, onSelectJob, onJobsChanged, upload, monitoring, onOpenZones, assignmentItem }) {
   const { job } = videoJob;
+  const incidentJobId = alertJobId ?? videoAlertSession(null, job);
   const [action, setAction] = useState(null);
   const [actionError, setActionError] = useState('');
   const [fileError, setFileError] = useState('');
-  const [busyAlertId, setBusyAlertId] = useState(null);
-  const [alertError, setAlertError] = useState('');
   const [zoneConfigurations, setZoneConfigurations] = useState([]);
   const uploading = upload.phase === 'uploading';
 
@@ -225,11 +226,12 @@ export default function UploadedVideoSection({ videoJob, jobs, jobsError, select
     setAction(kind); setActionError('');
     try {
       await call(job.job_id);
+      if (kind === 'start') await videoJob.resetMonitoring?.();
     } catch (exception) {
       setActionError(describeError(exception).message);
     } finally {
       setAction(null);
-      videoJob.refresh();
+      if (kind !== 'start') videoJob.refresh();
     }
   };
 
@@ -238,6 +240,7 @@ export default function UploadedVideoSection({ videoJob, jobs, jobsError, select
     setAction('reprocess'); setActionError('');
     try {
       const runJob = await reprocessGrillGateVideoJob(job.job_id, zoneConfigurationId);
+      await videoJob.resetMonitoring?.();
       onSelectJob(runJob.job_id);
       onJobsChanged();
     } catch (exception) {
@@ -258,21 +261,6 @@ export default function UploadedVideoSection({ videoJob, jobs, jobsError, select
       setActionError(describeError(exception).message);
     } finally {
       setAction(null);
-    }
-  };
-
-  const actOnAlert = async (alert, kind) => {
-    const note = kind === 'resolve' ? window.prompt('Resolution note (required):') : null;
-    if (kind === 'resolve' && !note?.trim()) return;
-    setBusyAlertId(alert.id); setAlertError('');
-    try {
-      if (kind === 'acknowledge') await acknowledgeGrillGateAlert(alert.id, alert.version);
-      else await resolveGrillGateAlert(alert.id, alert.version, note.trim());
-    } catch (exception) {
-      setAlertError(describeError(exception).message);
-    } finally {
-      setBusyAlertId(null);
-      videoJob.refresh();
     }
   };
 
@@ -322,7 +310,7 @@ export default function UploadedVideoSection({ videoJob, jobs, jobsError, select
         <div className="min-w-0 space-y-4">
           <GateStatePanel monitoring={monitoring} note={gateNote(job, monitoring)} />
           <CrossingEventsPanel monitoring={monitoring} />
-          <AlertsPanel monitoring={monitoring} onAction={actOnAlert} busyAlertId={busyAlertId} error={alertError} />
+          <GrillGateAlerts jobId={incidentJobId} compact />
           <MeshPanel monitoring={monitoring} />
         </div>
       </div>

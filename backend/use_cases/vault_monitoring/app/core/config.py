@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     ALERT_SERVICE_BASE_URL: str | None = None
     ALERT_SERVICE_TOKEN: SecretStr = SecretStr("")
     ALERT_SERVICE_OPERATOR_TOKEN: SecretStr = SecretStr("")
+    GRILL_GATE_ALERT_SERVICE_TOKEN: SecretStr = SecretStr("")
     GRILL_GATE_ALERT_OUTBOX_DIR: str = "var/grill-gate-alert-outbox"
     ALERT_SERVICE_TIMEOUT_SECONDS: float = Field(default=3.0, ge=0.1, le=10.0)
     ALERT_SERVICE_POLL_SECONDS: float = Field(default=2.0, ge=0.2, le=60.0)

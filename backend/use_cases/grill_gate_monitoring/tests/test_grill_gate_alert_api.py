@@ -1,3 +1,4 @@
+from app.db.models.vault_room import VaultAuditEvent
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
@@ -21,7 +22,7 @@ def client(monkeypatch):
     monkeypatch.setattr(settings, "VAULT_ROOM_API_KEY", "test-key")
     engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False},
                            poolclass=StaticPool)
-    Base.metadata.create_all(engine, tables=[CameraUseCaseAssignment.__table__, GrillGateAlert.__table__])
+    Base.metadata.create_all(engine, tables=[CameraUseCaseAssignment.__table__, GrillGateAlert.__table__, VaultAuditEvent.__table__])
     assignment, camera = str(uuid4()), str(uuid4())
     with Session(engine) as db:
         db.add(CameraUseCaseAssignment(id=assignment, camera_id=camera, use_case="grill_gate",

@@ -117,11 +117,11 @@ def get_grill_gate_video_jobs():
 @lru_cache(maxsize=1)
 def get_grill_gate_alert_publisher() -> GrillGateAlertPublisher:
     return GrillGateAlertPublisher(settings.ALERT_SERVICE_BASE_URL,
-        settings.ALERT_SERVICE_TOKEN.get_secret_value(),
+        settings.GRILL_GATE_ALERT_SERVICE_TOKEN.get_secret_value(),
         operator_token=settings.ALERT_SERVICE_OPERATOR_TOKEN.get_secret_value(),
         outbox_dir=settings.GRILL_GATE_ALERT_OUTBOX_DIR,
         timeout_seconds=settings.ALERT_SERVICE_TIMEOUT_SECONDS,
-        poll_seconds=settings.ALERT_SERVICE_POLL_SECONDS)
+        poll_seconds=settings.ALERT_SERVICE_POLL_SECONDS, session_factory=SessionLocal)
 
 
 @lru_cache(maxsize=1)

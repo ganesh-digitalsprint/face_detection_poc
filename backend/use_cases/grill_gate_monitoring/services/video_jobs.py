@@ -260,7 +260,6 @@ class GrillGateVideoJobs:
                         )
                         original_path.replace(staged_path)
                     db.execute(delete(GrillGateEvent).where(GrillGateEvent.video_job_id.in_(removed_ids)))
-                    db.execute(delete(GrillGateAlert).where(GrillGateAlert.video_job_id.in_(removed_ids)))
                     db.execute(delete(GrillGateVideoJob).where(
                         GrillGateVideoJob.asset_job_id == asset_id))
                     db.execute(delete(GrillGateVideoJob).where(GrillGateVideoJob.id == asset_id))
@@ -299,6 +298,15 @@ class GrillGateVideoJobs:
         with self._lock:
             detector = self._detectors.get(job_id)
         return monitoring_summary(detector.status()) if detector is not None else None
+
+    def evaluate_open_gate_alert(self, job_id: str, frontend_elapsed_seconds: float | None = None,
+                                 frontend_threshold_seconds: float | None = None, timer_cycle_id: str | None = None, video_timestamp_seconds: float | None = None) -> dict | None:
+        """Evaluate the active video's existing alert rule without creating a second alert path."""
+        with self._lock:
+            detector = self._detectors.get(job_id)
+        if detector is None or not detector._thread.is_alive():
+            return None
+        return detector.evaluate_open_gate_alert(frontend_elapsed_seconds, frontend_threshold_seconds, timer_cycle_id, video_timestamp_seconds)
 
     def shutdown(self, timeout: float = 15):
         with self._lock:

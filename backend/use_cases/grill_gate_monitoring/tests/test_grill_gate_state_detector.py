@@ -12,6 +12,27 @@ from grill_gate_monitoring.services.gate_state_detector import GateDetectorConfi
 CALIBRATION = json.loads((Path(__file__).parent / "grill_gate_calibration_example.json").read_text())
 
 
+def test_status_forwards_backend_timer_threshold_and_event_timestamps():
+    class Processor:
+        def status(self):
+            return {"open_without_crossing_threshold_seconds": 4,
+                    "threshold_configured": True, "progress_percent": 25.0,
+                    "gate_open_since": "2026-11-11T10:00:00Z",
+                    "last_crossing_at": "2026-11-11T10:00:01Z",
+                    "seconds_since_crossing": 2.0, "timer_state": "COUNTING"}
+
+    detector = GrillGateStateDetector("camera", "assignment", OnePacket(None), lambda: None,
+                                      frame_processor=Processor())
+    detector._status["state"] = "FULLY_OPEN"
+    status = detector.status()
+    assert status["open_without_crossing_threshold_seconds"] == 4
+    assert status["threshold_configured"] is True
+    assert status["progress_percent"] == 25.0
+    assert status["gate_open_since"] == "2026-11-11T10:00:00Z"
+    assert status["last_crossing_at"] == "2026-11-11T10:00:01Z"
+    assert status["timer_state"] == "COUNTING"
+
+
 class OnePacket:
     def __init__(self, packet):
         self.packet = packet

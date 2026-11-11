@@ -58,6 +58,20 @@ def _scoped_alert(db: Session, alert_id: str, operator: OperatorIdentity) -> Ale
     return alert
 
 
+@router.get("/producer")
+def producer_identity(producer: ProducerIdentity = Depends(get_producer)):
+    return {"use_case": producer.use_case, "producer": producer.producer}
+
+
+@router.get("/alerts/source-events/{source_event_id}")
+def get_source_alert(source_event_id: str, producer: ProducerIdentity = Depends(get_producer), db: Session = Depends(get_db)):
+    row = db.scalar(select(Alert).where(Alert.use_case == producer.use_case,
+        Alert.producer == producer.producer, Alert.source_event_id == source_event_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Source alert not found")
+    return alert_dict(row)
+
+
 @router.post("/alerts", status_code=201)
 def create_alert(payload: ProducerAlert, response: Response, request: Request,
                  idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -190,6 +204,8 @@ def get_alert(alert_id: str, operator: OperatorIdentity = Depends(get_operator),
 def _act(alert_id: str, target: str, request: Request, body: LifecycleAction,
          operator: OperatorIdentity, db: Session):
     alert = _scoped_alert(db, alert_id, operator)
+    if alert.use_case == "grill_gate":
+        raise HTTPException(status_code=409, detail={"code": "SOURCE_LIFECYCLE_OWNED", "message": "Use the Grill Gate source API to change this alert"})
     action = {"ACKNOWLEDGED": "acknowledge", "RESOLVED": "resolve", "DISMISSED": "dismiss"}[target]
     try:
         row = transition(db, alert_id=alert_id, target=target, action=action, actor_id=operator.actor_id,

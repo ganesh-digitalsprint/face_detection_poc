@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { statusGroupPage } from './alertStatusPage.js';
 import { ALERT_SERVICE_BASE_URL } from '../config/services.js';
 import { LIFECYCLE, normalizeServiceAlert } from './alertServiceModel.js';
 
@@ -8,7 +9,7 @@ const root = '/api/v1';
 const enc = encodeURIComponent;
 
 /** -> { items: [normalized alert], nextCursor, hasMore } */
-export const listServiceAlerts = (params, signal) =>
+const listPage = (params, signal) =>
   client.get(`${root}/alerts`, { params, signal }).then((r) => ({
     items: (r.data.items || []).map(normalizeServiceAlert),
     nextCursor: r.data.next_cursor || null,
@@ -17,7 +18,7 @@ export const listServiceAlerts = (params, signal) =>
 
 /** -> { total, by_status: {OPEN,...}, by_severity: {CRITICAL,...} } */
 export const getServiceSummary = (params, signal) =>
-  client.get(`${root}/alerts/summary`, { params, signal }).then((r) => r.data);
+  client.get(`${root}/alerts/summary`, { params: Object.fromEntries(Object.entries(params).filter(([key]) => key !== 'group')), signal }).then((r) => r.data);
 
 export const getServiceMeta = (signal) => client.get(`${root}/alerts/meta`, { signal }).then((r) => r.data);
 
@@ -34,3 +35,7 @@ export const transitionServiceAlert = (id, target, body) => {
   if (!rule) return Promise.reject(new Error(`Unsupported lifecycle action: ${target}`));
   return client.post(`${root}/alerts/${enc(id)}/${rule.path}`, body).then((r) => normalizeServiceAlert(r.data));
 };
+
+
+export const listServiceAlerts = (params, signal) => params.group
+  ? statusGroupPage(listPage, params, signal) : listPage(params, signal);

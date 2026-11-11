@@ -44,6 +44,31 @@ def source_payload_matches(alert: Alert, payload: dict, severity: str) -> bool:
     ])
 
 
+def _source_lifecycle(use_case, payload, current=None):
+    if use_case != "grill_gate":
+        return {}
+    target = str(payload.get("source_status") or "OPEN").upper()
+    if target not in {"OPEN", "ACKNOWLEDGED", "RESOLVED", "DISMISSED"}:
+        raise ValueError("Invalid source-owned lifecycle status")
+    if current is not None and target != current.status and target not in TRANSITIONS.get(current.status, set()):
+        raise Conflict("INVALID_TRANSITION", "Source lifecycle cannot reopen a terminal alert")
+    values = {"status": target}
+    if current is not None and target == current.status:
+        return values
+    changed_at = payload.get("domain_data", {}).get("source_status_changed_at")
+    now = datetime.fromisoformat(changed_at.replace("Z", "+00:00")) if changed_at else utcnow()
+    if now.tzinfo is None:
+        raise ValueError("Source lifecycle timestamp must include timezone")
+    if target == "ACKNOWLEDGED":
+        values.update(acknowledged_at=now, acknowledged_by="grill_gate/source")
+    if target == "RESOLVED":
+        values.update(resolved_at=now, resolved_by="grill_gate/source", resolution_source="SOURCE",
+            resolution_note=payload.get("domain_data", {}).get("resolution_note", "Source condition recovered"))
+    if target == "DISMISSED":
+        values.update(dismissed_at=now, dismissed_by="grill_gate/source")
+    return values
+
+
 def ingest(db: Session, *, use_case: str, producer: str, payload: dict, severity: str,
            idempotency_key: str, request_id: str, notification_enabled: bool) -> tuple[Alert, bool]:
     canonical = dict(payload)
@@ -87,6 +112,8 @@ def ingest(db: Session, *, use_case: str, producer: str, payload: dict, severity
                   resource_refs=payload.get("resource_refs", {}), domain_data=payload.get("domain_data", {}),
                   evidence_refs=payload.get("evidence_refs", []), deduplication_key=payload.get("deduplication_key"),
                   occurrence_count=1, row_version=1)
+    for field, value in _source_lifecycle(use_case, payload).items():
+        setattr(alert, field, value)
     db.add(alert)
     try:
         db.flush()
@@ -119,7 +146,7 @@ def ingest(db: Session, *, use_case: str, producer: str, payload: dict, severity
             raise Conflict("SOURCE_EVENT_CONFLICT", "Source event exists with different content; use the update operation")
         raise
     audit(db, alert, "ALERT_INGESTED", "producer", f"{use_case}/{producer}", request_id,
-          None, "OPEN", {"source_event_id": alert.source_event_id, "source_event_version": alert.source_event_version})
+          None, alert.status, {"source_event_id": alert.source_event_id, "source_event_version": alert.source_event_version})
     if notification_enabled and use_case == "branch_exterior":
         db.add(NotificationOutbox(alert_id=alert.id, event_key=f"alert.created:{alert.id}", status="PENDING",
                                   attempts=0, next_attempt_at=now, created_at=now))
@@ -178,6 +205,7 @@ def update_source(db: Session, *, use_case: str, producer: str, source_event_id:
         "evidence_refs": payload.get("evidence_refs", []),
         "deduplication_key": payload.get("deduplication_key"), "updated_at": utcnow(),
         "row_version": Alert.row_version + 1}
+    values.update(_source_lifecycle(use_case, payload, alert))
     result = db.execute(update(Alert).where(Alert.id == alert.id,
         Alert.source_event_version == expected).values(**values))
     if result.rowcount != 1:
@@ -283,7 +311,8 @@ def alert_dict(alert: Alert) -> dict:
             "resolved_at": iso(alert.resolved_at), "resolved_by": alert.resolved_by,
             "resolution_note": alert.resolution_note, "resolution_source": alert.resolution_source,
             "dismissed_at": iso(alert.dismissed_at), "dismissed_by": alert.dismissed_by,
-            "allowed_actions": allowed_actions(alert.status)}
+            "lifecycle_owner": "source" if alert.use_case == "grill_gate" else "common",
+            "allowed_actions": [] if alert.use_case == "grill_gate" else allowed_actions(alert.status)}
 
 
 def list_alerts(db: Session, *, scopes: list[str], filters: dict, sort: str, limit: int, cursor):

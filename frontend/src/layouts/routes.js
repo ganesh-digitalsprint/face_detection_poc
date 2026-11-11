@@ -6,6 +6,7 @@ export const ALERTS_BASE = '/alerts';
 export const ALERT_TABS = [
   { id: 'vault', label: 'Vault alerts', to: `${ALERTS_BASE}/vault` },
   { id: 'all', label: 'All alerts', to: `${ALERTS_BASE}/all` },
+  { id: 'grill', label: 'Gate & Mesh', to: `${ALERTS_BASE}/all?use_case=grill_gate` },
   { id: 'branch', label: 'Branch events', to: `${ALERTS_BASE}/branch` },
 ];
 

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getServiceSummary, listServiceAlerts } from '../api/alertService.js';
 import { matchesStatus, mergeById, replaceAlert } from '../api/alertServiceModel.js';
 
+const defaultApi = { list: listServiceAlerts, summary: getServiceSummary };
+
 const isCanceled = (error) => error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError';
 
 /**
@@ -12,7 +14,7 @@ const isCanceled = (error) => error?.code === 'ERR_CANCELED' || error?.name === 
  * - Polling pauses while the tab is hidden. If extra pages were loaded, the loaded rows are never silently
  *   replaced: the hook flags `stale` instead so the user can reload.
  */
-export default function useServiceAlerts({ params, status, pollMs }) {
+export default function useServiceAlerts({ params, status, pollMs, api = defaultApi, enabled = true }) {
   const [items, setItems] = useState([]);
   const [nextCursor, setNextCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
@@ -29,8 +31,12 @@ export default function useServiceAlerts({ params, status, pollMs }) {
   const pagesRef = useRef(1);
   const sequence = useRef(0);
   const controller = useRef(null);
+  const inFlight = useRef(false);
   const summaryController = useRef(null);
   const paramsKey = JSON.stringify(params);
+  const keyRef = useRef(paramsKey);
+  keyRef.current = paramsKey;
+  const [loadedKey, setLoadedKey] = useState(null);
 
   const loadSummary = useCallback(async () => {
     summaryController.current?.abort();
@@ -38,24 +44,31 @@ export default function useServiceAlerts({ params, status, pollMs }) {
     summaryController.current = ctl;
     const { sort, limit, cursor, ...filters } = paramsRef.current; // eslint-disable-line no-unused-vars
     try {
-      setSummary(await getServiceSummary(filters, ctl.signal));
+      const next = await api.summary(filters, ctl.signal);
+      if (ctl.signal.aborted) return;
+      setSummary(next);
       setSummaryError(null);
     } catch (err) {
-      if (!isCanceled(err)) setSummaryError(err);
+      if (!ctl.signal.aborted && !isCanceled(err)) setSummaryError(err);
     }
-  }, []);
+  }, [api]);
 
   const load = useCallback(async ({ append = false, quiet = false } = {}) => {
+    if (!enabled) { setLoading(false); return; }
+    if (quiet && inFlight.current) return;
+    const requestKey = keyRef.current;
     const id = ++sequence.current;
     controller.current?.abort();
     const ctl = new AbortController();
     controller.current = ctl;
+    inFlight.current = true;
     if (!quiet) setLoading(true);
     try {
-      const page = await listServiceAlerts(
+      const page = await api.list(
         { ...paramsRef.current, ...(append && cursorRef.current ? { cursor: cursorRef.current } : {}) }, ctl.signal);
-      if (id !== sequence.current) return;
+      if (id !== sequence.current || ctl.signal.aborted || requestKey !== keyRef.current) return;
       setItems((current) => mergeById(current, page.items, append));
+      setLoadedKey(requestKey);
       cursorRef.current = page.nextCursor;
       setNextCursor(page.nextCursor);
       setHasMore(page.hasMore);
@@ -66,13 +79,15 @@ export default function useServiceAlerts({ params, status, pollMs }) {
     } catch (err) {
       if (!isCanceled(err) && id === sequence.current) setError(err);
     } finally {
-      if (id === sequence.current) setLoading(false);
+      if (id === sequence.current) { inFlight.current = false; setLoading(false); }
     }
-  }, []);
+  }, [api, enabled]);
 
   // Reload from scratch whenever the filters change.
   useEffect(() => {
     setItems([]);
+    setSummary(null);
+    setSummaryError(null);
     cursorRef.current = null;
     pagesRef.current = 1;
     setNextCursor(null);
@@ -80,13 +95,13 @@ export default function useServiceAlerts({ params, status, pollMs }) {
     setError(null);
     setStale(false);
     load();
-    loadSummary();
+    if (enabled) loadSummary();
     return () => { sequence.current += 1; controller.current?.abort(); summaryController.current?.abort(); };
   }, [paramsKey, load, loadSummary]);
 
   // Background refresh. Timer and abort controllers are released on unmount.
   useEffect(() => {
-    if (!pollMs) return undefined;
+    if (!pollMs || !enabled) return undefined;
     const tick = () => {
       if (document.visibilityState === 'hidden') return;
       loadSummary();
@@ -97,7 +112,7 @@ export default function useServiceAlerts({ params, status, pollMs }) {
     const onVisible = () => { if (document.visibilityState === 'visible') tick(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
-  }, [pollMs, load, loadSummary]);
+  }, [pollMs, load, loadSummary, enabled]);
 
   /** Apply a server-confirmed alert update in place; remove it if it no longer matches the status filter. */
   const applyUpdate = useCallback((updated) => {
@@ -108,7 +123,7 @@ export default function useServiceAlerts({ params, status, pollMs }) {
   }, [status, loadSummary]);
 
   return {
-    items, nextCursor, hasMore, loading, error, summary, summaryError, stale, lastUpdated,
+    items: loadedKey === paramsKey ? items : [], nextCursor, hasMore, loading, error, summary, summaryError, stale, lastUpdated,
     refresh: () => { setStale(false); pagesRef.current = 1; cursorRef.current = null; return Promise.all([load(), loadSummary()]); },
     loadMore: () => load({ append: true }),
     applyUpdate,

@@ -261,7 +261,7 @@ def test_reprocess_keeps_events_separate_and_deleting_asset_removes_all_runs(har
     with video_jobs_module.SessionLocal() as db:
         assert db.query(GrillGateVideoJob).count() == 0
         assert db.query(GrillGateEvent).count() == 0
-        assert db.query(GrillGateAlert).filter_by(source_event_id="video-delete-alert").count() == 0
+        assert db.query(GrillGateAlert).filter_by(source_event_id="video-delete-alert").count() == 1
         assert db.get(GrillGateZoneConfiguration, saved_zone.id) is not None
 
 
@@ -1037,3 +1037,79 @@ def test_source_change_keeps_grill_gate_alert_rules(harness):
         result = camera_registry_service.update_assignment(
             db, assignment, CameraUseCaseAssignmentUpdate(configuration={"source_id": new_source}), "tester")
     assert result["configuration"] == {"source_id": new_source, "grill_gate_alerts": rules}
+
+
+def test_frontend_final_frame_alert_is_durable_and_idempotent(harness):
+    job_id = saved_job(harness)
+    with video_jobs_module.SessionLocal() as db:
+        job = db.get(GrillGateVideoJob, job_id)
+        job.status = "COMPLETED"
+        job.progress_seconds = 12.5
+        job.completed_at = datetime.now(timezone.utc)
+        job.config_snapshot = {**job.config_snapshot, "alert_configuration": {"gate_open_enabled": True, "max_gate_open_seconds": 4}, "final_status": {
+            "gate_state": "FULLY_OPEN", "open_without_crossing_seconds": 4,
+            "open_without_crossing_threshold_seconds": 4}}
+        db.commit()
+    payload = {"elapsed_seconds": 4, "threshold_seconds": 4,
+               "timer_cycle_id": f"video:{job_id}:8500", "gate_session_id": f"video:{job_id}",
+               "gate_state": "FULLY_OPEN", "video_timestamp_seconds": 12.5}
+    endpoint = f"{BASE}/{job_id}/alerts/evaluate-open-gate"
+    first = harness.client.post(endpoint, headers=HEADERS, json=payload)
+    assert first.status_code == 200, first.text
+    assert first.json()["alert_raised"] is True
+    results = harness.client.get(f"{BASE}/{job_id}/results", headers=HEADERS).json()
+    assert any(alert["source_event_type"] == "GATE_OPEN_TOO_LONG" for alert in results["alerts"])
+    assert harness.client.post(endpoint, headers=HEADERS, json=payload).json()["alert_raised"] is True
+    with video_jobs_module.SessionLocal() as db:
+        rows = db.query(GrillGateAlert).filter_by(video_job_id=job_id).all()
+        assert len(rows) == 1
+        assert rows[0].gate_open_duration_seconds == 4
+    bad = harness.client.post(endpoint, headers=HEADERS, json={**payload, "elapsed_seconds": 99})
+    assert bad.status_code == 422
+
+
+def test_frontend_delayed_alert_uses_historical_frame_evidence_after_gate_closes(harness):
+    job_id = saved_job(harness)
+    with video_jobs_module.SessionLocal() as db:
+        job = db.get(GrillGateVideoJob, job_id)
+        job.status = "COMPLETED"
+        job.progress_seconds = 20
+        job.completed_at = datetime.now(timezone.utc)
+        job.config_snapshot = {**job.config_snapshot,
+            "alert_configuration": {"gate_open_enabled": True, "max_gate_open_seconds": 4},
+            "final_status": {"gate_state": "CLOSED", "open_without_crossing_seconds": None,
+                "transitions": [{"to_state": "FULLY_OPEN", "video_time_seconds": 2},
+                                {"to_state": "CLOSED", "video_time_seconds": 10}]}}
+        db.commit()
+    response = harness.client.post(f"{BASE}/{job_id}/alerts/evaluate-open-gate", headers=HEADERS,
+        json={"elapsed_seconds": 4, "threshold_seconds": 4,
+              "timer_cycle_id": f"video:{job_id}:2000", "gate_session_id": f"video:{job_id}",
+              "video_timestamp_seconds": 6, "entry_count": 0, "exit_count": 0})
+    assert response.status_code == 200, response.text
+    assert response.json()["alert_raised"] is True
+
+
+def test_mesh_closing_tail_rejected_but_frontend_normalized_outline_saves(harness):
+    job_id = saved_job(harness)
+    mesh = {"zone_key": "mesh", "name": "Mesh gathering area", "zone_type": "mesh_area", "enabled": True,
+            "polygon": [[.0497, .8337], [.1681, .8059], [.3091, .9947], [.0946, .9971], [.0497, .8313]]}
+    payload = config(zones=[gate_zone(), crossing_zones()[0], crossing_zones()[2], mesh])
+    rejected = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=payload)
+    assert rejected.status_code == 422
+    assert any(error["loc"] == ["body", "zones", 3, "polygon"]
+               for error in rejected.json()["detail"])
+    # This is the four-vertex output verified in the shared frontend utility tests.
+    mesh["polygon"] = mesh["polygon"][:-1]
+    saved = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=payload)
+    assert saved.status_code == 200, saved.text
+    saved_mesh = next(zone for zone in saved.json()["zones"] if zone["zone_type"] == "mesh_area")
+    assert saved_mesh["polygon"] == mesh["polygon"]
+
+
+def test_gate_roi_reference_selects_zone_type_with_a_generated_zone_key():
+    from grill_gate_monitoring.services.gate_geometry import pick_gate_leaf_zone
+    from grill_gate_monitoring.schemas.calibration import GrillGateCalibration
+    parsed = GrillGateCalibration.model_validate(calibration())
+    zone = {**gate_zone(), "zone_key": "gate_leaf_roi_mwc7nojd"}
+    assert parsed.sliding_gate.gate_roi_zone_key == "gate_leaf_roi"
+    assert pick_gate_leaf_zone([zone]) is zone

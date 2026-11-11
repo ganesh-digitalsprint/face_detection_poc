@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from grill_gate_monitoring.schemas.processing import DEFAULT_PROCESSING_SETTINGS, GrillGateProcessingSettings
 from grill_gate_monitoring.services.three_zone_crossing_detector import ThreeZoneCrossingDetector
@@ -52,9 +53,10 @@ class GrillGateFrameProcessor:
         self._mesh = MeshAreaMonitor(settings)
         # The rule engine also owns confirmed gate timers, which must work even
         # when this composition does not provide an alert publisher.
+        self._alert_sink = alert_sink or (lambda _command: False)
         self._alerts = GrillGateAlertRuleEngine(
-            camera_id, assignment_id, alert_sink or (lambda _command: False),
-            config=DEFAULT_GRILL_GATE_ALERT_CONFIG, source_context=alert_source_context)
+            camera_id, assignment_id, self._publish_alert,
+            config=DEFAULT_GRILL_GATE_ALERT_CONFIG, source_context=alert_source_context, frontend_timer_owned=True)
         self._active_alert_loader = active_alert_loader
         self._crossing_good_frames = 0
         self._crossing_recovery_frames = 2
@@ -65,10 +67,49 @@ class GrillGateFrameProcessor:
         self._visible_tracks: dict[int, dict] = {}
         self._known_track_ids: set[int] = set()
         self._lock = threading.RLock()
+        self._mesh_previous_ids = set()
+        self._mesh_unobserved_ids = set()
+        self._mesh_recovery_uncertain = False
         self._current_packet = None
         self._status = {"person_detection_status": "not_started", "tracking_status": "not_started",
                         "crossing": self._active_crossing().status(), "mesh": self._mesh.status(),
                         "tracked_count": 0, "last_processed_at": None, "processing_error": None}
+
+    def _publish_alert(self, command):
+        if command.get("action") == "create":
+            # Evidence handoff is best-effort; its failure must never suppress persistence.
+            try:
+                from grill_gate_monitoring.services.alert_evidence import get_grill_gate_evidence
+                from app.core.config import settings as app_settings
+                packet = self._current_packet
+                requested = (command.get("payload", {}).get("domain_data") or {}).get("video_time_seconds")
+                actual = getattr(packet, "video_time_seconds", None)
+                event_at = command.get("payload", {}).get("last_seen_at")
+                event_at = datetime.fromisoformat(event_at) if isinstance(event_at, str) else event_at
+                recent = packet is not None and (actual is not None or
+                    (datetime.now(timezone.utc) - packet.captured_at).total_seconds() <= app_settings.GRILL_GATE_FRAME_STALE_SECONDS)
+                event_matches = actual is not None or (packet is not None and event_at is not None
+                    and abs((packet.captured_at - event_at).total_seconds()) <= app_settings.GRILL_GATE_FRAME_STALE_SECONDS)
+                if recent and event_matches and (requested is None or actual is None or abs(requested - actual) < 0.001):
+                    get_grill_gate_evidence().remember(command["source_event_id"], packet)
+            except Exception:
+                logger.warning("Could not retain Grill Gate evidence frame; incident will still be committed")
+            command = {**command, "capture_evidence": True}
+        return self._alert_sink(command)
+
+    def _apply_mesh_alert_observation(self, tracks, at):
+        from grill_gate_monitoring.services.track_geometry import valid_track_id, confidence
+        observed = {valid_track_id(track) for track in tracks
+            if valid_track_id(track) is not None and confidence(track) >= self._settings.minimum_track_confidence}
+        snapshot = self._mesh.status()
+        inside = set(snapshot["occupied_track_ids"])
+        self._mesh_unobserved_ids.update(self._mesh_previous_ids - observed)
+        self._mesh_unobserved_ids.difference_update(observed)
+        self._mesh_previous_ids = inside
+        if inside:
+            self._mesh_recovery_uncertain = False
+        recovery_confirmed = not self._mesh_unobserved_ids and not self._mesh_recovery_uncertain
+        self._alerts.on_mesh_occupancy(snapshot["occupancy_count"], at, recovery_confirmed=recovery_confirmed)
 
     def configure(self, config) -> None:
         with self._lock:
@@ -87,7 +128,10 @@ class GrillGateFrameProcessor:
                                            else GrillGateAlertConfig.model_validate(raw_alert_config))
                 if self._active_alert_loader is not None:
                     try:
-                        self._alerts.restore_active(self._active_alert_loader())
+                        restored = self._active_alert_loader()
+                        self._alerts.restore_active(restored)
+                        if any(row.get("source_event_type") == "MESH_OCCUPANCY_LIMIT_EXCEEDED" for row in restored):
+                            self._mesh_recovery_uncertain = True
                     except Exception:
                         logger.exception("Grill Gate active-alert recovery failed")
             self._alert_config = getattr(config, "alert_configuration", None)
@@ -118,6 +162,35 @@ class GrillGateFrameProcessor:
             logger.info("Grill Gate alert rules reloaded camera=%s assignment=%s gate_open_enabled=%s max_gate_open_seconds=%s",
                         self._alerts.camera_id, self._alerts.assignment_id,
                         parsed.gate_open_enabled, parsed.max_gate_open_seconds)
+
+    def evaluate_open_gate_alert(self, frontend_elapsed_seconds: float | None = None,
+                                 frontend_threshold_seconds: float | None = None, timer_cycle_id: str | None = None, video_timestamp_seconds: float | None = None) -> dict | None:
+        """Evaluate the existing rule with the frontend timer value when supplied."""
+        with self._lock:
+            if self._alerts is None:
+                return None
+            packet = self._current_packet
+            uploaded_video = packet is not None and getattr(packet, "source_type", "LIVE_CAMERA") == "UPLOADED_VIDEO"
+            at = packet.captured_at if uploaded_video else datetime.now(timezone.utc)
+            if frontend_elapsed_seconds is not None:
+                previous_context = dict(self._alerts._source_context)
+                try:
+                    if uploaded_video and video_timestamp_seconds is not None:
+                        current = getattr(packet, "video_time_seconds", None)
+                        if (not math.isfinite(video_timestamp_seconds) or current is None
+                                or video_timestamp_seconds < 0 or video_timestamp_seconds > current + 0.001):
+                            return {"alert_evaluated": True, "alert_raised": False, "reason": "invalid_video_evidence"}
+                        at = packet.captured_at - timedelta(seconds=current - video_timestamp_seconds)
+                        self._alerts.update_source_context(video_time_seconds=video_timestamp_seconds)
+                        self._alerts._source_context.pop("frame_index", None)
+                    return self._alerts.evaluate_frontend_open_timer(
+                        frontend_elapsed_seconds, at, frontend_threshold_seconds, timer_cycle_id)
+                finally:
+                    self._alerts._source_context = previous_context
+            self._alerts.tick(at)
+            status = self._alerts.monitoring_status(at)
+            return {**status, "alert_evaluated": True,
+                    "alert_raised": status.get("timer_state") == "ALERT_RAISED"}
 
     def process_frame(self, packet, *, gate_state: str) -> dict:
         with self._lock:
@@ -218,7 +291,8 @@ class GrillGateFrameProcessor:
                                                        activity["reliable"], packet.captured_at)
             if self._alerts is not None:
                 self._alerts.tick(packet.captured_at)
-                self._alerts.on_mesh_occupancy(self._mesh.status()["occupancy_count"], packet.captured_at)
+                if self._status.get("processing_error") is None:
+                    self._apply_mesh_alert_observation(tracks, packet.captured_at)
             self._refresh_status()
             return dict(self._status)
 
@@ -235,9 +309,9 @@ class GrillGateFrameProcessor:
             if self._alerts is not None:
                 activity = self._active_crossing().activity_snapshot()
                 self._alerts.on_crossing_activity(activity["active_count"], activity["reliable"], timestamp)
+            self._mesh_unobserved_ids.update(self._mesh.status()["occupied_track_ids"])
             self._publish_monitor_events(self._mesh.expire(now_monotonic, timestamp))
-            if self._alerts is not None:
-                self._alerts.on_mesh_occupancy(self._mesh.status()["occupancy_count"], timestamp)
+            # Track expiry during a gap is not authoritative mesh recovery.
             self._refresh_status()
 
     def _publish_monitor_events(self, events: list[dict]) -> None:

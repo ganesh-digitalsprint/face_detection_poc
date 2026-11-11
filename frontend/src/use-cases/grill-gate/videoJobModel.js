@@ -1,9 +1,13 @@
+import { recordedVideoTimer } from './recordedVideoTimer.js';
+import { processedVideoTimestamp, videoIsFinal } from './videoTimerClock.js';
 /**
  * Pure uploaded-video view models (no React, so `node --test` can cover them).
  *
  * Maps GET /grill-gate/videos[/{id}[/results]] payloads into display state. The backend calculates gate geometry
  * and normalized progress; the persisted Redux slice classifies gate state from that progress.
  */
+import { crossingTimestamp, elapsedSeconds,
+  openWithoutCrossingSeconds as calculateOpenWithoutCrossingSeconds } from './monitoringTimers.js';
 
 /** Statuses written by GrillGateVideoJobs. UPLOADED is the only state POST .../start accepts. */
 export const VIDEO_JOB_STATUS = {
@@ -229,6 +233,29 @@ export function videoMonitoring({ job, monitoring = null, gateClassification = {
     ? { ...(job?.monitoring ?? {}), ...(monitoring ?? {}) }
     : null;
   const gateState = gateClassification.gateState ?? 'UNKNOWN';
+  const videoTimestamp = Number.isFinite(gateClassification.videoTimestampSeconds)
+    ? gateClassification.videoTimestampSeconds : processedVideoTimestamp({ job, monitoring });
+  const videoNow = Number.isFinite(videoTimestamp) ? videoTimestamp * 1000 : null;
+  const timerGateState = gateState;
+  const gateOpenAt = gateClassification.timerTimebase === 'video'
+    && Number.isFinite(gateClassification.gateOpenedAt) ? gateClassification.gateOpenedAt : null;
+  const crossingAt = crossingTimestamp(crossings, 'video');
+  const crossingCandidate = Number.isFinite(gateClassification.lastCrossingAt)
+    ? gateClassification.lastCrossingAt : crossingAt;
+  const timerCrossingAt = timerGateState === 'FULLY_OPEN' && Number.isFinite(crossingCandidate)
+    && Number.isFinite(gateClassification.gateOpenedAt) && crossingCandidate >= gateClassification.gateOpenedAt
+    ? crossingCandidate : null;
+  const countDrivenCycleStart = gateClassification.timerTimebase === 'video'
+    && Number.isFinite(gateClassification.cycleStartedAt) ? gateClassification.cycleStartedAt : null;
+  // Open Without Crossing starts only from the confirmed frontend Redux cycle.
+  const cycleStart = countDrivenCycleStart
+    ?? (gateClassification.timerTimebase === 'video' && Number.isFinite(gateClassification.gateOpenedAt)
+      ? gateClassification.gateOpenedAt : null);
+  const gateOpenSeconds = timerGateState === 'FULLY_OPEN' ? elapsedSeconds(gateOpenAt, videoNow)
+    : Number.isFinite(gateClassification.videoGateOpenStoppedSeconds)
+      ? gateClassification.videoGateOpenStoppedSeconds : null;
+  const openWithoutCrossingElapsed = timerGateState === 'FULLY_OPEN'
+    ? calculateOpenWithoutCrossingSeconds({ gateState: timerGateState, openedAt: cycleStart, now: Number.isFinite(videoTimestamp) ? videoTimestamp * 1000 : null }) : null;
   const jobThreshold = job?.alert_configuration?.max_gate_open_seconds ?? null;
   const hasJobAlertConfiguration = Boolean(job && Object.hasOwn(job, 'alert_configuration'));
   const thresholdSeconds = hasJobAlertConfiguration ? jobThreshold
@@ -244,28 +271,33 @@ export function videoMonitoring({ job, monitoring = null, gateClassification = {
     status: job ? videoJobStatus(job.status).label.toUpperCase() : 'NO VIDEO',
     statusTone: job ? videoJobStatus(job.status).tone : 'idle',
     gateState,
+    timerGateState,
     gateSessionId: gateClassification.sessionId ?? null,
     gateStateTimeLabel: '',
     gateDirection: gateClassification.direction ?? null,
-    gateOpenSeconds: reported?.gate_open_seconds ?? null,
-    videoTimeSeconds: reported?.video_timestamp ?? job?.video_time_seconds ?? job?.progress_seconds ?? null,
-    gateOpenSince: reported?.gate_open_since ?? null,
-    openWithoutCrossingSeconds: reported?.open_without_crossing_seconds ?? null,
+    gateOpenSeconds,
+    timerNow: Number.isFinite(videoTimestamp) ? videoTimestamp * 1000 : null,
+    cycleStartedAt: cycleStart,
+    videoTimeSeconds: videoTimestamp,
+    gateOpenSince: gateOpenAt == null ? null : gateOpenAt / 1000,
+    openWithoutCrossingSeconds: openWithoutCrossingElapsed,
     openWithoutCrossingThresholdSeconds: thresholdSeconds,
     thresholdConfigured,
-    timerProgressPercent: reported?.progress_percent ?? null,
+    timerProgressPercent: openWithoutCrossingElapsed != null && thresholdSeconds > 0
+      ? Math.round(Math.min(100, (openWithoutCrossingElapsed / thresholdSeconds) * 100) * 100) / 100 : null,
     timerSourceTimestamp: reported?.source_timestamp ?? null,
-    lastCrossingAt: reported?.last_crossing_at ?? null,
+    lastCrossingAt: timerCrossingAt == null ? null : timerCrossingAt / 1000,
     lastCrossingDirection: reported?.last_crossing_direction ?? null,
-    timerState: gateState === 'FULLY_OPEN'
-      ? (reported?.open_without_crossing_seconds == null || reported?.gate_open_seconds == null
-        ? 'TIMER_UNAVAILABLE' : reported.timer_state === 'PAUSED' ? 'COUNTING'
-          : reported.timer_state === 'ALERT_RAISED' ? 'ALERT_RAISED' : 'COUNTING')
+    timerState: timerGateState === 'FULLY_OPEN'
+      ? (alertViews.some((alert) => alert.type === 'GATE_OPEN_TOO_LONG') ? 'ALERT_RAISED'
+        : openWithoutCrossingElapsed == null ? 'TIMER_UNAVAILABLE'
+          : thresholdSeconds != null && openWithoutCrossingElapsed >= thresholdSeconds ? 'THRESHOLD_REACHED' : 'COUNTING')
       : 'NOT_COUNTING',
-    timerRecorded: Boolean(reported && ['threshold_configured', 'timer_state', 'source_timestamp']
-      .some((key) => Object.hasOwn(reported, key))),
-    secondsSinceCrossing: reported?.seconds_since_crossing ?? null,
-    finalTimer: ['COMPLETED', 'FAILED', 'CANCELLED'].includes(job?.status),
+    timerRecorded: cycleStart != null,
+    recordedTimerDisplay: recordedVideoTimer({ job, monitoring, alerts }),
+    secondsSinceCrossing: elapsedSeconds(timerCrossingAt,
+      Number.isFinite(videoTimestamp) ? videoTimestamp * 1000 : null),
+    finalTimer: videoIsFinal(gateClassification.videoProcessingStatus) || videoIsFinal(job?.status),
     entryCount: crossings.filter((event) => event.direction === 'OUTSIDE_TO_INSIDE').length,
     exitCount: crossings.filter((event) => event.direction === 'INSIDE_TO_OUTSIDE').length,
     meshPeopleCount: reported?.mesh?.occupancy_count ?? meshOccupancy(mesh),

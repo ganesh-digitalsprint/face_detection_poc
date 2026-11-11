@@ -21,7 +21,9 @@ class GrillGateAlertPublisher:
     def __init__(self, base_url: str | None, producer_token: str | None, *, operator_token: str | None = None,
                  outbox_dir: Path | str = "var/grill-gate-alert-outbox",
                  timeout_seconds: float = 3.0, poll_seconds: float = 2.0, max_pending: int = 256,
-                 client_factory=None, retry_wait: Callable[[float], None] = time.sleep):
+                 client_factory=None, retry_wait: Callable[[float], None] = time.sleep, session_factory=None):
+        self._session_factory = session_factory
+        self._stop_event = threading.Event()
         self._base = (base_url or "").rstrip("/")
         self._token = producer_token or ""
         self._operator_token = operator_token or ""
@@ -85,6 +87,16 @@ class GrillGateAlertPublisher:
             return []
 
     def start(self) -> None:
+        if self._session_factory is not None:
+            if not self.enabled:
+                logger.warning("Grill Gate DB outbox retained; dedicated producer token/URL not configured")
+                return
+            if self._thread and self._thread.is_alive():
+                return
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run_database, name="grill-gate-db-outbox", daemon=True)
+            self._thread.start()
+            return
         if not self.enabled:
             missing = []
             if not self._base:
@@ -116,6 +128,11 @@ class GrillGateAlertPublisher:
             return False
 
     def stop(self, timeout: float = 5.0) -> None:
+        if self._session_factory is not None:
+            self._stop_event.set()
+            if self._thread:
+                self._thread.join(timeout)
+            return
         thread = self._thread
         if not thread or not thread.is_alive():
             return
@@ -129,6 +146,15 @@ class GrillGateAlertPublisher:
             logger.error("Grill Gate alert publisher did not stop before timeout")
 
     def flush(self, timeout: float = 10.0) -> bool:
+        if self._session_factory is not None:
+            self.drain_database_once()
+            from sqlalchemy import select, func
+            from app.db.models.vault_room import VaultAuditEvent
+            from grill_gate_monitoring.services.alert_delivery import ENTITY, DELIVERED
+            with self._session_factory() as db:
+                outstanding = db.scalar(select(func.count()).select_from(VaultAuditEvent).where(
+                    VaultAuditEvent.entity_type == ENTITY, VaultAuditEvent.action != DELIVERED))
+            return outstanding == 0
         completed = threading.Event()
         waiter = threading.Thread(target=lambda: (self._queue.join(), completed.set()), daemon=True)
         waiter.start()
@@ -242,3 +268,90 @@ class GrillGateAlertPublisher:
                 self._deliver(path, command, state)
             except (OSError, ValueError, KeyError):
                 logger.exception("Grill Gate alert outbox scan failed entry=%s", path.name)
+
+    def _run_database(self):
+        while not self._stop_event.is_set():
+            try:
+                self.drain_database_once()
+            except Exception:
+                logger.exception("Grill Gate DB publication pass failed; committed outbox retained")
+            self._stop_event.wait(self._poll)
+
+    def drain_database_once(self):
+        if not self.enabled or self._session_factory is None:
+            return
+        from sqlalchemy import select
+        from app.db.models.vault_room import VaultAuditEvent
+        from grill_gate_monitoring.services.alert_delivery import ENTITY, PENDING, DELIVERED, FAILED
+        with self._session_factory() as db:
+            deliveries = db.scalars(select(VaultAuditEvent).where(
+                VaultAuditEvent.entity_type == ENTITY, VaultAuditEvent.action == PENDING
+            ).order_by(VaultAuditEvent.created_at, VaultAuditEvent.id).with_for_update(skip_locked=True).limit(100)).all()
+            deliveries.sort(key=lambda item: (item.entity_id, item.details["payload"]["source_event_version"]))
+            blocked = set()
+            for delivery in deliveries:
+                state = dict(delivery.details)
+                payload = state["payload"]
+                later = db.scalars(select(VaultAuditEvent).where(VaultAuditEvent.entity_type == ENTITY,
+                    VaultAuditEvent.entity_id == delivery.entity_id, VaultAuditEvent.action == DELIVERED)).all()
+                if any(item.details["payload"]["source_event_version"] > payload["source_event_version"] for item in later):
+                    delivery.action = DELIVERED
+                    delivery.details = {**state, "superseded": True}
+                    db.commit()
+                    continue
+                if delivery.entity_id in blocked:
+                    continue
+                due = datetime.fromisoformat(state["due_at"])
+                if due.tzinfo is None:
+                    due = due.replace(tzinfo=timezone.utc)
+                if due > datetime.now(timezone.utc) or payload.get("domain_data", {}).get("evidence_status") == "PENDING":
+                    blocked.add(delivery.entity_id)
+                    continue
+                try:
+                    with self._client_factory(timeout=self._timeout, follow_redirects=False) as client:
+                        headers = {"Authorization": f"Bearer {self._token}"}
+                        identity = client.get(f"{self._base}/api/v1/producer", headers=headers)
+                        identity.raise_for_status()
+                        if identity.json().get("use_case") != "grill_gate":
+                            raise ValueError("Dedicated Grill Gate producer identity required")
+                        from urllib.parse import quote
+                        path = f"{self._base}/api/v1/alerts/source-events/{quote(payload['source_event_id'], safe='')}"
+                        existing = client.get(path, headers=headers)
+                        if existing.status_code == 404:
+                            response = client.post(f"{self._base}/api/v1/alerts",
+                                headers={**headers, "Idempotency-Key": f"grill-gate:{payload['source_event_id']}"}, json=payload)
+                        else:
+                            existing.raise_for_status()
+                            remote = existing.json()
+                            same = all(remote.get(key) == payload.get(key) for key in
+                                ("source_event_type", "source_status", "title", "summary", "severity", "resource_refs", "domain_data", "evidence_refs"))
+                            if same:
+                                response = existing
+                            else:
+                                version = remote["source_event_version"]
+                                wire = {**payload, "source_event_version": version + 1}
+                                response = client.put(path, headers={**headers, "If-Match": str(version)}, json=wire)
+                        response.raise_for_status()
+                        state.update(common_alert_id=response.json()["id"], delivered_at=datetime.now(timezone.utc).isoformat())
+                        delivery.action = DELIVERED
+                except Exception as exc:
+                    state["attempt"] = state.get("attempt", 0) + 1
+                    code = getattr(getattr(exc, "response", None), "status_code", None)
+                    rejection = None
+                    if code is not None:
+                        try:
+                            detail = exc.response.json().get("detail", {})
+                            rejection = detail.get("code") if isinstance(detail, dict) else None
+                        except (ValueError, AttributeError):
+                            pass
+                    terminal = (isinstance(exc, ValueError)
+                        or rejection in {"INVALID_TRANSITION", "SOURCE_EVENT_CONFLICT", "IDEMPOTENCY_CONFLICT"}
+                        or (code is not None and 400 <= code < 500 and code not in {408, 409, 425, 429}))
+                    state.update(last_error=type(exc).__name__, rejection_code=rejection, status_code=code,
+                        due_at=(datetime.now(timezone.utc) + timedelta(seconds=min(300, 2 ** min(state["attempt"], 8)))).isoformat())
+                    if terminal:
+                        delivery.action = FAILED
+                    blocked.add(delivery.entity_id)
+                    logger.warning("Grill Gate publication retained source=%s code=%s terminal=%s", payload["source_event_id"], code, terminal)
+                delivery.details = state
+                db.commit()

@@ -22,7 +22,7 @@ class GrillGateAlert(Base):
     __tablename__ = "grill_gate_alerts"
     __table_args__ = (
         CheckConstraint("use_case = 'grill_gate'", name="ck_grill_gate_alerts_use_case"),
-        CheckConstraint("status IN ('OPEN','ACKNOWLEDGED','RESOLVED')", name="ck_grill_gate_alerts_status"),
+        CheckConstraint("status IN ('OPEN','ACKNOWLEDGED','RESOLVED','DISMISSED')", name="ck_grill_gate_alerts_status"),
         Index("ix_grill_gate_alerts_assignment_status_time", "assignment_id", "status", "triggered_at"),
         Index("ix_grill_gate_alerts_camera_time", "camera_id", "triggered_at"),
         Index("ix_grill_gate_alerts_type_time", "source_event_type", "triggered_at"),

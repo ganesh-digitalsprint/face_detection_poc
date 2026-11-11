@@ -370,3 +370,36 @@ def test_transient_webhook_failure_retries_and_persists_across_restart(configure
             delivery = db.get(NotificationOutbox, delivery_id)
             assert delivery.status == "DELIVERED"
             assert delivery.attempts == 2
+
+
+def test_grill_gate_source_owns_lifecycle_and_can_publish_evidence_without_operator_dual_writes(tmp_path):
+    config = Settings(database_url=f"sqlite:///{(tmp_path / 'source-owned.db').as_posix()}",
+        producer_credentials={"grill": {"use_case": "grill_gate", "producer": "grill-gate-monitoring"},
+                              "vault": {"use_case": "vault_monitoring", "producer": "vault-monitoring"}},
+        operator_credentials={"operator": {"actor_id": "browser-operator", "use_cases": ["*"]}})
+    app = create_app(config, start_notification_worker=False)
+    with TestClient(app) as client:
+        producer = {"Authorization": "Bearer grill"}
+        assert client.get("/api/v1/producer", headers=producer).json()["use_case"] == "grill_gate"
+        body = payload(source_event_id="source-owned", source_status="OPEN", severity="WARNING",
+            evidence_refs=[{"provider": "grill_gate", "id": "opaque-id", "content_type": "image/jpeg",
+                "retrieval_path": "/api/v1/grill-gate/alerts/local-id/evidence/opaque-id?video_job_id=job"}])
+        created = client.post("/api/v1/alerts", headers={**producer, "Idempotency-Key": "source-owned"}, json=body)
+        assert created.status_code == 201, created.text
+        alert = created.json()
+        assert alert["allowed_actions"] == [] and alert["lifecycle_owner"] == "source"
+        assert client.get("/api/v1/alerts/source-events/source-owned", headers={"Authorization": "Bearer vault"}).status_code == 404
+        denied = client.post(f"/api/v1/alerts/{alert['id']}/resolution", headers={"Authorization": "Bearer operator"},
+            json={"expected_version": 1, "note": "Competing writer"})
+        assert denied.status_code == 409 and denied.json()["detail"]["code"] == "SOURCE_LIFECYCLE_OWNED"
+        for version, status in [(2, "ACKNOWLEDGED"), (3, "RESOLVED")]:
+            body = {**body, "source_event_version": version, "source_status": status}
+            changed = client.put("/api/v1/alerts/source-events/source-owned",
+                headers={**producer, "If-Match": str(version - 1)}, json=body)
+            assert changed.status_code == 200, changed.text
+            assert changed.json()["status"] == status
+            assert changed.json()["id"] == alert["id"]
+            assert changed.json()["evidence_refs"]
+        history = client.get("/api/v1/alerts", headers={"Authorization": "Bearer operator"},
+            params={"use_case": "grill_gate", "status": "RESOLVED"})
+        assert len(history.json()["items"]) == 1

@@ -1,14 +1,15 @@
+import GrillGateAlerts from './GrillGateAlerts.jsx';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { describeError } from '../../../utils/errors.js';
 import {
-  acknowledgeGrillGateAlert, createCameraSource, createGrillGateAssignment, createRegistryCamera, getLiveAlertHistory, getLivePreview,
-  listAllRegistryLocations, resolveGrillGateAlert, updateAssignmentConfiguration, updateCameraSource,
+  createCameraSource, createGrillGateAssignment, createRegistryCamera, getLivePreview,
+  listAllRegistryLocations, updateAssignmentConfiguration, updateCameraSource,
 } from '../api/grillGate.js';
 import { mergeAssignmentConfiguration, workerIsActive } from '../grillGateModel.js';
 import { useAuthorizedJpeg } from '../hooks/useSourceData.js';
 import { cameraCode, connectionReferenceError } from '../liveMonitoringModel.js';
-import { AlertsPanel, CrossingEventsPanel, GateStatePanel, MonitoringStats, PreviewStage, TimelinePanel } from './MonitoringPanels.jsx';
+import { CrossingEventsPanel, GateStatePanel, MonitoringStats, PreviewStage, TimelinePanel } from './MonitoringPanels.jsx';
 import { btnGhost, btnPrimary, Card, ErrorNote, Pill } from './ui.jsx';
 
 const field = 'mt-1 min-h-10 w-full rounded-md border border-[#D0D7E6] bg-white px-3 text-sm text-[#1C2B4D] outline-none focus:border-[#34479B] focus:ring-2 focus:ring-[#34479B]/20 disabled:bg-[#F4F6FB] disabled:text-[#69758F]';
@@ -178,61 +179,23 @@ function LivePreview({ item, worker, cameraName }) {
 }
 
 export default function LiveCameraSection({ items, item, worker, connection, statusError, busy, actionError, onConnect, onDisconnect, onSelect, onRegistryChanged, monitoring, live }) {
-  const [busyAlertId, setBusyAlertId] = useState(null);
-  const [alertError, setAlertError] = useState('');
-  const [history, setHistory] = useState([]);
-  const [historyVisible, setHistoryVisible] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState('');
   const frame = worker?.width && worker?.height ? { width: worker.width, height: worker.height } : item?.assignment.calibration?.reference_frame ?? null;
-
-  const actOnAlert = async (alert, action) => {
-    const note = action === 'resolve' ? window.prompt('Resolution note (required):') : null;
-    if (action === 'resolve' && !note?.trim()) return;
-    setBusyAlertId(alert.id); setAlertError('');
-    try {
-      if (action === 'acknowledge') await acknowledgeGrillGateAlert(alert.id, alert.version);
-      else await resolveGrillGateAlert(alert.id, alert.version, note.trim());
-    } catch (exception) {
-      setAlertError(describeError(exception).message);
-    } finally {
-      setBusyAlertId(null);
-      live.refresh();
-    }
-  };
-
-  const toggleHistory = async () => {
-    if (historyVisible) { setHistoryVisible(false); return; }
-    setHistoryVisible(true);
-    setHistoryLoading(true); setHistoryError('');
-    try {
-      if (!item?.assignment?.id) return;
-      const page = await getLiveAlertHistory(item.assignment.id, { limit: 100, offset: 0 });
-      setHistory(page.items ?? []);
-    } catch (exception) {
-      setHistoryError(describeError(exception).message);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
 
   const gateNote = monitoring.gateState !== 'UNKNOWN' ? null : connection.key === 'connected' ? 'Waiting for the gate-state detector.' : 'Connect the camera to start gate-state detection.';
   return (
     <div className="space-y-4">
       {live.error && <ErrorNote>Could not refresh live monitoring: {live.error}</ErrorNote>}
+      <MonitoringStats monitoring={monitoring} />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
         <div className="min-w-0 space-y-4">
+          <TimelinePanel monitoring={monitoring} />
           <CameraSourceCard items={items} item={item} worker={worker} connection={connection} frame={frame} fps={live.fps} statusError={statusError}
             busy={busy} actionError={actionError} onConnect={onConnect} onDisconnect={onDisconnect} onSelect={onSelect} onRegistryChanged={onRegistryChanged} />
-          <MonitoringStats monitoring={monitoring} />
-          <TimelinePanel monitoring={monitoring} />
         </div>
         <div className="min-w-0 space-y-4">
-          <GateStatePanel monitoring={monitoring} note={gateNote} />
+          <GrillGateAlerts assignmentId={item?.assignment?.id} compact />
           <CrossingEventsPanel monitoring={monitoring} />
-          <AlertsPanel monitoring={monitoring} onAction={actOnAlert} busyAlertId={busyAlertId} error={alertError}
-            onHistoryToggle={item?.assignment?.id ? toggleHistory : undefined} history={history} historyVisible={historyVisible}
-            historyLoading={historyLoading} historyError={historyError} />
+          <GateStatePanel monitoring={monitoring} note={gateNote} />
         </div>
       </div>
       <LivePreview item={item} worker={worker} cameraName={item?.camera?.name ?? 'this camera'} />

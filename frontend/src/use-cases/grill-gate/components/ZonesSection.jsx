@@ -1,3 +1,4 @@
+import { prepareZonePolygons, isPolygonClosingClick, zoneValidationMessage, zoneValidationIndex } from '../../../utils/zonePolygons.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, EyeOff, Eye, Trash2, Undo2 } from 'lucide-react';
 import { describeError } from '../../../utils/errors.js';
@@ -23,7 +24,7 @@ const ALERT_RULES = [
   ['mesh_occupancy', 'Too many people in mesh area', 'max_mesh_occupancy', 'Max people'],
 ];
 
-function FrameCanvas({ frame, imageUrl, emptyMessage, zones, editId, drawing, line, lineDraft, readOnly, onPoint, onMoveZone }) {
+function FrameCanvas({ frame, imageUrl, emptyMessage, zones, editId, drawing, line, lineDraft, readOnly, onPoint, onFinishPolygon, onMoveZone }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
 
@@ -36,12 +37,16 @@ function FrameCanvas({ frame, imageUrl, emptyMessage, zones, editId, drawing, li
     point.y = event.clientY;
     const raw = point.matrixTransform(matrix.inverse());
     if (raw.x < 0 || raw.y < 0 || raw.x > frame.width || raw.y > frame.height) return null;
-    return { x: Math.round((raw.x / frame.width) * 10000) / 10000, y: Math.round((raw.y / frame.height) * 10000) / 10000 };
+    return { x: raw.x / frame.width, y: raw.y / frame.height };
   };
   const onCanvasDown = (event) => {
     if (!drawing || readOnly) return;
     const point = pointFrom(event);
-    if (point) onPoint(point);
+    if (point) {
+      const rect = svgRef.current.getBoundingClientRect();
+      if (drawing.kind === 'polygon' && isPolygonClosingClick(drawing.points, point, rect)) onFinishPolygon();
+      else onPoint(point);
+    }
   };
   const startDrag = (event, zone, kind, index = -1) => {
     if (drawing || readOnly) return;
@@ -390,9 +395,14 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
     if (drawing?.points?.length < 3) return;
     const name = draftName.trim();
     if (!name) { setError('Enter a name for this zone.'); return; }
+    let polygon;
+    try {
+      polygon = prepareZonePolygons([{ name, polygon: drawing.points }], frame)[0].polygon
+        .map(([x, y]) => ({ x, y }));
+    } catch (exception) { setError(zoneValidationMessage(exception)); return; }
     const key = `${drawing.zoneType}_${Date.now().toString(36)}`.slice(0, 40);
     setZones((current) => [...current, { id: `draft-${key}`, zone_key: key, name, zone_type: drawing.zoneType,
-      description: zoneTypes.find((type) => type.key === drawing.zoneType)?.description ?? '', polygon: drawing.points, enabled: true }]);
+      description: zoneTypes.find((type) => type.key === drawing.zoneType)?.description ?? '', polygon, enabled: true }]);
     setDrawing(null);
     setError('');
   };
@@ -430,7 +440,8 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
       rememberVideoZoneConfigurationSelection(job, saved.id);
       setZoneConfigurationName(saved.name);
       setRules(saved.alert_configuration ?? rules);
-      setBaseZones(zones.map(normalizeZonePoints));
+      setBaseZones(prepareZonePolygons(zones, frame).map(normalizeZonePoints));
+      setZones(prepareZonePolygons(zones, frame).map(normalizeZonePoints));
       setSavedCalibration(saved.calibration ?? null);
       baseFormRef.current = form;
       setBaseRules(saved.alert_configuration ?? rules);
@@ -441,7 +452,7 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
       return;
     }
     const updated = await putVideoJobConfig(job.job_id, {
-      calibration: calibrationToSave(), zones: zones.map(zoneForSave), alert_configuration: rules,
+      calibration: calibrationToSave(), zones: prepareZonePolygons(zones, frame).map(normalizeZonePoints).map(zoneForSave), alert_configuration: rules,
       zone_configuration_id: selectedZoneConfigurationId || null,
     });
     applyConfig(updated);
@@ -453,7 +464,7 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
     name,
     reference_frame: frame,
     calibration: calibrationToSave(),
-    zones: zones.map(zoneForSave),
+    zones: prepareZonePolygons(zones, frame).map(normalizeZonePoints).map(zoneForSave),
     alert_configuration: rules,
   });
 
@@ -516,13 +527,15 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
         setSelectedZoneConfigurationId(saved.id);
         setNotice(`Saved “${saved.name}”.`);
       }
+      setZones(prepareZonePolygons(zones, frame).map(normalizeZonePoints));
       setZoneConfigurationName(saved.name);
       setRules(saved.alert_configuration ?? rules);
       if (isVideo) rememberVideoZoneConfigurationSelection(job, saved.id);
       await refreshZoneConfigurations();
       onZoneConfigurationsChanged?.();
     } catch (exception) {
-      setError(describeError(exception).message);
+      setError(zoneValidationMessage(exception, zones));
+      if (zoneValidationIndex(exception) != null) setEditId(zones[zoneValidationIndex(exception)]?.id);
     } finally {
       setZoneConfigurationBusy(false);
     }
@@ -546,13 +559,14 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
   };
 
   const saveLive = async () => {
+    const cleanedZones = prepareZonePolygons(zones, frame).map(normalizeZonePoints);
     const assignmentId = assignment.id;
     const changedZoneConfiguration = Boolean(zoneChanges);
     const changedCalibration = formChanged;
     let savedAssignment = null;
     const originals = new Map(baseZones.map((zone) => [zone.id, zone]));
     for (const original of baseZones) {
-      const next = zones.find((zone) => zone.id === original.id);
+      const next = cleanedZones.find((zone) => zone.id === original.id);
       if (!next) { await deleteAssignmentZone(assignmentId, original.id); continue; }
       const before = originals.get(original.id);
       const patch = {};
@@ -560,7 +574,7 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
       if (JSON.stringify(next.polygon) !== JSON.stringify(before.polygon)) patch.polygon = next.polygon.map(({ x, y }) => [x, y]);
       if (Object.keys(patch).length) await updateAssignmentZone(assignmentId, original.id, patch);
     }
-    for (const zone of zones.filter((entry) => String(entry.id).startsWith('draft-'))) {
+    for (const zone of cleanedZones.filter((entry) => String(entry.id).startsWith('draft-'))) {
       const { id, ...body } = zoneForSave(zone);
       await createAssignmentZone(assignmentId, body);
     }
@@ -591,7 +605,8 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
       }
     }
     await reloadLiveZones();
-    setBaseZones(zones.map(normalizeZonePoints));
+    setBaseZones(cleanedZones);
+    setZones(cleanedZones);
     setEditId(null); setDrawing(null);
   };
 
@@ -599,12 +614,13 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
     if (saving || !changeCount) return;
     setSaving(true); setError(''); setNotice('');
     try {
+      prepareZonePolygons(zones, frame);
       if (isVideo) await saveVideo(); else await saveLive();
       setPrefillNote('');
       if (!finishedVideo) setNotice('Changes saved.');
     } catch (exception) {
-      setError(describeError(exception).message);
-      if (!isVideo) await reloadLiveZones();
+      setError(zoneValidationMessage(exception, zones));
+      if (zoneValidationIndex(exception) != null) setEditId(zones[zoneValidationIndex(exception)]?.id);
     } finally {
       setSaving(false);
     }
@@ -701,7 +717,7 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
         <button type="button" className={btnGhost} onClick={() => setLiveFrameRequest((value) => value + 1)}>Refresh frame</button>
       ) : null}>
         <FrameCanvas frame={frame} imageUrl={image.url} emptyMessage={emptyMessage} zones={visibleZones} editId={editId} drawing={drawing} line={line} lineDraft={lineStart}
-          readOnly={readOnly} onPoint={onPoint} onMoveZone={moveZone} />
+          readOnly={readOnly} onPoint={onPoint} onFinishPolygon={finishPolygon} onMoveZone={moveZone} />
         {isVideo && job?.duration_seconds > 0 && (
           <label className="mt-3 flex items-center gap-3 text-xs text-[#55607A]">
             <span className="w-14 shrink-0 tabular-nums">{formatVideoTime(frameSeconds)}</span>
@@ -729,7 +745,7 @@ function SourceEditor({ source, assignmentItem, job, liveZones, zoneTypes, other
             {drawing?.kind === 'polygon' && (
               <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md bg-[#F4F6FB] p-2">
                 <label className="text-xs text-[#55607A]">Zone name <input value={draftName} onChange={(event) => setDraftName(event.target.value)} className="ml-1 rounded border border-[#D0D7E6] px-2 py-1 text-[#1C2B4D]" /></label>
-                <span className="text-xs text-[#55607A]">Click at least 3 points on the frame below.</span>
+                <span className="text-xs text-[#55607A]">Click at least 3 corners in order, then click near the first corner or Finish polygon.</span>
                 <button type="button" className={btnGhost} disabled={!drawing.points.length} onClick={() => setDrawing((current) => ({ ...current, points: current.points.slice(0, -1) }))}><Undo2 size={13} aria-hidden /> Undo point</button>
                 <button type="button" className={btnPrimary} disabled={drawing.points.length < 3} onClick={finishPolygon}><Check size={13} aria-hidden /> Finish polygon</button>
                 <button type="button" className={btnGhost} onClick={() => setDrawing(null)}>Cancel</button>

@@ -5,7 +5,7 @@ import {
   getLiveActiveAlerts, getLiveCrossings, getLiveGateState, getLiveMeshEvents, getLiveMeshStatus, listGrillGateVideoJobs,
 } from '../api/grillGate.js';
 import { analysedFps } from '../liveMonitoringModel.js';
-import { updateGateProgress } from '../../../store/slices/gateMonitoringSlice.js';
+import { updateCrossingCounts, updateGateProgress } from '../../../store/slices/gateMonitoringSlice.js';
 
 const LIVE_POLL_MS = 3000;
 const emptyLive = (assignmentId) => ({
@@ -66,6 +66,10 @@ export function useLiveMonitoring(assignmentId, workerActive) {
         progress: gateValue?.progress,
         observedAt: at,
       }));
+      dispatch(updateCrossingCounts({ sessionId: `live:${assignmentId}`,
+        entryCount: entries.status === 'fulfilled' ? entries.value.total : null,
+        exitCount: exits.status === 'fulfilled' ? exits.value.total : null,
+        observedAt: at, timebase: 'wall' }));
       const gateFailed = gate.status === 'rejected' && gate.reason?.response?.status !== 404;
       const failure = [gateFailed ? gate : null, crossings, mesh, meshEvents].find((item) => item?.status === 'rejected');
       if (alerts.status === 'rejected') {

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { AlertCard, AlertEvidenceDetails } from '../components/alerts/AlertPresentation.jsx';
 import { Bell, RefreshCw } from 'lucide-react';
 import { getServiceAudit, transitionServiceAlert } from '../api/alertService.js';
 import {
   ACTIVE_STATUSES, SEVERITIES, STATUSES, USE_CASE_LABELS, availableActions, buildAlertParams, buildLifecycleBody,
-  describeServiceError, isStaleConflict, useCaseLabel,
+  describeServiceError, isStaleConflict, useCaseLabel, alertSourceLink, alertSourceLabel,
 } from '../api/alertServiceModel.js';
 import { ALERT_POLL_MS, ALERT_SERVICE_ACTIONS_ENABLED } from '../config/services.js';
 import useServiceAlerts from '../hooks/useServiceAlerts.js';
@@ -17,7 +18,6 @@ const STATUS_STYLE = {
   OPEN: 'bg-red-50 text-red-700', ACKNOWLEDGED: 'bg-amber-50 text-amber-800',
   RESOLVED: 'bg-emerald-50 text-emerald-700', DISMISSED: 'bg-slate-100 text-slate-600',
 };
-const SOURCE_LINK = { vault_monitoring: '/alerts/vault', branch_exterior: '/alerts/branch' };
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—');
 
 function Pill({ className, children }) {
@@ -29,26 +29,6 @@ function SummaryTile({ label, value, critical = false }) {
     <p className="text-xs text-slate-500">{label}</p>
     <p className={`mt-2 text-2xl font-bold tabular-nums ${critical ? 'text-red-700' : 'text-[#152449]'}`}>{value ?? '—'}</p>
   </section>;
-}
-
-function AlertRow({ alert, selected, onSelect }) {
-  return <button type="button" onClick={() => onSelect(alert.id)} aria-pressed={selected}
-    className={`vault-card block w-full p-4 text-left ${selected ? 'ring-2 ring-[#34479B]' : ''}`}>
-    <div className="flex flex-wrap items-center gap-2">
-      <Pill className="bg-[#eef1fb] text-[#26365F]">{useCaseLabel(alert.useCase)}</Pill>
-      <Pill className={SEVERITY_STYLE[alert.severity] || 'bg-slate-100 text-slate-700'}>{alert.severity}</Pill>
-      <Pill className={STATUS_STYLE[alert.status] || 'bg-slate-100 text-slate-700'}>{alert.status}</Pill>
-      <span className="ml-auto text-xs text-slate-500">{fmt(alert.occurredAt)}</span>
-    </div>
-    <p className="mt-2 font-semibold text-[#152449]">{alert.title}</p>
-    <p className="mt-1 line-clamp-2 text-sm text-slate-600">{alert.summary}</p>
-    <p className="mt-2 text-xs text-slate-500">
-      {alert.sourceEventType}
-      {alert.cameraName || alert.cameraId ? ` · ${alert.cameraName || alert.cameraId}` : ''}
-      {alert.zoneName ? ` · ${alert.zoneName}` : ''}
-      {alert.sessionRef ? ` · session ${alert.sessionRef.slice(0, 8)}` : ''}
-    </p>
-  </button>;
 }
 
 function Timeline({ audit }) {
@@ -64,20 +44,24 @@ function Timeline({ audit }) {
   </ol>;
 }
 
-function Detail({ alert, audit, actionsEnabled, pending, notice, onAction, onClose }) {
+export function ServiceAlertDetail({ alert, audit, actionsEnabled, pending, notice, onAction, onClose }) {
   const [note, setNote] = useState('');
   useEffect(() => setNote(''), [alert.id, alert.rowVersion]);
   const actions = availableActions(alert, actionsEnabled);
-  const sourceLink = SOURCE_LINK[alert.useCase];
+  const sourceLink = alertSourceLink(alert);
   return <div className="vault-card sticky top-24 space-y-4 p-4 sm:p-5">
     <div className="flex items-start justify-between gap-2">
-      <div><p className="text-xs font-semibold uppercase text-slate-500">Alert details</p>
+      <div><div className="mb-2 flex flex-wrap gap-2"><Pill className={SEVERITY_STYLE[alert.severity] || 'bg-slate-100'}>{alert.severity}</Pill><Pill className={STATUS_STYLE[alert.status] || 'bg-slate-100'}>{alert.status}</Pill></div>
         <h2 className="mt-1 text-lg font-bold text-[#152449]">{alert.title}</h2></div>
       <button type="button" onClick={onClose} className="min-h-9 rounded px-2 text-sm text-slate-500" aria-label="Close alert details">Close</button>
     </div>
-    <p className="text-sm text-slate-700">{alert.summary}</p>
+    <p className="text-sm text-slate-500">{alertSourceLabel(alert)} &middot; {useCaseLabel(alert.useCase)}</p>
+    <p className="text-sm leading-relaxed text-slate-700">{alert.summary}</p>
+    {alert.useCase === 'grill_gate' && <AlertEvidenceDetails alert={alert} />}
     <dl className="grid grid-cols-2 gap-3 text-xs">
       <div><dt className="text-slate-500">Source</dt><dd className="mt-1 font-bold">{useCaseLabel(alert.useCase)}</dd></div>
+      <div><dt className="text-slate-500">Camera / video</dt><dd className="mt-1 break-words font-bold">{alertSourceLabel(alert)}</dd></div>
+      <div><dt className="text-slate-500">Alert ID</dt><dd className="mt-1 break-all font-bold">{alert.id}</dd></div>
       <div><dt className="text-slate-500">Source event</dt><dd className="mt-1 break-all font-bold">{alert.sourceEventId}</dd></div>
       <div><dt className="text-slate-500">Severity</dt><dd className="mt-1 font-bold">{alert.severity}{alert.sourceSeverity && alert.sourceSeverity !== alert.severity ? ` (source: ${alert.sourceSeverity})` : ''}</dd></div>
       <div><dt className="text-slate-500">Status</dt><dd className="mt-1 font-bold">{alert.status}{alert.sourceStatus ? ` (source: ${alert.sourceStatus})` : ''}</dd></div>
@@ -97,7 +81,7 @@ function Detail({ alert, audit, actionsEnabled, pending, notice, onAction, onClo
           className="min-h-10 flex-1 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-[#26365F] disabled:opacity-50">{action.label}</button>)}
       </div>
     </div>}
-    {!actionsEnabled && <p className="text-xs text-slate-500">Read-only: {useCaseLabel(alert.useCase)} remains the lifecycle authority for this alert while shadow ingestion is in effect.</p>}
+    {(!actionsEnabled || alert.useCase === 'grill_gate') && <p className="text-xs text-slate-500">{useCaseLabel(alert.useCase)} manages this alert's lifecycle. Use the source monitoring page for actions.</p>}
     {notice && <p className="text-sm text-slate-700" role="status" aria-live="polite">{notice}</p>}
     {sourceLink && <Link to={sourceLink} className="block text-center text-sm font-semibold text-[#34479B] underline">Open in {useCaseLabel(alert.useCase)}</Link>}
   </div>;
@@ -114,18 +98,25 @@ export default function AlertCenter() {
   const sort = query.get('sort') || 'newest';
   const [typeInput, setTypeInput] = useState(sourceType);
   const [selectedId, setSelectedId] = useState(null);
+  const group = query.get('group') || '';
+  const cameraId = query.get('camera_id') || '';
+  const evidence = query.get('evidence') || '';
+  const sourceEventId = query.get('source_event_id') || '';
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
   const [audit, setAudit] = useState({ loading: false, rows: [], error: '' });
 
-  const params = useMemo(() => buildAlertParams({ status, useCase, severity, sourceType, from, to, sort, limit: 25 }),
-    [status, useCase, severity, sourceType, from, to, sort]);
-  const feed = useServiceAlerts({ params, status, pollMs: ALERT_POLL_MS });
-  const selected = feed.items.find((item) => item.id === selectedId) || null;
+  const params = useMemo(() => ({ ...buildAlertParams({ status, useCase, severity, sourceType, from, to, sort, limit: 25 }), ...(group && !status ? { group } : {}), ...(cameraId ? { camera_id: cameraId } : {}), ...(sourceEventId ? { source_event_id: sourceEventId } : {}) }),
+    [status, useCase, severity, sourceType, from, to, sort, group, cameraId, sourceEventId]);
+  const feed = useServiceAlerts({ params, status: status || group, pollMs: ALERT_POLL_MS });
+  const visibleItems = feed.items.filter((item) => !evidence || item.evidenceStatus === evidence);
+  const selected = feed.items.find((item) => item.id === selectedId || (selectedId === null && sourceEventId && item.sourceEventId === sourceEventId)) || null;
 
   const setFilter = (key, value) => {
     const next = new URLSearchParams(query);
     if (value) next.set(key, value); else next.delete(key);
+    if (key === 'group') next.delete('status');
+    if (key === 'status') next.delete('group');
     setQuery(next);
   };
   useEffect(() => setTypeInput(sourceType), [sourceType]);
@@ -139,14 +130,14 @@ export default function AlertCenter() {
   // Timeline for the selected alert; reloads when the alert's version changes (e.g. after an action or a poll).
   const selectedVersion = selected?.rowVersion;
   useEffect(() => {
-    if (!selectedId) return undefined;
+    if (!selected?.id) return undefined;
     const ctl = new AbortController();
     setAudit((current) => ({ ...current, loading: true, error: '' }));
-    getServiceAudit(selectedId, ctl.signal)
-      .then((rows) => setAudit({ loading: false, rows, error: '' }))
+    getServiceAudit(selected.id, ctl.signal)
+      .then((rows) => { if (!ctl.signal.aborted) setAudit({ loading: false, rows, error: '' }); })
       .catch((error) => { if (!ctl.signal.aborted) setAudit({ loading: false, rows: [], error: describeServiceError(error).message }); });
     return () => ctl.abort();
-  }, [selectedId, selectedVersion]);
+  }, [selected?.id, selectedVersion]);
 
   const act = useCallback(async (alert, target, note) => {
     setNotice('');
@@ -164,7 +155,7 @@ export default function AlertCenter() {
     } finally { setPending(false); }
   }, [feed]);
 
-  const noFilters = !status && !useCase && !severity && !sourceType && !from && !to;
+  const noFilters = !group && !cameraId && !evidence && !sourceEventId && !status && !useCase && !severity && !sourceType && !from && !to;
   const clearFilters = () => setQuery(new URLSearchParams());
   const bySeverity = feed.summary?.by_severity;
   const byStatus = feed.summary?.by_status;
@@ -173,7 +164,7 @@ export default function AlertCenter() {
   return <div className="mx-auto max-w-[1600px] space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-4">
       <div><h2 className="text-2xl font-bold text-[#152449]">Alert Center</h2>
-        <p className="mt-1 text-sm text-slate-500">Alerts published to the Alert Service by Vault and Branch Exterior monitoring</p></div>
+        <p className="mt-1 text-sm text-slate-500">Persisted incidents from Vault, Gate & Mesh, and Branch Exterior monitoring</p></div>
       <div className="flex flex-wrap items-center gap-2">
         {feed.lastUpdated && <span className="text-xs text-slate-500">Updated {feed.lastUpdated.toLocaleTimeString()}</span>}
         <button type="button" onClick={feed.refresh} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700">
@@ -185,18 +176,19 @@ export default function AlertCenter() {
     {feed.summaryError && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="status">{describeServiceError(feed.summaryError).message}</div>}
     {feed.stale && <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900" role="status">
       The list may be out of date. <button type="button" onClick={feed.refresh} className="font-semibold underline">Reload</button></div>}
-    <section className="grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="Alert summary">
-      <SummaryTile label="Total" value={feed.summary?.total} /><SummaryTile label="Open" value={byStatus?.OPEN} />
-      <SummaryTile label="Acknowledged" value={byStatus?.ACKNOWLEDGED} />
+    <section className="grid grid-cols-2 gap-3 xl:grid-cols-5" aria-label="Alert summary">
+      <SummaryTile label="Open alerts" value={byStatus ? (byStatus.OPEN || 0) + (byStatus.ACKNOWLEDGED || 0) : undefined} />
+      <SummaryTile label="Unacknowledged" value={byStatus?.OPEN} />
       <SummaryTile label="High / Critical" value={bySeverity ? bySeverity.HIGH + bySeverity.CRITICAL : undefined} critical />
+      <SummaryTile label="With snapshot (loaded)" value={feed.items.filter((a) => a.evidenceStatus === 'CAPTURED').length} />
+      <SummaryTile label="Evidence unavailable (loaded)" value={feed.items.filter((a) => a.evidenceStatus === 'UNAVAILABLE').length} critical />
     </section>
-    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <section className="min-w-0">
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2">
           <div className="flex flex-wrap gap-1" role="tablist" aria-label="Alert status">
-            {['', ...STATUSES].map((item) => <button key={item || 'all'} type="button" role="tab" aria-selected={status === item}
+            {['ACTIVE', 'HISTORY'].map((item) => <button key={item} type="button" role="tab" aria-selected={group === item} onClick={() => setFilter('group', item)} className={`min-h-10 rounded-lg px-3 text-sm font-semibold ${group === item ? 'bg-[#34479B] text-white' : 'text-slate-600'}`}>{item === 'ACTIVE' ? 'Active' : 'History'}</button>)}
+            {['', ...STATUSES].map((item) => <button key={item || 'all'} type="button" role="tab" aria-selected={status === item && !group}
               onClick={() => setFilter('status', item)}
-              className={`min-h-10 rounded-lg px-3 text-sm font-semibold ${status === item ? 'bg-[#34479B] text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+              className={`min-h-10 rounded-lg px-3 text-sm font-semibold ${status === item && !group ? 'bg-[#34479B] text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
               {item ? item.charAt(0) + item.slice(1).toLowerCase() : 'All'}</button>)}
           </div>
           <span className="mx-1 h-7 border-l border-slate-200" aria-hidden />
@@ -205,29 +197,34 @@ export default function AlertCenter() {
             {Object.entries(USE_CASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
           <select aria-label="Filter by severity" value={severity} onChange={(e) => setFilter('severity', e.target.value)} className={input}>
             <option value="">Severity: All</option>{SEVERITIES.map((item) => <option key={item}>{item}</option>)}</select>
+          <input aria-label="Filter by camera ID" value={cameraId} onChange={(e) => setFilter('camera_id', e.target.value)} placeholder="Camera: All (ID)" className={input} />
+          <select aria-label="Filter by evidence" value={evidence} onChange={(e) => setFilter('evidence', e.target.value)} className={input}><option value="">Evidence: Any</option><option value="CAPTURED">Snapshot captured</option><option value="PENDING">Pending</option><option value="UNAVAILABLE">Unavailable</option></select>
           <input aria-label="Filter by event type" value={typeInput} onChange={(e) => setTypeInput(e.target.value)} placeholder="Event type" className={`${input} min-w-32 flex-1`} />
           <label className="flex items-center gap-2 text-xs text-slate-500">From
             <input aria-label="From date" type="datetime-local" value={from} onChange={(e) => setFilter('from', e.target.value)} className={input} /></label>
           <label className="flex items-center gap-2 text-xs text-slate-500">To
             <input aria-label="To date" type="datetime-local" value={to} onChange={(e) => setFilter('to', e.target.value)} className={input} /></label>
         </div>
+    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      <section className="min-w-0">
         {feed.error && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
           <p>{describeServiceError(feed.error).message}</p>
           <button type="button" onClick={feed.refresh} className="mt-2 font-semibold underline">Retry</button></div>}
         {!feed.error && feed.loading && !feed.items.length && <div className="mt-4 space-y-3" aria-label="Loading alerts">
           {[0, 1, 2].map((x) => <div key={x} className="h-28 animate-pulse rounded-xl bg-slate-100" />)}</div>}
-        {!feed.loading && !feed.error && !feed.items.length && <div className="mt-4 rounded-xl border border-slate-200 bg-white p-10 text-center">
+        {!feed.loading && !feed.error && !visibleItems.length && <div className="mt-4 rounded-xl border border-slate-200 bg-white p-10 text-center">
           <Bell className="mx-auto h-8 w-8 text-slate-300" aria-hidden />
           <p className="mt-3 font-semibold text-[#152449]">{noFilters ? 'No alerts yet' : 'No results'}</p>
           {!noFilters && <button type="button" onClick={clearFilters} className="mt-2 text-sm font-semibold text-[#34479B] underline">Clear filters</button>}</div>}
-        <div className="mt-3 space-y-3">{feed.items.map((alert) => <AlertRow key={alert.id} alert={alert} selected={alert.id === selectedId} onSelect={setSelectedId} />)}</div>
+        {evidence && <p className="mt-2 text-xs text-slate-500">Evidence filtering applies to loaded records. Load more to search additional pages.</p>}
+        <div className="mt-3 space-y-3">{visibleItems.map((alert) => <AlertCard key={alert.id} alert={alert} selected={alert.id === selectedId} onSelect={setSelectedId} />)}</div>
         {feed.hasMore && <button type="button" disabled={feed.loading} onClick={feed.loadMore}
           className="mt-4 min-h-11 w-full rounded-lg border border-slate-200 bg-white text-sm font-semibold text-[#34479B] disabled:opacity-50">{feed.loading ? 'Loading…' : 'Load more'}</button>}
         <p className="mt-3 text-xs text-slate-500">Active alerts are {ACTIVE_STATUSES.join(' and ').toLowerCase()}; resolved and dismissed alerts are history.</p>
       </section>
       <aside className="min-w-0" aria-label="Alert details">
         {selected
-          ? <Detail alert={selected} audit={audit} actionsEnabled={ALERT_SERVICE_ACTIONS_ENABLED} pending={pending} notice={notice} onAction={act} onClose={() => setSelectedId(null)} />
+          ? <ServiceAlertDetail alert={selected} audit={audit} actionsEnabled={ALERT_SERVICE_ACTIONS_ENABLED} pending={pending} notice={notice} onAction={act} onClose={() => setSelectedId('')} />
           : <div className="hidden rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 xl:block">Select an alert to view details and its timeline.</div>}
       </aside>
     </div>

@@ -100,4 +100,13 @@ class GrillGateStateDetectorManager:
             return None
         return detector.mesh_status()
 
+    def evaluate_open_gate_alert(self, assignment_id: str, frontend_elapsed_seconds: float | None = None,
+                                 frontend_threshold_seconds: float | None = None, timer_cycle_id: str | None = None) -> dict | None:
+        with self._lock:
+            detector = next((item for item in self._detectors.values()
+                             if item.assignment_id == str(assignment_id)), None)
+        if detector is None or not detector._thread.is_alive():
+            return None
+        return detector.evaluate_open_gate_alert(frontend_elapsed_seconds, frontend_threshold_seconds, timer_cycle_id)
+
 

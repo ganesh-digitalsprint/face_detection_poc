@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 
-$script:LauncherSensitiveEnvPattern = '^(DEBUG|DATABASE_URL|QDRANT_.*|VAULT_.*|RTSP_.*|WEBCAM_.*|VIDEO_.*|CLOUDINARY_.*|EVIDENCE_.*|ALERT_.*|DB_.*|API_KEY|CORS_.*|APP_.*|NOTIFY_WEBHOOK_URL|VITE_.*|INFERENCE_.*|FEDBANK_SHARED_PATH|CUDA_VISIBLE_DEVICES|COMPUTE_DEVICE|RFDETR_.*|PERSON_DETECTOR_BACKEND|SINGLE_ACTIVE_CAMERA|PROCESSING_FPS|FRAME_WIDTH|CPU_THREADS|DETECT_.*|WEAPON_.*|POSE_.*|FIGHT_.*|RUN_.*|BAG_.*|ZONE_.*|UNATTENDED_BAG_SECONDS|FACE_RECOGNITION_ENABLED)$'
+$script:LauncherSensitiveEnvPattern = '^(DEBUG|DATABASE_URL|QDRANT_.*|VAULT_.*|RTSP_.*|WEBCAM_.*|VIDEO_.*|CLOUDINARY_.*|EVIDENCE_.*|ALERT_.*|GRILL_GATE_ALERT_SERVICE_TOKEN|DB_.*|API_KEY|CORS_.*|APP_.*|NOTIFY_WEBHOOK_URL|VITE_.*|INFERENCE_.*|FEDBANK_SHARED_PATH|CUDA_VISIBLE_DEVICES|COMPUTE_DEVICE|RFDETR_.*|PERSON_DETECTOR_BACKEND|SINGLE_ACTIVE_CAMERA|PROCESSING_FPS|FRAME_WIDTH|CPU_THREADS|DETECT_.*|WEAPON_.*|POSE_.*|FIGHT_.*|RUN_.*|BAG_.*|ZONE_.*|UNATTENDED_BAG_SECONDS|FACE_RECOGNITION_ENABLED)$'
 $script:AlertServiceEnvNames = @(
     'ALERT_DATABASE_URL',
     'ALERT_PRODUCER_CREDENTIALS',
@@ -271,4 +271,54 @@ function Wait-LauncherEndpoint {
         Start-Sleep -Milliseconds 750
     }
     throw "$Service did not pass its health check within $TimeoutSeconds seconds. Logs: '$($Entry.StdoutPath)' and '$($Entry.StderrPath)'."
+}
+
+# Local launcher only; production service authentication remains unchanged.
+function Get-LauncherGrillGateEnvironment {
+    param([hashtable]$VaultValues, [hashtable]$BranchValues, [hashtable]$AlertValues)
+    $url = Get-LauncherEnvValue $VaultValues 'ALERT_SERVICE_BASE_URL'
+    if ([string]::IsNullOrWhiteSpace($url)) { $url = 'http://127.0.0.1:8012' }
+    $parts = Get-LauncherUrlParts -Value $url -AllowedSchemes @('http')
+    if ($null -eq $parts -or $parts.Host -notin @('localhost','127.0.0.1','::1') -or $parts.UserInfo -or $parts.Path -ne '/' -or $parts.Port -ne 8012) {
+        throw 'Local Grill Gate provisioning requires the loopback HTTP Alert Service on port 8012.'
+    }
+    $token = Get-LauncherEnvValue $VaultValues 'GRILL_GATE_ALERT_SERVICE_TOKEN'
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        $seed = Get-LauncherEnvValue $VaultValues 'ALERT_SERVICE_TOKEN'
+        if ([string]::IsNullOrWhiteSpace($seed)) { $seed = Get-LauncherEnvValue $BranchValues 'ALERT_SERVICE_TOKEN' }
+        if ([string]::IsNullOrWhiteSpace($seed)) {
+            $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+            try {
+                $randomBytes = New-Object byte[] 32
+                $rng.GetBytes($randomBytes)
+                $seed = [Convert]::ToBase64String($randomBytes)
+            } finally { $rng.Dispose() }
+        }
+        $hmac = New-Object System.Security.Cryptography.HMACSHA256
+        try {
+            $hmac.Key = [Text.Encoding]::UTF8.GetBytes($seed)
+            $digest = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes('fedbank:local-poc:grill_gate:v1'))
+            $token = 'poc-grill-' + [Convert]::ToBase64String($digest).TrimEnd('=').Replace('+','-').Replace('/','_')
+        } finally { $hmac.Dispose() }
+    }
+    $registrations = @{}
+    $raw = Get-LauncherEnvValue $AlertValues 'ALERT_PRODUCER_CREDENTIALS'
+    if (-not [string]::IsNullOrWhiteSpace($raw)) {
+        try { $parsed = ConvertFrom-Json -InputObject $raw -ErrorAction Stop }
+        catch { throw 'Invalid local Alert Service producer credentials JSON.' }
+        if ($null -eq $parsed -or $parsed -isnot [pscustomobject]) { throw 'Local producer credentials must be a JSON object.' }
+        foreach ($property in $parsed.PSObject.Properties) { $registrations[$property.Name] = $property.Value }
+    }
+    if ($registrations.ContainsKey($token)) {
+        $identity = $registrations[$token]
+        if ($identity.use_case -ne 'grill_gate' -or $identity.producer -ne 'grill-gate-monitoring') { throw 'Local Grill Gate credential conflicts with an existing producer identity.' }
+    }
+    foreach ($values in @($VaultValues, $BranchValues)) {
+        if ($token -eq (Get-LauncherEnvValue $values 'ALERT_SERVICE_TOKEN')) { throw 'Grill Gate cannot reuse another producer token directly.' }
+    }
+    $registrations[$token] = @{use_case='grill_gate'; producer='grill-gate-monitoring'}
+    $alertEnvironment = @{}
+    foreach ($key in $AlertValues.Keys) { $alertEnvironment[$key] = $AlertValues[$key] }
+    $alertEnvironment['ALERT_PRODUCER_CREDENTIALS'] = ConvertTo-Json -InputObject $registrations -Depth 8 -Compress
+    return [pscustomobject]@{AlertEnvironment=$alertEnvironment; VaultEnvironment=@{GRILL_GATE_ALERT_SERVICE_TOKEN=$token; ALERT_SERVICE_BASE_URL=$url}}
 }

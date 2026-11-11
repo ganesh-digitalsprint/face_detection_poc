@@ -1,7 +1,7 @@
 """Internal lifecycle and health API for Grill Gate camera capture workers."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import logging
 from pathlib import Path
@@ -22,7 +22,8 @@ from app.db.models.camera_registry import CameraUseCaseAssignment
 from app.services import camera_registry_service as registry
 from app.db.models import GrillGateEvent, GrillGateVideoJob
 from grill_gate_monitoring.models.alert import GrillGateAlert
-from grill_gate_monitoring.services.alert_store import alert_dict
+from grill_gate_monitoring.services.alert_store import alert_dict, persist_command
+from grill_gate_monitoring.services.alert_delivery import stage_publication, backfill_publications
 from grill_gate_monitoring.models.zone_configuration import GrillGateZoneConfiguration
 from grill_gate_monitoring.services.camera_worker import (
     GrillGateWorkerCapacityError,
@@ -42,7 +43,7 @@ from grill_gate_monitoring.services.video_jobs import (read_frame_at, validate_v
 from grill_gate_monitoring.services.video_job_config import CONFIG_KEYS, JobConfigError, job_frame, job_video, normalize_config, readiness
 from grill_gate_monitoring.schemas.video_job import (CopyConfigRequest, JobConfigUpdate, MeasureEndpointsRequest,
     NamedZoneConfigurationWrite, ReprocessVideoRequest, ZoneConfigurationName)
-from app.services.grill_gate_runtime import get_grill_gate_video_jobs
+from app.services.grill_gate_runtime import get_grill_gate_video_jobs, get_grill_gate_alert_publisher
 from sqlalchemy import desc
 from grill_gate_monitoring.schemas.alerts import GrillGateAlertConfig
 from grill_gate_monitoring.services.assignment_readiness import missing_assignment_zones
@@ -53,6 +54,19 @@ import httpx
 router = APIRouter(prefix="/api/v1/grill-gate", tags=["grill gate camera workers"],
                    dependencies=[Depends(get_operator)])
 logger = logging.getLogger(__name__)
+
+
+class OpenTimerEvaluation(BaseModel):
+    elapsed_seconds: float = Field(ge=0, allow_inf_nan=False)
+    timer_cycle_id: str | None = Field(default=None, min_length=1, max_length=256)
+    gate_session_id: str | None = None
+    gate_state: Literal["FULLY_OPEN"] = "FULLY_OPEN"
+    entry_count: int | None = Field(default=None, ge=0)
+    exit_count: int | None = Field(default=None, ge=0)
+    video_timestamp_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    threshold_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+
 Db = Annotated[Session, Depends(get_db)]
 Caller = Annotated[Operator, Depends(get_operator)]
 
@@ -628,6 +642,95 @@ def get_video_results(job_id: str, db: Db, caller: Caller,
     return response
 
 
+def _confirmed_timer_result(db, result, payload, assignment_id, camera_id):
+    if not payload.timer_cycle_id:
+        return result
+    from uuid import uuid5, NAMESPACE_URL
+    source_id = str(uuid5(NAMESPACE_URL, f"grill-gate:{assignment_id}:{camera_id}:{payload.timer_cycle_id}"))
+    db.expire_all()
+    row = db.scalar(select(GrillGateAlert).where(GrillGateAlert.source_event_id == source_id))
+    return {**result, "alert_raised": row is not None, "timer_cycle_id": payload.timer_cycle_id,
+            "alert_id": str(row.id) if row else None}
+
+
+def _reconcile_final_open_timer(db, job, payload):
+    """Validate frontend final-frame duration against the stored processing evidence."""
+    from uuid import uuid5, NAMESPACE_URL
+    final = (job.config_snapshot or {}).get("final_status") or {}
+    configuration = (job.config_snapshot or {}).get("alert_configuration") or {}
+    threshold = configuration.get("max_gate_open_seconds")
+    # Final evidence is recorded by the processor before marking the job completed.
+    threshold = final.get("open_without_crossing_threshold_seconds", threshold)
+    available = final.get("open_without_crossing_seconds")
+    evidence_state = final.get("gate_state")
+    timestamp = payload.video_timestamp_seconds
+    transitions = [item for item in final.get("transitions", [])
+                   if isinstance(item.get("video_time_seconds"), (int, float))
+                   and timestamp is not None and item["video_time_seconds"] <= timestamp]
+    if transitions:
+        latest = max(transitions, key=lambda item: item["video_time_seconds"])
+        evidence_state = latest.get("to_state")
+        start = latest["video_time_seconds"]
+        last_crossing = db.scalar(select(func.max(GrillGateEvent.video_time_seconds)).where(
+            GrillGateEvent.video_job_id == str(job.id), GrillGateEvent.event_type == "CROSSING_COMPLETED",
+            GrillGateEvent.video_time_seconds <= timestamp))
+        if last_crossing is not None:
+            start = max(start, last_crossing)
+        # Bound the supplied frontend duration using stored frame/crossing evidence.
+        available = max(0.0, timestamp - start)
+    if (not configuration.get("gate_open_enabled") or not payload.timer_cycle_id
+            or not payload.timer_cycle_id.startswith(f"video:{job.id}:")
+            or evidence_state != "FULLY_OPEN"
+            or threshold is None or threshold <= 0 or available is None
+            or payload.elapsed_seconds < threshold or payload.elapsed_seconds > available + 1
+            or payload.threshold_seconds != threshold
+            or (payload.video_timestamp_seconds is not None
+                and payload.video_timestamp_seconds > (job.progress_seconds or 0) + 0.1)):
+        raise HTTPException(status_code=422, detail="Frontend timer does not match final video evidence")
+    for supplied, direction in ((payload.entry_count, "OUTSIDE_TO_INSIDE"),
+                                (payload.exit_count, "INSIDE_TO_OUTSIDE")):
+        if supplied is None:
+            continue
+        actual = db.scalar(select(func.count()).select_from(GrillGateEvent).where(
+            GrillGateEvent.video_job_id == str(job.id),
+            GrillGateEvent.event_type == "CROSSING_COMPLETED", GrillGateEvent.direction == direction,
+            *([GrillGateEvent.video_time_seconds <= timestamp] if timestamp is not None else [])))
+        if supplied != actual:
+            raise HTTPException(status_code=422, detail="Crossing counts do not match final video evidence")
+    source_id = str(uuid5(NAMESPACE_URL, f"grill-gate:{job.id}:{job.id}:{payload.timer_cycle_id}"))
+    at = (job.started_at + timedelta(seconds=payload.video_timestamp_seconds)
+          if job.started_at and payload.video_timestamp_seconds is not None
+          else job.completed_at or datetime.now(timezone.utc))
+    row = persist_command(db, {"action": "create", "source_event_id": source_id, "capture_evidence": True, "payload": {
+        "source_event_type": "GATE_OPEN_TOO_LONG", "source_event_version": 1,
+        "occurred_at": at.isoformat(), "last_seen_at": at.isoformat(),
+        "severity": configuration.get("gate_open_severity", "WARNING"), "title": "Gate open without a completed crossing",
+        "resource_refs": {"video_job_id": str(job.id)},
+        "deduplication_key": f"grill-gate:{source_id}",
+        "domain_data": {"timer_source": "frontend", "video_time_seconds": payload.video_timestamp_seconds if payload.video_timestamp_seconds is not None else job.progress_seconds,
+                        "timer_cycle_id": payload.timer_cycle_id,
+                        "open_without_crossing_seconds": payload.elapsed_seconds,
+                        "gate_open_duration_seconds": payload.elapsed_seconds,
+                        "configured_threshold_seconds": threshold}}})
+    db.commit()
+    return {"alert_evaluated": True, "alert_raised": row is not None, "timer_cycle_id": payload.timer_cycle_id, "alert_id": str(row.id) if row else None}
+
+
+@router.post("/videos/{job_id}/alerts/evaluate-open-gate")
+def evaluate_video_open_gate_alert(job_id: str, payload: OpenTimerEvaluation, db: Db, caller: Caller):
+    """Evaluate the active video's open-gate rule using the frontend's elapsed timer."""
+    job = _job_or_404(db, job_id)
+    if payload.gate_session_id and payload.gate_session_id != f"video:{job_id}":
+        raise HTTPException(status_code=422, detail="Video session does not match job")
+    if job.status in {"COMPLETED", "FAILED", "CANCELLED"}:
+        return _reconcile_final_open_timer(db, job, payload)
+    result = get_grill_gate_video_jobs().evaluate_open_gate_alert(
+        job_id, payload.elapsed_seconds, payload.threshold_seconds, payload.timer_cycle_id, payload.video_timestamp_seconds)
+    if result is None:
+        raise HTTPException(status_code=409, detail="Video gate-state detector is not running for this job")
+    return _confirmed_timer_result(db, result, payload, job_id, job_id)
+
+
 def _registry_call(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
@@ -710,6 +813,18 @@ def get_gate_state(assignment_id: str, caller: Caller):
     status["open_without_crossing_seconds"] = (
         processing.get("open_without_crossing_seconds") if status.get("state") == "FULLY_OPEN" else None)
     return status
+
+
+@router.post("/assignments/{assignment_id}/alerts/evaluate-open-gate")
+def evaluate_live_open_gate_alert(assignment_id: str, payload: OpenTimerEvaluation, db: Db, caller: Caller):
+    """Evaluate the running detector's open-gate rule using the frontend's elapsed timer."""
+    _assignment_camera(db, assignment_id)
+    result = get_grill_gate_state_detector_manager().evaluate_open_gate_alert(
+        assignment_id, payload.elapsed_seconds, payload.threshold_seconds, payload.timer_cycle_id)
+    if result is None:
+        raise HTTPException(status_code=409, detail="Gate-state detector is not running for this assignment")
+    camera_id = _assignment_camera(db, assignment_id)
+    return _confirmed_timer_result(db, result, payload, assignment_id, camera_id)
 
 
 def _assignment_camera(db: Session, assignment_id: str, camera_id: str | None = None) -> str:
@@ -907,11 +1022,11 @@ def get_active_alerts(assignment_id: str, db: Db, caller: Caller,
 def get_alert_history(assignment_id: str, db: Db, caller: Caller,
                       camera_id: str | None = None, alert_type: str | None = None,
                       severity: Literal["INFO", "WARNING", "HIGH", "CRITICAL"] | None = None,
-                      status: Literal["ACKNOWLEDGED", "RESOLVED"] | None = None,
+                      status: Literal["ACKNOWLEDGED", "RESOLVED", "DISMISSED"] | None = None,
                       from_at: datetime | None = Query(default=None, alias="from"),
                       to_at: datetime | None = Query(default=None, alias="to"),
                       limit: int = Query(default=25, ge=1, le=100), offset: int = Query(default=0, ge=0)):
-    statuses = (status,) if status else ("ACKNOWLEDGED", "RESOLVED")
+    statuses = (status,) if status else ("ACKNOWLEDGED", "RESOLVED", "DISMISSED")
     return _local_alert_page(db, assignment_id, statuses=statuses, camera_id=camera_id,
         alert_type=alert_type, severity=severity, from_at=from_at, to_at=to_at,
         limit=limit, offset=offset)
@@ -926,13 +1041,15 @@ def get_grill_gate_alert(alert_id: str, db: Db, caller: Caller):
 
 
 def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session):
-    row = db.get(GrillGateAlert, alert_id)
+    row = db.scalar(select(GrillGateAlert).where(GrillGateAlert.id == alert_id).with_for_update())
     if row is None or row.use_case != "grill_gate":
         raise HTTPException(status_code=404, detail="Grill Gate alert not found")
     if row.row_version != body.expected_version:
         raise HTTPException(status_code=409, detail="Grill Gate alert changed; refresh and try again")
     if row.status not in {"OPEN", "ACKNOWLEDGED"}:
         raise HTTPException(status_code=409, detail="Only an active Grill Gate alert can be changed")
+    if action == "acknowledge" and row.status == "ACKNOWLEDGED":
+        return alert_dict(row)
     now = datetime.now(timezone.utc)
     if action == "acknowledge":
         if row.status == "OPEN":
@@ -940,11 +1057,14 @@ def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session):
             row.row_version += 1
             row.updated_at = now
     else:
-        row.status = "RESOLVED"
+        row.status = "DISMISSED" if action == "dismiss" else "RESOLVED"
         row.resolved_at = now
         row.resolution_note = (body.note or "Resolved by operator").strip()[:500]
         row.row_version += 1
         row.updated_at = now
+    row.source_event_version += 1
+    row.source_status = row.status
+    stage_publication(db, row)
     db.commit()
     db.refresh(row)
     return alert_dict(row)
@@ -960,3 +1080,38 @@ def resolve_grill_gate_alert(alert_id: str, body: AlertAction, db: Db, caller: C
     if not body.note or not body.note.strip():
         raise HTTPException(status_code=422, detail="A note is required to resolve an alert")
     return _act_on_alert(alert_id, "resolve", body, db)
+
+
+@router.get("/alerts/{alert_id}/evidence/{evidence_id}")
+def get_grill_gate_alert_evidence(alert_id: str, evidence_id: str, db: Db, caller: Caller,
+                                  assignment_id: str | None = None, video_job_id: str | None = None):
+    from fastapi.responses import FileResponse
+    from grill_gate_monitoring.services.alert_evidence import get_grill_gate_evidence
+    row = db.get(GrillGateAlert, alert_id)
+    if (row is None or bool(assignment_id) == bool(video_job_id)
+            or (assignment_id is not None and row.assignment_id != assignment_id)
+            or (video_job_id is not None and row.video_job_id != video_job_id)):
+        raise HTTPException(status_code=404, detail="Snapshot not found for this source")
+    ref = next((item for item in row.evidence_refs or [] if item.get("id") == evidence_id), None)
+    if ref is None:
+        raise HTTPException(status_code=404, detail="Snapshot unavailable")
+    try:
+        path = get_grill_gate_evidence().path(ref["storage_id"])
+    except (ValueError, KeyError):
+        raise HTTPException(status_code=404, detail="Snapshot unavailable") from None
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Snapshot unavailable")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@router.post("/alerts/publications/backfill")
+def backfill_grill_gate_alerts(db: Db, caller: Caller, dry_run: bool = True,
+                               limit: int = Query(default=100, ge=1, le=1000), offset: int = Query(default=0, ge=0)):
+    return backfill_publications(db, dry_run=dry_run, limit=limit, offset=offset)
+
+
+@router.post("/alerts/{alert_id}/dismiss")
+def dismiss_grill_gate_alert(alert_id: str, body: AlertAction, db: Db, caller: Caller):
+    if not body.note or not body.note.strip():
+        raise HTTPException(status_code=422, detail="A note is required to dismiss an alert")
+    return _act_on_alert(alert_id, "dismiss", body, db)

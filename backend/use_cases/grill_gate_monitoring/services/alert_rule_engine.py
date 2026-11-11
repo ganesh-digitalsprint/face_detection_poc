@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable
-from uuid import uuid4
+from uuid import uuid4, uuid5, NAMESPACE_URL
+import math
 
 from grill_gate_monitoring.schemas.alerts import GrillGateAlertConfig, DEFAULT_GRILL_GATE_ALERT_CONFIG
 from grill_gate_monitoring.services.diagnostics import log_diagnostic
@@ -26,10 +27,11 @@ class GrillGateAlertRuleEngine:
 
     def __init__(self, camera_id: str, assignment_id: str, publish: Callable[[dict], bool], *,
                  config: GrillGateAlertConfig = DEFAULT_GRILL_GATE_ALERT_CONFIG,
-                 source_context: dict | None = None):
+                 source_context: dict | None = None, frontend_timer_owned: bool = False):
         self.camera_id, self.assignment_id = str(camera_id), str(assignment_id)
         self._publish, self._config = publish, config
         self._source_context = source_context or {}
+        self._frontend_timer_owned = frontend_timer_owned
         self._state = "UNKNOWN"
         self._open_since: datetime | None = None
         self._open_episode_since: datetime | None = None
@@ -41,6 +43,8 @@ class GrillGateAlertRuleEngine:
         self._active_crossings = 0
         self._crossing_reliable = False
         self._active: dict[str, _ActiveCondition] = {}
+        self._pending_source_ids = {}
+        self._pending_commands = {}
         self._last_open_diagnostic_at: datetime | None = None
         self._unknown_since: datetime | None = None
 
@@ -83,6 +87,38 @@ class GrillGateAlertRuleEngine:
                 "seconds_since_crossing": seconds_since_crossing,
                 "source_timestamp": _iso(at) if at is not None else None,
                 "timer_state": timer_state}
+
+    def evaluate_frontend_open_timer(self, elapsed_seconds: float, at: datetime,
+                                     threshold_seconds: float | None = None, timer_cycle_id: str | None = None) -> dict:
+        """Raise the alert directly when the frontend open timer reaches its threshold."""
+        at = _utc(at)
+        elapsed = float(elapsed_seconds)
+        threshold = self._config.max_gate_open_seconds
+        evidence_since = self._last_completed_crossing_at or self._open_episode_since
+        available = max(0.0, (at - evidence_since).total_seconds()) if evidence_since else 0.0
+        if (not math.isfinite(elapsed) or not self._config.gate_open_enabled
+                or self._state != "FULLY_OPEN" or threshold is None or threshold <= 0
+                or elapsed < threshold or elapsed > available + 1.0
+                or (threshold_seconds is not None and threshold_seconds != threshold)):
+            return {"alert_evaluated": True, "alert_raised": False, "reason": "timer_evidence_mismatch"}
+        since = at - timedelta(seconds=elapsed)
+        self._open_alert_raised = self._raise(
+            "GATE_OPEN_TOO_LONG", since, at, self._config.gate_open_severity,
+            "Gate open without a completed crossing",
+            f"Gate remained open without a completed ENTRY or EXIT crossing for {elapsed:.3f} seconds.",
+            condition_data={"timer_cycle_id": timer_cycle_id, "configured_threshold_seconds": threshold,
+                            "gate_open_duration_seconds": round(elapsed, 3),
+                            "open_without_crossing_seconds": round(elapsed, 3),
+                            "gate_state": "FULLY_OPEN",
+                            "gate_open_since": _iso(since),
+                            "last_completed_crossing_at": (_iso(self._last_completed_crossing_at)
+                                                            if self._last_completed_crossing_at else None),
+                            "last_crossing_direction": self._last_crossing_direction,
+                            "timer_source": "frontend",
+                            "camera_id": self.camera_id,
+                            "assignment_id": self.assignment_id})
+        return {**self.monitoring_status(at), "alert_evaluated": True,
+                "alert_raised": self._open_alert_raised}
 
     def update_source_context(self, **context) -> None:
         self._source_context.update({key: value for key, value in context.items() if value is not None})
@@ -227,7 +263,7 @@ class GrillGateAlertRuleEngine:
                            active_crossings=self._active_crossings,
                            crossing_reliable=self._crossing_reliable, eligible=crossing_allows_alert)
             self._last_open_diagnostic_at = now
-        if (self._state == "FULLY_OPEN" and crossing_allows_alert and not self._open_alert_raised
+        if (not self._frontend_timer_owned and self._state == "FULLY_OPEN" and crossing_allows_alert and not self._open_alert_raised
                 and self._config.gate_open_enabled
                 and self._config.max_gate_open_seconds is not None):
             since = self._last_completed_crossing_at or self._open_episode_since
@@ -255,7 +291,7 @@ class GrillGateAlertRuleEngine:
                             f"Gate remained partially open longer than {self._config.max_partially_open_seconds:g} seconds.",
                             condition_data={"configured_threshold_seconds": self._config.max_partially_open_seconds})
 
-    def on_mesh_occupancy(self, count: int, at: datetime) -> None:
+    def on_mesh_occupancy(self, count: int, at: datetime, *, recovery_confirmed: bool = True) -> None:
         threshold = self._config.max_mesh_occupancy
         if not self._config.mesh_occupancy_enabled or threshold is None:
             return
@@ -267,7 +303,7 @@ class GrillGateAlertRuleEngine:
                             self._config.mesh_occupancy_severity, "Mesh occupancy limit exceeded",
                             f"Mesh occupancy is {count}; configured maximum is {threshold}.",
                             condition_data={"observed_occupancy": int(count), "maximum_occupancy": threshold})
-        else:
+        elif recovery_confirmed:
             self._resolve("MESH_OCCUPANCY_LIMIT_EXCEEDED", at,
                           f"Mesh occupancy returned within the configured maximum of {threshold}")
 
@@ -282,7 +318,10 @@ class GrillGateAlertRuleEngine:
             logger.info("Grill Gate duplicate alert condition suppressed camera=%s assignment=%s type=%s",
                         self.camera_id, self.assignment_id, alert_type)
             return True
-        source_id = str(uuid4())
+        cycle_id = (condition_data or {}).get("timer_cycle_id")
+        source_id = (str(uuid5(NAMESPACE_URL, f"grill-gate:{self.assignment_id}:{self.camera_id}:{cycle_id}"))
+                     if cycle_id else self._pending_source_ids.setdefault(alert_type,
+                         str(uuid5(NAMESPACE_URL, f"grill-gate:{self.assignment_id}:{self.camera_id}:{alert_type}:{_iso(since)}"))))
         event = _ActiveCondition(source_id, alert_type, since)
         resource_refs = ({"video_job_id": self._source_context["video_job_id"]}
                          if self._source_context.get("source_type") == "UPLOADED_VIDEO"
@@ -304,8 +343,10 @@ class GrillGateAlertRuleEngine:
                        source_event_id=source_id, condition_since=_iso(since),
                        threshold_seconds=self._config.max_gate_open_seconds if alert_type == "GATE_OPEN_TOO_LONG" else None)
         try:
-            if self._publish({"action": "create", "source_event_id": source_id,
-                              "idempotency_key": f"grill-gate:{source_id}", "payload": payload}):
+            command = self._pending_commands.setdefault(alert_type, {"action": "create", "source_event_id": source_id,
+                "idempotency_key": f"grill-gate:{source_id}", "payload": payload})
+            if self._publish(command):
+                self._pending_commands.pop(alert_type, None)
                 self._active[alert_type] = event
                 return True
         except Exception:
@@ -316,12 +357,15 @@ class GrillGateAlertRuleEngine:
     def _resolve(self, alert_type: str, at: datetime, note: str) -> None:
         event = self._active.get(alert_type)
         if event is None:
+            self._pending_source_ids.pop(alert_type, None)
+            self._pending_commands.pop(alert_type, None)
             return
         try:
             if self._publish({"action": "resolve", "source_event_id": event.source_event_id,
                               "expected_source_version": event.version, "note": note,
                               "resolved_at": _iso(at)}):
                 self._active.pop(alert_type, None)
+                self._pending_source_ids.pop(alert_type, None)
         except Exception:
             logger.exception("Grill Gate alert resolution submission failed camera=%s assignment=%s type=%s",
                              self.camera_id, self.assignment_id, alert_type)

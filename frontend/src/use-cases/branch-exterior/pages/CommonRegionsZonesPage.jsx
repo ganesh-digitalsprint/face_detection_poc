@@ -1,3 +1,4 @@
+import { prepareZonePolygons, isPolygonClosingClick, zoneValidationMessage } from '../../../utils/zonePolygons.js';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Camera, Check, ImagePlus, Pencil, Plus, RefreshCw, Trash2, Undo2, Video, X } from 'lucide-react';
@@ -72,6 +73,7 @@ function CommonUseCaseEditor({ useCase, useCases, onUseCaseChange, initialLocati
   const adapter = useMemo(() => buildRegistryAdapter(regionsRegistryApi, useCase.frontend_id), [useCase.frontend_id]);
   const [locations, setLocations] = useState([]); const [cameras, setCameras] = useState([]); const [assignments, setAssignments] = useState([]);
   const [locationId, setLocationId] = useState(''); const [cameraId, setCameraId] = useState(''); const [zones, setZones] = useState([]);
+  const [polygonComplete, setPolygonComplete] = useState(false);
   const [tool, setTool] = useState('select'); const [points, setPoints] = useState([]); const [editing, setEditing] = useState(null);
   const [zoneName, setZoneName] = useState(''); const [zoneType, setZoneType] = useState(useCase.zone_types?.[0]?.key || '');
   const [reference, setReference] = useState('bottom_center'); const [dialog, setDialog] = useState(''); const [loading, setLoading] = useState(false);
@@ -214,16 +216,32 @@ function CommonUseCaseEditor({ useCase, useCases, onUseCaseChange, initialLocati
     }, 'image/jpeg', 0.92);
   };
   const addPoint = (event) => {
-    if (tool !== 'draw') return; const rect = stageRef.current.getBoundingClientRect();
-    setPoints((current) => [...current, { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * 1280, y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) * 720 }]);
+    if (tool !== 'draw' || polygonComplete) return;
+    const rect = stageRef.current.getBoundingClientRect();
+    const next = { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) };
+    if (isPolygonClosingClick(points.map((p) => ({ x: p.x / 1280, y: p.y / 720 })), next, rect)) {
+      try {
+        prepareZonePolygons([{ name: zoneName || 'New zone', polygon: points.map((p) => [p.x / 1280, p.y / 720]) }], { width: 1280, height: 720 });
+        setPolygonComplete(true); setError('');
+      } catch (exception) { setError(zoneValidationMessage(exception)); }
+      return;
+    }
+    setPoints((current) => [...current, { x: next.x * 1280, y: next.y * 720 }]);
   };
-  const startZone = () => { if (!assignment) { setError('Select a camera assigned to this use case first.'); return; } setEditing(null); setZoneName(''); setZoneType(useCase.zone_types?.[0]?.key || ''); setReference('bottom_center'); setPoints([]); setTool('draw'); setError(''); };
-  const editZone = (zone) => { setEditing(zone); setZoneName(zone.name); setZoneType(zone.zone_type || useCase.zone_types?.[0]?.key || ''); setReference(zone.reference || 'bottom_center'); setPoints((zone.polygon || []).map((point) => ({ x: (Array.isArray(point) ? point[0] : point.x) * 1280, y: (Array.isArray(point) ? point[1] : point.y) * 720 }))); setTool('draw'); };
+  const startZone = () => { setPolygonComplete(false); if (!assignment) { setError('Select a camera assigned to this use case first.'); return; } setEditing(null); setZoneName(''); setZoneType(useCase.zone_types?.[0]?.key || ''); setReference('bottom_center'); setPoints([]); setTool('draw'); setError(''); };
+  const editZone = (zone) => { setPolygonComplete(false); setEditing(zone); setZoneName(zone.name); setZoneType(zone.zone_type || useCase.zone_types?.[0]?.key || ''); setReference(zone.reference || 'bottom_center'); setPoints((zone.polygon || []).map((point) => ({ x: (Array.isArray(point) ? point[0] : point.x) * 1280, y: (Array.isArray(point) ? point[1] : point.y) * 720 }))); setTool('draw'); };
   const saveZone = async () => {
     if (!assignment || points.length < 3 || !zoneName.trim()) { setError('Choose a name and draw at least three points before saving.'); return; }
     setSaving(true); setError('');
-    try { await adapter.saveZone(assignment.id, editing, { name: zoneName.trim(), zone_type: zoneType, reference }, points.map((point) => ({ x: point.x / 1280, y: point.y / 720 }))); setZones(await adapter.loadZones(assignment.id)); setPoints([]); setEditing(null); setTool('select'); }
-    catch (exception) { setError(exception.response?.data?.detail || exception.message || 'Zone could not be saved.'); }
+    try {
+      const draft = { name: zoneName.trim(), zone_type: zoneType, reference,
+        polygon: points.map((point) => [point.x / 1280, point.y / 720]) };
+      // Validate the complete configuration before making any mutation.
+      prepareZonePolygons([...zones.filter((z) => z.id !== editing?.id), draft], { width: 1280, height: 720 });
+      const clean = prepareZonePolygons([draft], { width: 1280, height: 720 })[0];
+      await adapter.saveZone(assignment.id, editing, clean, clean.polygon.map(([x, y]) => ({ x, y })), { width: 1280, height: 720 }); setZones(await adapter.loadZones(assignment.id)); setPoints([]); setEditing(null); setTool('select'); }
+    catch (exception) { setError(zoneValidationMessage(exception, [{ name: zoneName }])); }
     finally { setSaving(false); }
   };
   const removeZone = async (zone) => { if (!assignment || !window.confirm(`Delete “${zone.name}”?`)) return; try { await adapter.deleteZone(assignment.id, zone.id); setZones(await adapter.loadZones(assignment.id)); } catch (exception) { setError(exception.response?.data?.detail || exception.message || 'Zone could not be deleted.'); } };
@@ -245,7 +263,7 @@ function CommonUseCaseEditor({ useCase, useCases, onUseCaseChange, initialLocati
       </div>
     </section>
     <section className="mt-5 border-t border-slate-200 pt-5"><h2 className="mb-3 text-sm font-semibold">Camera preview and zone editor</h2>
-      <div className="mb-3 flex flex-wrap items-center gap-2"><button className={`${btn} ${tool === 'select' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}`} onClick={() => { setTool('select'); setPoints([]); }}><Camera size={13}/> Select</button><button className={`${btn} ${tool === 'draw' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`} disabled={!assignment} onClick={startZone}><Plus size={13}/> Draw zone</button><button className={`${btn} bg-slate-100 text-slate-700`} disabled={!points.length} onClick={() => setPoints((current) => current.slice(0, -1))}><Undo2 size={13}/> Undo</button><button className={`${btn} bg-slate-100 text-slate-700`} disabled={!points.length} onClick={() => { setPoints([]); setEditing(null); setZoneName(''); }}><X size={13}/> Clear</button>{previewStatus === 'live' && <><button className={`${btn} bg-blue-100 text-blue-700`} onClick={capturePreviewFrame}><Camera size={13}/> Capture frame</button><button className={`${btn} bg-red-100 text-red-700`} onClick={stopPreview}><X size={13}/> Stop preview</button></>}{previewStatus === 'connecting' && <button className={`${btn} bg-red-100 text-red-700`} onClick={stopPreview}><X size={13}/> Stop preview</button>}{frameUrl && <button className={`${btn} bg-slate-100 text-slate-700`} onClick={showLivePreview}>Live preview</button>}{(previewStatus === 'stopped' || previewStatus === 'error') && activeSource?.source_type === 'browser_webcam' && <button className={`${btn} bg-blue-100 text-blue-700`} onClick={retryPreview}>{previewStatus === 'error' ? 'Retry preview' : 'Start preview'}</button>}<label className={`${btn} cursor-pointer bg-slate-100 text-slate-700`}><ImagePlus size={13}/> Upload image<input type="file" accept="image/*" className="hidden" onChange={setReferenceImage}/></label>
+      <div className="mb-3 flex flex-wrap items-center gap-2"><button className={`${btn} ${tool === 'select' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}`} onClick={() => { setTool('select'); setPoints([]); }}><Camera size={13}/> Select</button><button className={`${btn} ${tool === 'draw' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`} disabled={!assignment} onClick={startZone}><Plus size={13}/> Draw zone</button><button className={`${btn} bg-slate-100 text-slate-700`} disabled={!points.length} onClick={() => { setPoints((current) => current.slice(0, -1)); setPolygonComplete(false); }}><Undo2 size={13}/> Undo</button><button className={`${btn} bg-slate-100 text-slate-700`} disabled={!points.length} onClick={() => { setPoints([]); setEditing(null); setZoneName(''); setPolygonComplete(false); }}><X size={13}/> Clear</button>{previewStatus === 'live' && <><button className={`${btn} bg-blue-100 text-blue-700`} onClick={capturePreviewFrame}><Camera size={13}/> Capture frame</button><button className={`${btn} bg-red-100 text-red-700`} onClick={stopPreview}><X size={13}/> Stop preview</button></>}{previewStatus === 'connecting' && <button className={`${btn} bg-red-100 text-red-700`} onClick={stopPreview}><X size={13}/> Stop preview</button>}{frameUrl && <button className={`${btn} bg-slate-100 text-slate-700`} onClick={showLivePreview}>Live preview</button>}{(previewStatus === 'stopped' || previewStatus === 'error') && activeSource?.source_type === 'browser_webcam' && <button className={`${btn} bg-blue-100 text-blue-700`} onClick={retryPreview}>{previewStatus === 'error' ? 'Retry preview' : 'Start preview'}</button>}<label className={`${btn} cursor-pointer bg-slate-100 text-slate-700`}><ImagePlus size={13}/> Upload image<input type="file" accept="image/*" className="hidden" onChange={setReferenceImage}/></label>
         {points.length > 0 && <div className="ml-auto flex flex-wrap items-center gap-2"><input className="min-h-8 w-40 rounded-md border border-slate-300 px-2 text-xs" value={zoneName} onChange={(event) => setZoneName(event.target.value)} placeholder="Zone name" aria-label="Zone name"/>{!isVault && <select className="min-h-8 rounded-md border border-slate-300 px-2 text-xs" value={zoneType} onChange={(event) => setZoneType(event.target.value)} aria-label="Zone type">{(useCase.zone_types || []).map((type) => <option key={type.key} value={type.key}>{type.label}</option>)}</select>}<select className="min-h-8 rounded-md border border-slate-300 px-2 text-xs" value={reference} onChange={(event) => setReference(event.target.value)} aria-label="Zone reference"><option value="bottom_center">Bottom center</option><option value="center">Center</option></select><button className={`${btn} bg-emerald-100 text-emerald-800`} disabled={saving || points.length < 3} onClick={saveZone}><Check size={13}/>{saving ? 'Saving…' : 'Save changes'}</button></div>}
       </div>
       <div ref={stageRef} className="relative overflow-hidden rounded-xl bg-[#26363c]" style={{ aspectRatio: String(frameAspect) }} onClick={addPoint} role="img" aria-label="Camera preview and polygon editor">
@@ -255,6 +273,7 @@ function CommonUseCaseEditor({ useCase, useCases, onUseCaseChange, initialLocati
         </>}
         <canvas ref={canvasRef} width="1280" height="720" className={`absolute inset-0 h-full w-full ${tool === 'draw' ? 'cursor-crosshair' : 'cursor-default'}`}/>
       </div>
+      {tool === 'draw' && <p className="mt-2 text-xs text-slate-500">{polygonComplete ? 'Outline complete. Save the zone, or Undo to adjust a corner.' : 'Click corners in order, then click near the first corner to finish.'}</p>}
       {!frameUrl && <p className="mt-2 text-xs text-slate-500">Capture a frame from the live preview or upload an image before drawing. Vault polygons use normalized raw, unmirrored frame coordinates.</p>}
       {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     </section>

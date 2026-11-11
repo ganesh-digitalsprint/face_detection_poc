@@ -30,7 +30,7 @@ services:
     environment:
       ALERT_DATABASE_URL: postgresql+psycopg://fedbank:${POSTGRES_PASSWORD}@postgres:5432/alert_service
       ALERT_PRODUCER_CREDENTIALS: >-
-        {"${VAULT_ALERT_PRODUCER_TOKEN:?Set a unique vault producer token}":{"use_case":"vault_monitoring","producer":"vault-monitoring"},"${BRANCH_ALERT_PRODUCER_TOKEN:?Set a unique branch producer token}":{"use_case":"branch_exterior","producer":"branch-exterior-monitoring"}}
+        {"${VAULT_ALERT_PRODUCER_TOKEN:?Set a unique vault producer token}":{"use_case":"vault_monitoring","producer":"vault-monitoring"},"${BRANCH_ALERT_PRODUCER_TOKEN:?Set a unique branch producer token}":{"use_case":"branch_exterior","producer":"branch-exterior-monitoring"},"${GRILL_GATE_ALERT_PRODUCER_TOKEN:?Set a unique grill gate producer token}":{"use_case":"grill_gate","producer":"grill-gate-monitoring"}}
       ALERT_OPERATOR_CREDENTIALS: >-
         {"${ALERT_SERVICE_OPERATOR_TOKEN:?Set an operator token}":{"actor_id":"production-operator","use_cases":["*"]}}
     depends_on:
@@ -71,6 +71,7 @@ services:
       WARMUP_MODEL_ON_STARTUP: "false"
       ALERT_SERVICE_BASE_URL: http://alert-service:8012
       ALERT_SERVICE_TOKEN: ${VAULT_ALERT_PRODUCER_TOKEN}
+      GRILL_GATE_ALERT_SERVICE_TOKEN: ${GRILL_GATE_ALERT_PRODUCER_TOKEN}
     volumes:
       - vault-uploads:/app/uploads
       - vault-runtime:/app/var

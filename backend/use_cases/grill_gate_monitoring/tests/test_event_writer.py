@@ -1,3 +1,4 @@
+from app.db.models.vault_room import VaultAuditEvent
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, select
@@ -44,7 +45,7 @@ def test_crossing_and_mesh_events_are_persisted_as_grill_gate_rows():
 def test_rule_alert_commands_are_durable_deduplicated_and_resolved_locally(tmp_path):
     database = tmp_path / "grill-gate-alerts.sqlite"
     engine = create_engine(f"sqlite+pysqlite:///{database}")
-    Base.metadata.create_all(engine, tables=[GrillGateAlert.__table__])
+    Base.metadata.create_all(engine, tables=[GrillGateAlert.__table__, VaultAuditEvent.__table__])
     factory = sessionmaker(engine, expire_on_commit=False)
     event_id = "episode-1"
     at = datetime(2026, 11, 9, tzinfo=timezone.utc)
@@ -79,7 +80,7 @@ def test_rule_alert_commands_are_durable_deduplicated_and_resolved_locally(tmp_p
 
 def test_shared_fanout_failure_does_not_block_local_alert_enqueue(tmp_path):
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'alerts.sqlite'}")
-    Base.metadata.create_all(engine, tables=[GrillGateAlert.__table__])
+    Base.metadata.create_all(engine, tables=[GrillGateAlert.__table__, VaultAuditEvent.__table__])
     writer = GrillGateAlertWriter(sessionmaker(engine, expire_on_commit=False))
     writer.start()
 

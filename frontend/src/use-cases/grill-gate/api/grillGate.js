@@ -1,3 +1,5 @@
+import { grillEvidenceRequest } from '../../../api/alertServiceModel.js';
+import { validatedZoneConfiguration } from '../../../utils/zonePolygons.js';
 import client from '../../../api/client.js';
 import { regionsRegistryApi } from '../../../api/regionsRegistry.js';
 
@@ -27,7 +29,7 @@ export const uploadGrillGateVideo = (file, configurationOrAssignmentId, { onProg
   if (typeof configurationOrAssignmentId === 'string') {
     body.append('template_assignment_id', configurationOrAssignmentId);
   } else if (configurationOrAssignmentId) {
-    body.append('configuration', JSON.stringify(configurationOrAssignmentId));
+    body.append('configuration', JSON.stringify(validatedZoneConfiguration(configurationOrAssignmentId)));
   }
   return client.post(`${root}/videos`, body, {
     headers, signal, onUploadProgress: (event) => onProgress?.(event.total ? event.loaded / event.total : null),
@@ -53,7 +55,7 @@ export const deleteGrillGateVideoJob = (jobId) =>
 export const getVideoJobConfig = (jobId, signal) =>
   client.get(`${root}/videos/${encodeURIComponent(jobId)}/config`, { headers, signal, timeout: 10000 }).then((r) => r.data);
 export const putVideoJobConfig = (jobId, config) =>
-  client.put(`${root}/videos/${encodeURIComponent(jobId)}/config`, config, { headers, timeout: 15000 }).then((r) => r.data);
+  client.put(`${root}/videos/${encodeURIComponent(jobId)}/config`, validatedZoneConfiguration(config), { headers, timeout: 15000 }).then((r) => r.data);
 export const copyVideoJobConfig = (jobId, source) =>
   client.post(`${root}/videos/${encodeURIComponent(jobId)}/config/copy`, source, { headers, timeout: 15000 }).then((r) => r.data);
 export const measureVideoJobEndpoints = (jobId, closedT, openT) =>
@@ -63,9 +65,9 @@ export const listGrillGateZoneConfigurations = () =>
 export const getGrillGateZoneConfiguration = (id) =>
   client.get(`${root}/zone-configurations/${encodeURIComponent(id)}`, { headers, timeout: 10000 }).then((r) => r.data);
 export const createGrillGateZoneConfiguration = (configuration) =>
-  client.post(`${root}/zone-configurations`, configuration, { headers, timeout: 15000 }).then((r) => r.data);
+  client.post(`${root}/zone-configurations`, validatedZoneConfiguration(configuration), { headers, timeout: 15000 }).then((r) => r.data);
 export const updateGrillGateZoneConfiguration = (id, configuration) =>
-  client.put(`${root}/zone-configurations/${encodeURIComponent(id)}`, configuration, { headers, timeout: 15000 }).then((r) => r.data);
+  client.put(`${root}/zone-configurations/${encodeURIComponent(id)}`, validatedZoneConfiguration(configuration), { headers, timeout: 15000 }).then((r) => r.data);
 export const duplicateGrillGateZoneConfiguration = (id, name) =>
   client.post(`${root}/zone-configurations/${encodeURIComponent(id)}/duplicate`, { name }, { headers, timeout: 15000 }).then((r) => r.data);
 export const deleteGrillGateZoneConfiguration = (id) =>
@@ -87,8 +89,16 @@ export const getLiveMeshStatus = (assignmentId, signal) => assignmentGet(assignm
 export const getLiveMeshEvents = (assignmentId, params, signal) => assignmentGet(assignmentId, 'mesh-events', params, signal);
 export const getLiveActiveAlerts = (assignmentId, params, signal) => assignmentGet(assignmentId, 'alerts/active', params, signal);
 export const getLiveAlertHistory = (assignmentId, params, signal) => assignmentGet(assignmentId, 'alerts/history', params, signal);
-export const getGrillGateAlert = (alertId) =>
-  client.get(`${root}/alerts/${encodeURIComponent(alertId)}`, { headers, timeout: 15000 }).then((r) => r.data);
+export const evaluateLiveOpenGateAlert = (assignmentId, elapsedSeconds, thresholdSeconds, context = {}) =>
+  client.post(`${root}/assignments/${encodeURIComponent(assignmentId)}/alerts/evaluate-open-gate`,
+    { ...context, elapsed_seconds: elapsedSeconds, threshold_seconds: thresholdSeconds },
+    { headers, timeout: 10000 }).then((r) => r.data);
+export const evaluateVideoOpenGateAlert = (jobId, elapsedSeconds, thresholdSeconds, context = {}) =>
+  client.post(`${root}/videos/${encodeURIComponent(jobId)}/alerts/evaluate-open-gate`,
+    { ...context, elapsed_seconds: elapsedSeconds, threshold_seconds: thresholdSeconds },
+    { headers, timeout: 10000 }).then((r) => r.data);
+export const getGrillGateAlert = (alertId, signal) =>
+  client.get(`${root}/alerts/${encodeURIComponent(alertId)}`, { headers, signal, timeout: 15000 }).then((r) => r.data);
 
 /** Alert lifecycle for live and uploaded-video alerts alike; a resolve needs a note. */
 export const acknowledgeGrillGateAlert = (alertId, expectedVersion) =>
@@ -123,3 +133,14 @@ export const deleteAssignmentZone = (assignmentId, zoneId) =>
 /** Stage 1 calibration is stored on the assignment and validated server-side; pass null to clear it. */
 export const saveAssignmentCalibration = (assignmentId, calibration) =>
   regionsRegistryApi.patch(`/assignments/${encodeURIComponent(assignmentId)}`, { calibration });
+
+
+export const getGrillGateSnapshot = (ref, signal) => {
+  const request = grillEvidenceRequest(ref);
+  if (!request) return Promise.reject(new Error('Snapshot unavailable for this source.'));
+  return client.get(request.path, { params: request.params, headers, signal, responseType: 'blob', timeout: 15000 })
+    .then((r) => {
+      if (!r.data?.type?.startsWith('image/')) throw new Error('Snapshot response is not an image.');
+      return r.data;
+    });
+};

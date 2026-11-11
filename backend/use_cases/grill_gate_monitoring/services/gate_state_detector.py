@@ -96,8 +96,9 @@ class GrillGateStateDetector:
         if self._frame_processor is not None:
             result["processing"] = self._frame_processor.status()
             for key in ("gate_state", "gate_open_seconds", "gate_open_since", "open_without_crossing_seconds",
-                        "open_without_crossing_threshold_seconds", "last_crossing_at", "last_crossing_direction",
-                        "timer_state"):
+                        "open_without_crossing_threshold_seconds", "threshold_configured", "progress_percent",
+                        "source_timestamp", "last_crossing_at", "last_crossing_direction",
+                        "seconds_since_crossing", "timer_state"):
                 result[key] = result["processing"].get(key)
             if result["state"] != "FULLY_OPEN":
                 result["gate_open_seconds"] = None
@@ -117,6 +118,13 @@ class GrillGateStateDetector:
             return {"config_status": "not_started", "occupancy_count": 0,
                     "occupied_track_ids": [], "occupied": False, "last_updated_at": None}
         return self._frame_processor.mesh_status()
+
+    def evaluate_open_gate_alert(self, frontend_elapsed_seconds: float | None = None,
+                                 frontend_threshold_seconds: float | None = None, timer_cycle_id: str | None = None, video_timestamp_seconds: float | None = None) -> dict | None:
+        if self._frame_processor is None:
+            return None
+        return self._frame_processor.evaluate_open_gate_alert(
+            frontend_elapsed_seconds, frontend_threshold_seconds, timer_cycle_id, video_timestamp_seconds)
 
     # -- internals --------------------------------------------------------
     def _set(self, **kw) -> None:
@@ -203,9 +211,11 @@ class GrillGateStateDetector:
             now = self._clock()
             if pkt is None:
                 if self._subscription_closed():
-                    machine.mark_unknown(now, "video ended" if getattr(self._sub, "source_type", "LIVE_CAMERA") == "UPLOADED_VIDEO" else "camera worker stopped")
-                    self._measurement_availability(machine, False, datetime.now(timezone.utc))
+                    # EOF is not a new gate observation. Preserve the final processed
+                    # sample for frontend final-frame reconciliation.
                     if getattr(self._sub, "source_type", "LIVE_CAMERA") != "UPLOADED_VIDEO":
+                        machine.mark_unknown(now, "camera worker stopped")
+                        self._measurement_availability(machine, False, datetime.now(timezone.utc))
                         self._set(error="camera subscription closed")
                     break
                 if now - last_frame > self._no_frame_s:

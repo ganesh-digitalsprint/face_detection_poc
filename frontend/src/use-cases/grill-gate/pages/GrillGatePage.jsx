@@ -1,3 +1,6 @@
+import { videoAlertSession } from '../grillAlertFeed.js';
+import { store } from '../../../store/index.js';
+import { evaluateOpenTimer } from '../openTimerRuntime.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useSearchParams } from 'react-router-dom';
@@ -13,9 +16,9 @@ import LiveCameraSection from '../components/LiveCameraSection.jsx';
 import UploadedVideoSection from '../components/UploadedVideoSection.jsx';
 import ZonesSection from '../components/ZonesSection.jsx';
 import { ErrorNote, Pill } from '../components/ui.jsx';
-import { restoreGateMonitoring, selectGateMonitoring } from '../../../store/slices/gateMonitoringSlice.js';
+import { gateSession, restoreGateMonitoring, selectGateMonitoring } from '../../../store/slices/gateMonitoringSlice.js';
 
-const TABS = [['live', 'Live Camera'], ['video', 'Uploaded Video Processing'], ['zones', 'Zones & Regions']];
+const TABS = [['live', 'Live monitoring'], ['video', 'Uploaded Video Processing'], ['zones', 'Zones & Regions']];
 // Old links keep working: each earlier ?view= value lands on the tab that now holds its content.
 const LEGACY_VIEWS = { monitor: 'live', camera: 'live', alerts: 'live', events: 'live', calibration: 'zones' };
 
@@ -50,9 +53,19 @@ function ProcessingBar({ job, fps }) {
 }
 
 export default function GrillGatePage() {
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const [params, setParams] = useSearchParams();
   const dispatch = useDispatch();
   const gateMonitoring = useSelector(selectGateMonitoring);
+  useEffect(() => {
+    const tick = () => setTimerNow(Date.now());
+    const interval = window.setInterval(tick, 1000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, []);
   const registry = useGrillGateRegistry();
   const requested = params.get('assignment');
   const item = registry.items.find((entry) => entry.assignment.id === requested) ?? registry.items[0] ?? null;
@@ -85,6 +98,12 @@ export default function GrillGatePage() {
   const selectedJobId = requestedJob ?? selectionList.jobs[0]?.job_id ?? null;
   const videoJob = useVideoJob(selectedJobId);
   const { job, monitoring: resultMonitoring, events, transitions, alerts, alertsAvailable } = videoJob;
+  // Alert source selection survives tab changes and monitoring/timer resets.
+  const [videoAlertJobId, setVideoAlertJobId] = useState(null);
+  useEffect(() => {
+    if (job?.job_id === selectedJobId) setVideoAlertJobId((previous) => videoAlertSession(previous, job));
+  }, [selectedJobId, job?.job_id, job?.status, job?.started_at]);
+
   const liveSessionId = assignmentId ? `live:${assignmentId}` : null;
   const videoSessionId = selectedJobId ? `video:${selectedJobId}` : null;
   const activeSessionId = view === 'live' ? liveSessionId : view === 'video' ? videoSessionId : null;
@@ -92,21 +111,30 @@ export default function GrillGatePage() {
     if (activeSessionId) dispatch(restoreGateMonitoring({ sessionId: activeSessionId }));
   }, [activeSessionId, dispatch]);
 
-  const liveClassification = {
-    sessionId: liveSessionId,
-    gateState: gateMonitoring.sessionId === liveSessionId ? gateMonitoring.gateState : 'UNKNOWN',
-    direction: gateMonitoring.sessionId === liveSessionId ? gateMonitoring.direction : null,
-  };
-  const videoClassification = {
-    sessionId: videoSessionId,
-    gateState: gateMonitoring.sessionId === videoSessionId ? gateMonitoring.gateState : 'UNKNOWN',
-    direction: gateMonitoring.sessionId === videoSessionId ? gateMonitoring.direction : null,
-  };
-  const liveView = useMemo(() => liveMonitoring(live, liveClassification), [live, liveClassification.gateState,
-    liveClassification.direction, liveClassification.sessionId]);
+  const liveClassification = gateSession(gateMonitoring, liveSessionId);
+  const videoClassification = gateSession(gateMonitoring, videoSessionId);
+  const liveView = useMemo(() => liveMonitoring({ ...live, now: timerNow }, liveClassification), [live, timerNow,
+    liveClassification.gateState, liveClassification.direction, liveClassification.sessionId,
+    liveClassification.transitions, liveClassification.cycleStartedAt, liveClassification.lastCrossingAt]);
   const videoView = useMemo(() => videoMonitoring({ job, monitoring: resultMonitoring, gateClassification: videoClassification,
-    events, transitions, alerts, alertsAvailable }), [job, resultMonitoring, videoClassification.gateState,
-    videoClassification.direction, videoClassification.sessionId, events, transitions, alerts, alertsAvailable]);
+    events, transitions, alerts, alertsAvailable }), [job, resultMonitoring,
+    videoClassification.gateState, videoClassification.direction, videoClassification.sessionId,
+    videoClassification.transitions, videoClassification.cycleStartedAt, videoClassification.lastCrossingAt,
+    videoClassification.videoTimestampSeconds, videoClassification.videoProcessingStatus,
+    videoClassification.gateOpenedAt, videoClassification.videoGateOpenStoppedSeconds,
+    events, transitions, alerts, alertsAvailable]);
+  useEffect(() => {
+    evaluateOpenTimer(liveView).then(() => {
+      const cycle = `${liveView.gateSessionId}:${liveView.cycleStartedAt}`;
+      if (gateSession(store.getState().gateMonitoring, liveView.gateSessionId).alertRequests?.[cycle]?.status === 'ALERT_RAISED'
+          && !liveView.alerts.some((a) => a.type === 'GATE_OPEN_TOO_LONG')) live.refresh();
+    });
+    evaluateOpenTimer(videoView).then(() => {
+      const cycle = `${videoView.gateSessionId}:${videoView.cycleStartedAt}`;
+      if (gateSession(store.getState().gateMonitoring, videoView.gateSessionId).alertRequests?.[cycle]?.status === 'ALERT_RAISED'
+          && !videoView.alerts.some((a) => a.type === 'GATE_OPEN_TOO_LONG')) videoJob.refresh();
+    });
+  }, [liveView, videoView]);
   const jobStatus = job?.status;
   useEffect(() => { setListKey((value) => value + 1); }, [selectedJobId, jobStatus]);
   useEffect(() => { if (videoJob.notFound && requestedJob) setParam('job', null); }, [videoJob.notFound, requestedJob]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -169,7 +197,7 @@ export default function GrillGatePage() {
           onSelect={(id) => setParam('assignment', id)} onRegistryChanged={registry.reload} />
       )}
       {view === 'video' && (
-        <UploadedVideoSection videoJob={videoJob} jobs={selectionList.jobs} jobsError={selectionList.error} selectedJobId={selectedJobId}
+        <UploadedVideoSection alertJobId={videoAlertJobId} videoJob={videoJob} jobs={selectionList.jobs} jobsError={selectionList.error} selectedJobId={selectedJobId}
           onSelectJob={(id) => setParam('job', id)} onJobsChanged={() => setListKey((value) => value + 1)} upload={upload} monitoring={videoView}
           assignmentItem={item}
           onOpenZones={() => setParams((current) => { const next = new URLSearchParams(current); next.set('view', 'zones'); next.set('apply', 'video'); return next; })} />

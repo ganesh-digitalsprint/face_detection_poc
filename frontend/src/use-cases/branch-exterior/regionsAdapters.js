@@ -1,3 +1,4 @@
+import { prepareZonePolygons, normalizePolygon, polygonError, ZonePolygonError } from '../../utils/zonePolygons.js';
 import { api } from './api/index.js';
 import { regionsRegistryApi } from '../../api/regionsRegistry.js';
 
@@ -37,6 +38,10 @@ export function buildBranchAdapter(client) {
     listCameraStatuses: () => client.get('/cameras/status/all'),
     loadZones: (cameraId) => client.get(`/zones?camera_id=${encodeURIComponent(cameraId)}`),
     saveZone: async (cameraId, editing, body, polygon) => {
+      const clean = normalizePolygon(polygon, { minArea: 0 });
+      const invalid = polygonError(clean, { minArea: 0 });
+      if (invalid) throw new ZonePolygonError(invalid, body, 0);
+      polygon = clean.map(([x, y]) => ({ x, y }));
       const payload = buildZoneSavePayload(cameraId, body, polygon, Boolean(editing));
       try {
         if (editing) await client.patch(`/zones/${editing.id}`, payload);
@@ -84,7 +89,8 @@ export function buildRegistryAdapter(client, useCase) {
     listCameras: (locationId = '') => client.get(`/cameras?use_case=${encodeURIComponent(useCaseId)}${locationId ? `&location_id=${encodeURIComponent(locationId)}` : ''}`),
     listAssignments: (locationId = '') => client.get(`/assignments?use_case=${encodeURIComponent(useCaseId)}${locationId ? `&location_id=${encodeURIComponent(locationId)}` : ''}`),
     loadZones: async (assignmentId) => (await client.get(`/assignments/${encodeURIComponent(assignmentId)}/zones`)).map(asEditorZone),
-    saveZone: async (assignmentId, editing, body, polygon) => {
+    saveZone: async (assignmentId, editing, body, polygon, frame = {}) => {
+      polygon = prepareZonePolygons([{ ...body, polygon }], frame)[0].polygon.map(([x, y]) => ({ x, y }));
       const common = {
         name: body.name,
         polygon: polygon.map(({ x, y }) => [x, y]),

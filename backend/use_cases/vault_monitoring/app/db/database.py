@@ -159,6 +159,17 @@ def init_db() -> None:
         # Register ORM mappings lazily, without connecting during module import.
         from app.db import models  # noqa: F401
         Base.metadata.create_all(bind=engine)
+        # Additive lifecycle compatibility for existing PostgreSQL Grill Gate tables.
+        if engine.dialect.name == "postgresql":
+            from sqlalchemy import inspect
+            checks = inspect(engine).get_check_constraints("grill_gate_alerts")
+            old = [c for c in checks if "status" in c["sqltext"] and "ACKNOWLEDGED" in c["sqltext"] and "DISMISSED" not in c["sqltext"]]
+            if old:
+                quote = engine.dialect.identifier_preparer.quote
+                with engine.begin() as connection:
+                    for check in old:
+                        connection.exec_driver_sql(f'ALTER TABLE grill_gate_alerts DROP CONSTRAINT {quote(check["name"])}')
+                    connection.exec_driver_sql("ALTER TABLE grill_gate_alerts ADD CONSTRAINT ck_grill_gate_alert_status CHECK (status IN ('OPEN','ACKNOWLEDGED','RESOLVED','DISMISSED'))")
     except SQLAlchemyError as exc:
         logger.exception("Database initialization failed")
         raise DatabaseConnectionError("Database initialization failed") from exc

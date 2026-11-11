@@ -12,6 +12,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models.camera_registry import RegistryCamera
+from app.db.models.vault_room import VaultAuditEvent
+from grill_gate_monitoring.services.alert_delivery import stage_publication, ENTITY, PENDING
 from grill_gate_monitoring.models.alert import GrillGateAlert
 
 logger = logging.getLogger(__name__)
@@ -34,7 +36,7 @@ def alert_dict(row: GrillGateAlert) -> dict:
     if row.status == "OPEN":
         actions.append("ACKNOWLEDGED")
     if row.status in {"OPEN", "ACKNOWLEDGED"}:
-        actions.append("RESOLVED")
+        actions.extend(["RESOLVED", "DISMISSED"])
     return {
         "id": str(row.id), "source_event_id": row.source_event_id,
         "source_event_version": row.source_event_version, "use_case": "grill_gate",
@@ -50,7 +52,8 @@ def alert_dict(row: GrillGateAlert) -> dict:
         "configured_threshold_seconds": row.configured_threshold_seconds,
         "deduplication_key": row.deduplication_key, "source_status": row.source_status,
         "resource_refs": row.resource_refs or {}, "domain_data": row.domain_data or {},
-        "evidence_refs": row.evidence_refs or [], "resolution_note": row.resolution_note,
+        "evidence_status": (row.domain_data or {}).get("evidence_status", "UNAVAILABLE"),
+        "lifecycle_owner": "source", "evidence_refs": row.evidence_refs or [], "resolution_note": row.resolution_note,
         "resolved_at": row.resolved_at, "row_version": row.row_version,
         "created_at": row.created_at, "updated_at": row.updated_at,
         "allowed_actions": actions,
@@ -62,7 +65,7 @@ def persist_command(db: Session, command: dict) -> GrillGateAlert | None:
     source_event_id = str(command.get("source_event_id") or "")
     if not source_event_id:
         raise ValueError("Grill Gate alert command is missing source_event_id")
-    row = db.scalar(select(GrillGateAlert).where(GrillGateAlert.source_event_id == source_event_id))
+    row = db.scalar(select(GrillGateAlert).where(GrillGateAlert.source_event_id == source_event_id).with_for_update())
     if action == "create":
         if row is not None:
             return row
@@ -80,6 +83,7 @@ def persist_command(db: Session, command: dict) -> GrillGateAlert | None:
         condition_since = domain.get("condition_since") or payload.get("first_seen_at") or payload.get("occurred_at")
         gate_duration = domain.get("gate_open_duration_seconds")
         threshold = domain.get("configured_threshold_seconds")
+        domain.setdefault("evidence_status", "PENDING" if command.get("capture_evidence", False) else "UNAVAILABLE")
         row = GrillGateAlert(
             source_event_id=source_event_id,
             source_event_version=int(payload.get("source_event_version", 1)),
@@ -100,6 +104,8 @@ def persist_command(db: Session, command: dict) -> GrillGateAlert | None:
         )
         db.add(row)
         try:
+            db.flush()
+            stage_publication(db, row)
             db.commit()
             db.refresh(row)
         except IntegrityError:
@@ -110,13 +116,16 @@ def persist_command(db: Session, command: dict) -> GrillGateAlert | None:
             return duplicate
         return row
     if action == "resolve":
-        if row is None or row.status == "RESOLVED":
+        if row is None or row.status in {"RESOLVED", "DISMISSED"}:
             return row
         row.status = "RESOLVED"
         row.resolved_at = parse_timestamp(command.get("resolved_at"))
         row.resolution_note = str(command.get("note") or "Condition recovered")[:500]
         row.row_version += 1
         row.updated_at = datetime.now(timezone.utc)
+        row.source_event_version += 1
+        row.source_status = row.status
+        stage_publication(db, row)
         db.commit()
         db.refresh(row)
         return row
@@ -131,6 +140,7 @@ class GrillGateAlertWriter:
         self._queue: queue.Queue[dict | None] = queue.Queue(maxsize=max_queue_size)
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
         self._closing = False
 
     def start(self) -> None:
@@ -138,21 +148,19 @@ class GrillGateAlertWriter:
             if self._thread is not None and self._thread.is_alive():
                 return
             self._closing = False
+            self._stop_event.clear()
             self._thread = threading.Thread(target=self._run, name="grill-gate-alert-writer", daemon=True)
             self._thread.start()
 
     def submit(self, command: dict) -> bool:
-        with self._lock:
-            if self._closing or self._thread is None or not self._thread.is_alive():
-                logger.error("Grill Gate local alert persistence is unavailable action=%s",
-                             command.get("action"))
-                return False
-            try:
-                self._queue.put_nowait(dict(command))
-                return True
-            except queue.Full:
-                logger.error("Grill Gate local alert queue is full action=%s", command.get("action"))
-                return False
+        # Returning True proves a committed incident + publication record, not queue acceptance.
+        try:
+            with self._session_factory() as db:
+                row = persist_command(db, command)
+            return row is not None
+        except Exception:
+            logger.exception("Grill Gate durable alert commit failed source=%s", command.get("source_event_id"))
+            return False
 
     def active_conditions(self, assignment_id: str, camera_id: str) -> list[dict]:
         """Load local active source identities so worker restarts do not duplicate alerts."""
@@ -169,44 +177,55 @@ class GrillGateAlertWriter:
                      "domain_data": row.domain_data or {}} for row in rows]
 
     def flush(self, timeout: float = 10.0) -> bool:
-        completed = threading.Event()
-        waiter = threading.Thread(target=lambda: (self._queue.join(), completed.set()), daemon=True)
-        waiter.start()
-        return completed.wait(timeout)
+        # Incident commits are synchronous. Evidence has its own persisted PENDING state.
+        return True
 
     def stop(self, timeout: float = 10.0) -> None:
-        with self._lock:
-            self._closing = True
-            thread = self._thread
-        if thread is None or not thread.is_alive():
-            return
-        try:
-            self._queue.put(None, timeout=timeout)
-        except queue.Full:
-            logger.error("Timed out queuing Grill Gate local alert-writer shutdown")
-            return
-        thread.join(timeout)
-        if thread.is_alive():
-            logger.error("Grill Gate local alert writer did not stop before timeout")
+        self._closing = True
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout)
+            if self._thread.is_alive():
+                logger.error("Grill Gate evidence worker did not stop before timeout")
+
+    def capture_pending(self):
+        from grill_gate_monitoring.services.alert_evidence import get_grill_gate_evidence
+        with self._session_factory() as db:
+            rows = db.scalars(select(GrillGateAlert).where(
+                GrillGateAlert.domain_data["evidence_status"].as_string() == "PENDING").limit(20)).all()
+            for row in rows:
+                if self._stop_event.is_set():
+                    break
+                domain = dict(row.domain_data or {})
+                try:
+                    ref = get_grill_gate_evidence().capture(db, row)
+                    row.evidence_refs = [ref]
+                    domain.update(evidence_status="CAPTURED")
+                except Exception as exc:
+                    logger.warning("Grill Gate evidence unavailable source=%s reason=%s", row.source_event_id, type(exc).__name__)
+                    domain.update(evidence_status="UNAVAILABLE", evidence_unavailable_reason=str(exc) if isinstance(exc, ValueError) and str(exc) in {"SOURCE_FRAME_UNAVAILABLE", "JPEG_ENCODING_FAILED", "EVIDENCE_TOO_LARGE", "EVIDENCE_CAPACITY_REACHED"} else type(exc).__name__)
+                row.domain_data = domain
+                for delivery in db.scalars(select(VaultAuditEvent).where(
+                        VaultAuditEvent.entity_type == ENTITY, VaultAuditEvent.entity_id == row.id,
+                        VaultAuditEvent.action == PENDING)).all():
+                    state = dict(delivery.details)
+                    payload = dict(state["payload"])
+                    payload["evidence_refs"] = row.evidence_refs or []
+                    payload["domain_data"] = {**payload.get("domain_data", {}),
+                        "evidence_status": domain["evidence_status"],
+                        **({"evidence_unavailable_reason": domain["evidence_unavailable_reason"]}
+                           if "evidence_unavailable_reason" in domain else {})}
+                    state["payload"] = payload
+                    delivery.details = state
+                db.commit()
 
     def _run(self) -> None:
-        while True:
-            command = self._queue.get()
+        while not self._stop_event.is_set():
             try:
-                if command is None:
-                    return
-                try:
-                    with self._session_factory() as db:
-                        row = persist_command(db, command)
-                    logger.info("Grill Gate local alert persisted action=%s source=%s status=%s",
-                                command.get("action"), command.get("source_event_id"),
-                                row.status if row is not None else "missing")
-                except Exception as exc:
-                    logger.exception("Grill Gate local alert persistence failed action=%s source=%s error=%s",
-                                     command.get("action"), command.get("source_event_id"),
-                                     type(exc).__name__)
-            finally:
-                self._queue.task_done()
+                self.capture_pending()
+            except Exception:
+                logger.exception("Grill Gate evidence recovery pass failed")
+            self._stop_event.wait(1)
 
 
 class GrillGateAlertSink:
@@ -217,15 +236,8 @@ class GrillGateAlertSink:
         self._shared = shared_publisher
 
     def submit(self, command: dict) -> bool:
-        if not self._local.submit(command):
-            return False
-        if self._shared is not None:
-            try:
-                self._shared.submit(command)
-            except Exception:
-                logger.exception("Grill Gate optional shared-alert fan-out failed action=%s source=%s",
-                                 command.get("action"), command.get("source_event_id"))
-        return True
+        # Common publication is exclusively driven by the committed DB outbox.
+        return self._local.submit(command)
 
     def flush(self, timeout: float = 10.0) -> bool:
         local_done = self._local.flush(timeout)

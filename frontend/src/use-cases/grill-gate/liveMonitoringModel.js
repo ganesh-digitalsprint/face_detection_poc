@@ -1,4 +1,6 @@
 import { alertView, crossingView, eventTitle, mergeTimeline } from './videoJobModel.js';
+import { crossingTimestamp, elapsedSeconds, latestConfirmedOpenTimestamp, latestFullyOpenTimestamp,
+  openWithoutCrossingSeconds as calculateOpenWithoutCrossingSeconds, timerTimestamp } from './monitoringTimers.js';
 
 /**
  * The dashboard snapshot for one live camera, in the same shape as videoMonitoring(). Everything here comes from the
@@ -7,48 +9,60 @@ import { alertView, crossingView, eventTitle, mergeTimeline } from './videoJobMo
 // A timestamp with no zone is UTC, which is how the backend stores it.
 const serverTime = (iso) => new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(String(iso)) ? iso : `${iso}Z`);
 const clockLabel = (iso) => (iso ? serverTime(iso).toLocaleTimeString(undefined, { hourCycle: 'h23' }) : '');
-const elapsedSince = (iso, now) => {
-  const start = iso ? serverTime(iso).getTime() : NaN;
-  return Number.isFinite(start) ? Math.max(0, (now - start) / 1000) : null;
-};
-
 export function liveMonitoring({ gate = null, crossings = [], crossingTotal = 0, entryCount = 0, exitCount = 0, mesh = null,
   meshEvents = [], alerts = [], alertsAvailable = true, alertsError = '', alertsLoading = false,
   alertsRequestAttempted = false, now = Date.now() } = {}, gateClassification = {}) {
   const alertViews = alerts.map((alert) => alertView(alert, clockLabel(alert.triggered_at ?? alert.occurred_at)))
     .filter((alert) => alert.active);
-  const lastCrossing = crossings[0];
   const gateState = gateClassification.gateState ?? 'UNKNOWN';
-  const isFullyOpen = gateState === 'FULLY_OPEN';
+  // The timer card follows the confirmed state displayed by the Gate State panel.
+  const timerGateState = gateState;
+  const isFullyOpen = timerGateState === 'FULLY_OPEN';
+  const gateOpenAt = timerTimestamp(gate?.gate_open_since)
+    ?? latestConfirmedOpenTimestamp(gate?.recent_transitions, 'wall')
+    ?? (gateClassification.timerTimebase === 'wall' && Number.isFinite(gateClassification.gateOpenedAt)
+      ? gateClassification.gateOpenedAt : latestFullyOpenTimestamp(gateClassification.transitions, 'wall'));
+  const eventCrossingAt = crossingTimestamp(crossings, 'wall');
+  const reportedCrossingAt = timerTimestamp(gate?.last_crossing_at);
+  const lastCrossingAt = reportedCrossingAt ?? eventCrossingAt
+    ?? (Number.isFinite(gateClassification.lastCrossingAt) ? gateClassification.lastCrossingAt : null);
+  const countDrivenCycleStart = gateClassification.timerTimebase === 'wall'
+    && Number.isFinite(gateClassification.cycleStartedAt) ? gateClassification.cycleStartedAt : null;
+  const cycleStart = countDrivenCycleStart
+    ?? (lastCrossingAt != null && gateOpenAt != null && lastCrossingAt > gateOpenAt ? lastCrossingAt : gateOpenAt);
   const gateOpenSeconds = isFullyOpen
-    ? (elapsedSince(gate?.gate_open_since, now) ?? gate?.gate_open_seconds ?? null)
+    ? elapsedSeconds(gateOpenAt, now)
     : null;
   const openWithoutCrossingSeconds = isFullyOpen
-    ? (elapsedSince(gate?.last_crossing_at ?? gate?.gate_open_since, now)
-      ?? gate?.open_without_crossing_seconds ?? null)
+    ? calculateOpenWithoutCrossingSeconds({ gateState: timerGateState, openedAt: cycleStart, lastCrossingAt: null, now })
     : null;
+  const threshold = gate?.open_without_crossing_threshold_seconds;
   return {
     source: 'live',
     status: gate ? 'ACTIVE' : 'INACTIVE',
     statusTone: gate ? 'ok' : 'idle',
     gateState,
+    timerGateState,
     gateSessionId: gateClassification.sessionId ?? null,
     gateStateTimeLabel: '',
     gateDirection: gateClassification.direction ?? null,
     gateOpenSeconds,
-    gateOpenSince: gate?.gate_open_since ?? null,
+    timerNow: now,
+    cycleStartedAt: cycleStart,
+    gateOpenSince: gateOpenAt == null ? null : new Date(gateOpenAt).toISOString(),
     openWithoutCrossingSeconds,
     openWithoutCrossingThresholdSeconds: gate?.open_without_crossing_threshold_seconds ?? null,
     thresholdConfigured: gate?.threshold_configured,
-    timerProgressPercent: gate?.progress_percent ?? null,
+    timerProgressPercent: openWithoutCrossingSeconds != null && Number.isFinite(threshold) && threshold > 0
+      ? Math.min(100, (openWithoutCrossingSeconds / threshold) * 100) : null,
     timerSourceTimestamp: gate?.source_timestamp ?? null,
-    lastCrossingAt: gate?.last_crossing_at ?? null,
+    lastCrossingAt: lastCrossingAt == null ? null : new Date(lastCrossingAt).toISOString(),
     lastCrossingDirection: gate?.last_crossing_direction ?? null,
-    secondsSinceCrossing: gate?.seconds_since_crossing ?? null,
+    secondsSinceCrossing: lastCrossingAt == null ? null : elapsedSeconds(lastCrossingAt, now),
     timerState: isFullyOpen
-      ? gate?.timer_state === 'ALERT_RAISED' ? 'ALERT_RAISED' : 'COUNTING'
+      ? (alertViews.some((alert) => alert.type === 'GATE_OPEN_TOO_LONG') ? 'ALERT_RAISED'
+        : threshold != null && openWithoutCrossingSeconds >= threshold ? 'THRESHOLD_REACHED' : 'COUNTING')
       : gate?.timer_state ?? 'NOT_COUNTING',
-    secondsSinceCrossing: lastCrossing ? Math.max(0, (now - serverTime(lastCrossing.occurred_at)) / 1000) : null,
     entryCount,
     exitCount,
     meshPeopleCount: mesh?.occupancy_count ?? 0,
