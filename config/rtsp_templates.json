@@ -1,0 +1,4 @@
+{
+  "hikvision": "/Streaming/Channels/{channel}0{stream}",
+  "dahua": "/cam/realmonitor?channel={channel}&subtype={stream}"
+}

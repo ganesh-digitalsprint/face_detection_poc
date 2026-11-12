@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 
 CATEGORIES = ("sample_videos", "uploads", "clips", "screenshots", "evidence", "annotated", "temp", "guard_faces", "alert_outbox")
@@ -80,3 +81,37 @@ def list_media(category: str | None = None) -> list[dict]:
                                 "owner": path.relative_to(folder).parts[0] if len(path.relative_to(folder).parts) > 1 else "shared",
                                 "size": stat.st_size, "modified": stat.st_mtime})
     return sorted(results, key=lambda item: item["path"].lower())
+
+
+def platform_uploads() -> list[dict]:
+    """Read public upload metadata without importing a use-case backend or its credentials."""
+    database = Path(os.environ.get("FEDBANK_PLATFORM_DB_PATH") or repo_root() / "backend/services/platform_data/platform.db")
+    if not database.is_file():
+        return []
+    try:
+        with sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True) as conn:
+            conn.row_factory = sqlite3.Row
+            return [dict(row) for row in conn.execute(
+                "SELECT id,branch_id,original_name,stored_path,proxy_path,size,status,created_at FROM video_uploads ORDER BY created_at DESC")]
+    except sqlite3.Error:
+        return []
+
+
+def platform_ready_uploads() -> list[dict]:
+    return [row for row in platform_uploads() if row["status"] == "uploaded"]
+
+
+def resolve_upload_source(value: str) -> Path | None:
+    if not value.startswith("upload:"):
+        return None
+    ident = value.removeprefix("upload:")
+    if not ident or any(char not in "0123456789abcdef-" for char in ident.lower()):
+        return None
+    row = next((entry for entry in platform_ready_uploads() if entry["id"] == ident), None)
+    if not row:
+        return None
+    try:
+        path = safe_path(row["proxy_path"] or row["stored_path"])
+        return path if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS else None
+    except ValueError:
+        return None

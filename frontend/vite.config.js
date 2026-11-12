@@ -12,6 +12,12 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const token = env.ALERT_SERVICE_OPERATOR_TOKEN || '';
   const proxy = {
+    '/platform': {
+      target: env.PLATFORM_SERVICE_URL || 'http://127.0.0.1:8011',
+      changeOrigin: true,
+      rewrite: (path) => path.replace(/^\/platform/, '/api/platform'),
+      headers: env.FEDBANK_PLATFORM_ADMIN_KEY ? { 'X-Platform-Admin-Key': env.FEDBANK_PLATFORM_ADMIN_KEY } : {},
+    },
     '/alert-service': {
       target: env.ALERT_SERVICE_URL || 'http://127.0.0.1:8012',
       changeOrigin: true,

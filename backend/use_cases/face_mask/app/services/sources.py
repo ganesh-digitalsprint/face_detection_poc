@@ -12,7 +12,7 @@ from pathlib import Path
 import cv2
 
 from app.core.paths import REPO_ROOT, SAMPLE_VIDEO_DIR, STORAGE_DIR, UPLOAD_DIR
-from fedbank_core.storage import legacy_resolve
+from fedbank_core.storage import legacy_resolve, resolve_upload_source
 from app.schemas.camera import Camera
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,8 @@ def video_roots() -> list[Path]:
 
 def resolve_video_path(value: str) -> Path | None:
     """Absolute path of an allowed video file, or None. Rejects anything outside the known video folders."""
+    if value.startswith("upload:"):
+        return resolve_upload_source(value)
     candidate = Path(value)
     relocated = legacy_resolve(value, "face_mask")
     candidates = [candidate, relocated] if candidate.is_absolute() else [STORAGE_DIR / candidate, *(r / candidate for r in video_roots())]

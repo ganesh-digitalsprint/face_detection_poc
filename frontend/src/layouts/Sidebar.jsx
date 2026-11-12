@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronRight, ScanEye } from 'lucide-react';
 import { NAV_SECTIONS, formatBadge, isItemActive, openGroupIds, visibleSections } from './navConfig.js';
+import { useActiveBranch } from '../features/branches/ActiveBranch.jsx';
 
 const ROW = 'relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-left';
 const ACTIVE_BAR = 'before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-r before:bg-accent';
@@ -145,6 +146,7 @@ function useOpenGroups(sections, pathname, search) {
  * `onNavigate` fires only when a link is clicked (never for group toggles); `onExpand` expands a collapsed rail.
  */
 export default function Sidebar({ collapsed = false, devEnabled = false, badges = {}, onNavigate, onExpand }) {
+  const { scope } = useActiveBranch();
   const { pathname, search } = useLocation();
   const sections = useMemo(() => visibleSections(NAV_SECTIONS, { devEnabled }), [devEnabled]);
   const { open, toggle, show } = useOpenGroups(sections, pathname, search);
@@ -161,6 +163,10 @@ export default function Sidebar({ collapsed = false, devEnabled = false, badges 
   return (
     <nav aria-label="Main" className={`flex h-full flex-col gap-0.5 overflow-y-auto bg-navy [scrollbar-color:rgba(255,255,255,.25)_transparent] [scrollbar-width:thin] ${collapsed ? 'p-3' : 'p-4'}`}>
       <Brand collapsed={collapsed} />
+      <Link to="/branches/hierarchy" onClick={onNavigate} title={collapsed ? `Active scope: ${scope?.name || 'All branches'}` : undefined} className={`mb-2 flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15 ${collapsed ? 'justify-center' : ''}`}>
+        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
+        {!collapsed && <span className="min-w-0"><span className="block text-[10px] uppercase tracking-wide text-slate-300">Active branch</span><span className="block truncate font-semibold">{scope?.name || 'All branches'}</span><span className="block truncate text-[10px] text-slate-300">{scope?.subtitle || 'No scope filter'}</span></span>}
+      </Link>
       {sections.map((section) => (
         <div key={section.label ?? 'top'} className="flex flex-col gap-0.5">
           <Section label={section.label} collapsed={collapsed && Boolean(section.label)} />

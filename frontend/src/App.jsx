@@ -38,6 +38,9 @@ const FmLayout = lazy(() => import('./use-cases/face-mask/components/FmLayout.js
 const FmEventsTab = lazy(() => import('./use-cases/face-mask/pages/FaceMaskEventsTab.jsx'));
 const FmLive = lazy(() => import('./use-cases/face-mask/pages/LiveMonitoring.jsx'));
 const StoragePage = lazy(() => import('./pages/StoragePage.jsx'));
+const BranchHierarchy = lazy(() => import('./features/branches/Hierarchy.jsx'));
+const NewBranch = lazy(() => import('./features/branches/NewBranch.jsx'));
+const VideoUploads = lazy(() => import('./features/video-uploads/VideoUploads.jsx'));
 const fmFallback = <Loading message="Loading Face Mask…" />;
 
 /** Old URL -> new URL, keeping the query string and hash (a bare <Navigate to> would drop them). */
@@ -107,6 +110,10 @@ export default function App() {
         </Route>
         <Route path="regions" element={<RegionsPage />} />
         <Route path="storage" element={<Suspense fallback={<Loading message="Loading Storage…" />}><StoragePage /></Suspense>} />
+        <Route path="branches/hierarchy" element={<Suspense fallback={<Loading message="Loading hierarchy…" />}><BranchHierarchy /></Suspense>} />
+        <Route path="branches/hierarchy/cameras/new" element={<Suspense fallback={<Loading message="Loading camera setup…" />}><BranchHierarchy /></Suspense>} />
+        <Route path="branches/new" element={<Suspense fallback={<Loading message="Loading branch form…" />}><NewBranch /></Suspense>} />
+        <Route path="video-uploads" element={<Suspense fallback={<Loading message="Loading video uploads…" />}><VideoUploads /></Suspense>} />
         <Route path="face-mask/roi" element={<FaceMaskRoiRedirect />} />
         <Route path="face-mask" element={<Suspense fallback={fmFallback}><FmLayout /></Suspense>}>
           <Route index element={<Navigate to="/face-mask/live" replace />} />

@@ -8,6 +8,8 @@ export const VAULT_BASE_URL = trimSlash(env.VITE_VAULT_API_BASE_URL || env.VITE_
 
 /** Branch Exterior Monitoring backend. */
 export const BRANCH_BASE_URL = trimSlash(env.VITE_BRANCH_EXTERIOR_API_BASE_URL) || 'http://localhost:8011';
+/** Same-origin platform proxy; admin credential stays in the Vite server, never in the browser bundle. */
+export const PLATFORM_BASE_URL = '/platform';
 
 /**
  * Alert Service, reached through the Vite dev/preview proxy at this same-origin path. The proxy adds

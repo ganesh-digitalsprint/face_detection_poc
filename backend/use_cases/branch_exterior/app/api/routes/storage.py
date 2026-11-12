@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 
 from app.core.paths import STORAGE_DIR  # also configures backend/shared on the import path
 from fedbank_core.storage import VIDEO_EXTENSIONS, list_media, repo_root, root, safe_path
+from app.api.routes.platform import database as platform_database
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 MAX_UPLOAD = 500 * 1024 * 1024
@@ -69,6 +70,18 @@ def inventory(category: str | None = None):
         raise HTTPException(400, str(exc)) from exc
     for item in files:
         item.update(_video_details(safe_path(item["path"])))
+    with platform_database() as conn:
+        upload_rows = {row["stored_path"]: row for row in conn.execute(
+            "SELECT u.id,u.stored_path,u.original_name,u.status,u.branch_id,b.name branch_name,"
+            " b.city_id,ci.zone_id FROM video_uploads u JOIN branches b ON b.id=u.branch_id"
+            " JOIN cities ci ON ci.id=b.city_id")}
+    for item in files:
+        if item["path"] in upload_rows:
+            upload = upload_rows[item["path"]]
+            item.update({"name": upload["original_name"], "upload_id": upload["id"],
+                         "upload_status": upload["status"], "branch_id": upload["branch_id"],
+                         "branch_name": upload["branch_name"], "city_id": upload["city_id"],
+                         "zone_id": upload["zone_id"]})
     categories = {}
     owners = {}
     for item in files:

@@ -11,6 +11,9 @@ import FaceMaskPopups from '../use-cases/face-mask/components/FaceMaskPopups.jsx
 import { showsBranchChrome } from './routes.js';
 
 const TITLES = [
+  ['/video-uploads', 'Video Uploads'],
+  ['/branches/new', 'Add New Branch'],
+  ['/branches/hierarchy', 'Branch Hierarchy'],
   ['/branch-exterior/live', 'Live Monitoring'],
   ['/regions', 'Regions & Zones'],
   ['/guards', 'Guard Roster'],

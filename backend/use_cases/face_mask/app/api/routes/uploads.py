@@ -20,6 +20,7 @@ from app.schemas.stream import CameraView
 from app.services.roi_loader import reload_camera_rois
 from app.services.runtime import Runtime
 from app.services.sources import VIDEO_EXTENSIONS, resolve_video_path, video_roots
+from fedbank_core.storage import platform_ready_uploads, platform_uploads
 
 router = APIRouter(tags=["videos"], dependencies=[Depends(require_api_key)])
 
@@ -98,12 +99,19 @@ async def upload_video(file: UploadFile, runtime: Runtime = Depends(get_runtime)
 async def browse_videos():
     """Existing videos: this service's uploads and sample_videos, data/uploads, and the folders branch_exterior scans."""
     found: dict[str, VideoFile] = {}
+    ready = platform_ready_uploads()
+    registered_paths = {entry["stored_path"] for entry in platform_uploads()}
     for root in video_roots():
         for path in sorted(root.rglob("*")):
             if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS:
                 shown = _display_path(path)
+                if shown in registered_paths:
+                    continue
                 found.setdefault(shown, VideoFile(name=path.name, path=shown, folder=root.name,
                                                   size_mb=round(path.stat().st_size / 1_048_576, 2)))
+    for entry in ready:
+        found[f"upload:{entry['id']}"] = VideoFile(name=entry["original_name"], path=f"upload:{entry['id']}",
+            folder="uploads", size_mb=round(entry["size"] / 1_048_576, 2))
     return list(found.values())
 
 
@@ -116,9 +124,13 @@ async def process_video(data: ProcessRequest, session: AsyncSession = Depends(ge
         raise HTTPException(422, "Video file not found, or not inside an allowed video folder")
     cam_type = "upload" if resolved.is_relative_to(UPLOAD_DIR.resolve()) else "folder"
     name = data.name.strip() or resolved.stem.replace("_", " ").replace("-", " ").title()
-    camera = await CameraRepository(session).create(CameraCreate(
-        name=name[:120], cam_type=cam_type, source=_display_path(resolved), location="Video file",
-        enabled=True, loop_video=data.loop_video))
+    source_id = data.path if data.path.startswith("upload:") else _display_path(resolved)
+    repository = CameraRepository(session)
+    camera = next((existing for existing in await repository.list() if existing.source == source_id), None)
+    if camera is None:
+        camera = await repository.create(CameraCreate(
+            name=name[:120], cam_type=cam_type, source=source_id, location="Video file",
+            enabled=True, loop_video=data.loop_video))
     runtime.camera_names[camera.id] = camera.name
     if data.roi is not None:
         await EntryRoiRepository(session).create(EntryRoiCreate(camera_id=camera.id, **data.roi.model_dump()))

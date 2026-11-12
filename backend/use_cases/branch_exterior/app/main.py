@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import brief, cameras, dashboard, events, guards, health, settings as settings_routes, storage, streams, uploads, ws, zones
+from app.api.routes import brief, cameras, dashboard, events, guards, health, platform, platform_uploads, settings as settings_routes, storage, streams, uploads, ws, zones
 from app.core.route_check import format_validation_errors, missing_routes
 from app.core.config import get_settings
 from app.core.logging_config import configure_logging
@@ -103,6 +103,8 @@ app.include_router(settings_routes.router, prefix=api_prefix)
 app.include_router(dashboard.router, prefix=api_prefix)
 app.include_router(uploads.router, prefix=api_prefix)
 app.include_router(storage.router, prefix=api_prefix)
+app.include_router(platform.router, prefix=api_prefix)
+app.include_router(platform_uploads.router, prefix=api_prefix)
 app.include_router(ws.router, prefix=api_prefix)
 
 # Serve saved snapshots/clips directly (used by <img>/<video> tags in the UI).
