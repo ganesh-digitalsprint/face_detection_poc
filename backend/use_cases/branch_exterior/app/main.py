@@ -10,11 +10,11 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import brief, cameras, dashboard, events, guards, health, settings as settings_routes, streams, uploads, ws, zones
+from app.api.routes import brief, cameras, dashboard, events, guards, health, settings as settings_routes, storage, streams, uploads, ws, zones
 from app.core.route_check import format_validation_errors, missing_routes
 from app.core.config import get_settings
 from app.core.logging_config import configure_logging
-from app.core.paths import BACKEND_ROOT, STORAGE_DIR, ensure_directories
+from app.core.paths import BACKEND_ROOT, STORAGE_DIR, SNAPSHOT_DIR, CLIP_DIR, SAMPLE_VIDEO_DIR, UPLOAD_DIR, ensure_directories
 from app.db import init_db
 from app.db.init_db import get_db
 from app.services.alert_publisher import get_alert_publisher
@@ -102,11 +102,15 @@ app.include_router(zones.router, prefix=api_prefix)   # was never registered bef
 app.include_router(settings_routes.router, prefix=api_prefix)
 app.include_router(dashboard.router, prefix=api_prefix)
 app.include_router(uploads.router, prefix=api_prefix)
+app.include_router(storage.router, prefix=api_prefix)
 app.include_router(ws.router, prefix=api_prefix)
 
 # Serve saved snapshots/clips directly (used by <img>/<video> tags in the UI).
 ensure_directories()
-app.mount("/storage", StaticFiles(directory=str(STORAGE_DIR)), name="storage")
+app.mount("/storage/snapshots", StaticFiles(directory=str(SNAPSHOT_DIR)), name="snapshots")
+app.mount("/storage/clips", StaticFiles(directory=str(CLIP_DIR)), name="clips")
+app.mount("/storage/sample_videos", StaticFiles(directory=str(SAMPLE_VIDEO_DIR)), name="sample_videos")
+app.mount("/storage/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 # Serve the plain-HTML/JS frontend from the sibling `frontend/` folder, so a
 # single `uv run uvicorn app.main:app` serves the whole POC on one port.

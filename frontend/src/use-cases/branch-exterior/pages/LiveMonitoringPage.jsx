@@ -165,7 +165,7 @@ export default function LiveMonitoringPage() {
 
       <div className="bx-card bx-mb-16">
         <label className="bx-field" style={{ margin: 0 }}>
-          <span>Video (from <span className="bx-mono">backend/branch-exterior-monitoring/storage/sample_videos</span> - new files appear here automatically)</span>
+          <span>Video (from <span className="bx-mono">storage/sample_videos</span> - new files appear here automatically)</span>
           <select className="bx-input" value={selectedId} onChange={(e) => selectCamera(e.target.value)}>
             <option value="">— Select a video to play (all others stay stopped) —</option>
             {cameras.map((c) => (

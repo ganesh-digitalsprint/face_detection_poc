@@ -20,7 +20,7 @@ from typing import Protocol
 
 import numpy as np
 
-from app.core.config import ConfirmationConfig, CooldownConfig
+from app.core.config import AnalysisConfig, ConfirmationConfig, CooldownConfig
 from app.ml.types import VisibilityResult
 from app.services.observation import TrackObservation
 from app.utils.geometry import Box, Point, distance
@@ -50,6 +50,8 @@ class NewEvent:
     head_box: Box | None
     best_frame: np.ndarray | None
     best_crop: np.ndarray | None
+    person_box: Box | None = None
+    direction: str = "unknown"
 
 
 class EventSink(Protocol):
@@ -73,6 +75,7 @@ class _Track:
     event_id: str | None = None
     roi_id: str | None = None
     roi_name: str = ""
+    last_in_roi: bool = False
 
 
 @dataclass
@@ -84,10 +87,12 @@ class _RecentEvent:
 
 
 class EventService:
-    def __init__(self, confirmation: ConfirmationConfig, cooldown: CooldownConfig, sink: EventSink) -> None:
+    def __init__(self, confirmation: ConfirmationConfig, cooldown: CooldownConfig, sink: EventSink,
+                 analysis: AnalysisConfig | None = None) -> None:
         self._conf = confirmation
         self._cooldown = cooldown
         self._sink = sink
+        self._analysis = analysis
         self._tracks: dict[tuple[str, int], _Track] = {}
         self._recent: dict[str, list[_RecentEvent]] = {}
 
@@ -97,6 +102,9 @@ class EventService:
 
     def process(self, obs: TrackObservation) -> TrackState:
         track = self._tracks.setdefault((obs.camera_id, obs.track_id), _Track(window=deque(maxlen=self._conf.confirm_window)))
+
+        if self._analysis is not None:
+            return self._process_zone_alert(track, obs)
 
         if track.state in (TrackState.CLEARED, TrackState.UNABLE_TO_ASSESS):
             return track.state
@@ -111,6 +119,31 @@ class EventService:
             self._evaluate(track, obs, obs.visibility)
         return track.state
 
+    def _process_zone_alert(self, track: _Track, obs: TrackObservation) -> TrackState:
+        """Analyse regardless of zone; alert once when a confirmed covered track is inside it."""
+        if obs.in_roi:
+            track.roi_id, track.roi_name = obs.roi_id, obs.roi_name
+            if track.state == TrackState.NEW_TRACK:
+                track.state = TrackState.IN_ENTRY_ROI
+        track.last_in_roi = obs.in_roi
+        if track.event_id is not None:
+            if obs.visibility is not None:
+                self._evaluate(track, obs, obs.visibility)
+            return track.state
+        if obs.visibility is not None:
+            track.state = TrackState.EVALUATING
+            track.evaluated += 1
+            track.window.append(obs.visibility)
+            if obs.visibility.state == "CONCEALED":
+                track.best_score = max(track.best_score, obs.visibility.score)
+                track.covering_type = obs.visibility.covering_type or track.covering_type
+        concealed = sum(result.state == "CONCEALED" for result in track.window)
+        can_alert = obs.in_roi or self._analysis.alert_outside_roi
+        direction_ok = self._analysis.direction_mode != "strict" or obs.entering
+        if can_alert and direction_ok and concealed >= self._conf.frames_to_confirm:
+            self._open(track, obs)
+        return track.state
+
     def end_track(self, camera_id: str, track_id: int, ts: float) -> TrackState | None:
         """Call when a track disappears. Returns the final state."""
         track = self._tracks.pop((camera_id, track_id), None)
@@ -118,7 +151,9 @@ class EventService:
             return None
         if track.state == TrackState.EVALUATING:
             track.state = TrackState.UNABLE_TO_ASSESS
-            self._sink.log_entry(camera_id, track.roi_id, track_id, "UNABLE_TO_ASSESS", 0.0, track.evaluated, ts)
+            outcome = "VISIBLE" if self._analysis is not None and any(
+                result.state == "VISIBLE" for result in track.window) else "UNABLE_TO_ASSESS"
+            self._sink.log_entry(camera_id, track.roi_id, track_id, outcome, 0.0, track.evaluated, ts)
         return track.state
 
     # ------------------------------------------------------------------------------------------------------
@@ -157,7 +192,7 @@ class EventService:
                 camera_id=obs.camera_id, roi_id=track.roi_id, roi_name=track.roi_name, track_id=obs.track_id,
                 ts=obs.ts, score=track.best_score, covering_type=track.covering_type,
                 frames_evaluated=track.evaluated, head_box=obs.head_box, best_frame=obs.best_frame,
-                best_crop=obs.best_crop,
+                best_crop=obs.best_crop, person_box=obs.box, direction=obs.direction,
             ))
             self._recent.setdefault(obs.camera_id, []).append(
                 _RecentEvent(obs.ts, obs.foot, track.event_id, (obs.camera_id, obs.track_id)))

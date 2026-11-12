@@ -2,6 +2,7 @@ import { videoAlertSession } from '../grillAlertFeed.js';
 import GrillGateAlerts from './GrillGateAlerts.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
+import StorageVideoPicker from '../../../components/video/StorageVideoPicker.jsx';
 import { describeError } from '../../../utils/errors.js';
 import {
   cancelGrillGateVideoJob, deleteGrillGateVideoJob, getVideoJobFrame, getVideoJobPreview,
@@ -292,6 +293,7 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
             <p className="font-semibold text-[#0F1B3D]">No video uploaded</p>
             <p className="text-xs text-[#55607A]">Upload an MP4 or AVI file. Uploading only saves it; processing starts when you choose Process Video.</p>
             <FilePicker label="Upload video" className={`${btnPrimary} mt-1`} disabled={uploading} onFile={(file) => send(file, null)} />
+            <StorageVideoPicker onFile={(file) => send(file, null)} disabled={uploading} accept=".mp4,.avi" />
           </div>
         </Card>
       )}
@@ -304,6 +306,7 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
           <TimelinePanel monitoring={monitoring} note="Video time, not clock time." />
           <div className="flex justify-end">
             {selectedJobId && <FilePicker label="Upload another video" className={btnGhost} disabled={uploading} onFile={(file) => send(file, null)} />}
+            {selectedJobId && <StorageVideoPicker onFile={(file) => send(file, null)} disabled={uploading} accept=".mp4,.avi" />}
           </div>
           <SavedVideoList jobs={jobs} error={jobsError} selectedId={selectedJobId} onSelect={onSelectJob} />
         </div>

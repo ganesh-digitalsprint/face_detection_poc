@@ -9,6 +9,7 @@ import EmptyState from '../common/EmptyState.jsx';
 import ErrorMessage from '../common/ErrorMessage.jsx';
 import Loading from '../common/Loading.jsx';
 import ImageUploader from '../face/ImageUploader.jsx';
+import StorageVideoPicker from './StorageVideoPicker.jsx';
 
 const ERROR_OVERRIDES = {
   413: 'Video exceeds the allowed upload size.',
@@ -25,6 +26,7 @@ export default function VideoRecognitionPanel() {
       <Card title="Upload Video">
         <div className="space-y-2">
           <ImageUploader kind="video" file={file} onChange={(f) => { setFile(f); reset(); }} disabled={loading} />
+          <StorageVideoPicker onFile={(f) => { setFile(f); reset(); }} disabled={loading} />
           <Button icon={Film} loading={loading} disabled={!file} onClick={() => run(file)}>Process Video</Button>
         </div>
       </Card>

@@ -11,7 +11,7 @@ from app.services.runtime import Runtime
 
 def to_spec(roi: EntryRoi) -> RoiSpec:
     return RoiSpec(id=roi.id, name=roi.name, polygon=tuple((p.x, p.y) for p in roi.polygon),
-                   inward=(roi.inward_vector.x, roi.inward_vector.y))
+                   inward=(roi.inward_vector.x, roi.inward_vector.y), direction_space=roi.inward_vector.space)
 
 
 async def reload_camera_rois(session: AsyncSession, runtime: Runtime, camera_id: str) -> None:

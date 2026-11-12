@@ -1,0 +1,2 @@
+# Shared media root. Relative paths are resolved from the repository root.
+root: storage

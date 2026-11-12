@@ -19,6 +19,7 @@ class Vector(BaseModel):
 
     x: float
     y: float
+    space: Literal["pixel", "normalized"] = "pixel"  # missing on legacy zones, hence pixel by default
 
     @model_validator(mode="after")
     def _non_zero(self) -> "Vector":

@@ -37,6 +37,7 @@ const bxFallback = <Loading message="Loading Branch Exterior Monitoring…" />;
 const FmLayout = lazy(() => import('./use-cases/face-mask/components/FmLayout.jsx'));
 const FmEventsTab = lazy(() => import('./use-cases/face-mask/pages/FaceMaskEventsTab.jsx'));
 const FmLive = lazy(() => import('./use-cases/face-mask/pages/LiveMonitoring.jsx'));
+const StoragePage = lazy(() => import('./pages/StoragePage.jsx'));
 const fmFallback = <Loading message="Loading Face Mask…" />;
 
 /** Old URL -> new URL, keeping the query string and hash (a bare <Navigate to> would drop them). */
@@ -105,6 +106,7 @@ export default function App() {
           <Route path="settings" element={<BxSettings />} />
         </Route>
         <Route path="regions" element={<RegionsPage />} />
+        <Route path="storage" element={<Suspense fallback={<Loading message="Loading Storage…" />}><StoragePage /></Suspense>} />
         <Route path="face-mask/roi" element={<FaceMaskRoiRedirect />} />
         <Route path="face-mask" element={<Suspense fallback={fmFallback}><FmLayout /></Suspense>}>
           <Route index element={<Navigate to="/face-mask/live" replace />} />

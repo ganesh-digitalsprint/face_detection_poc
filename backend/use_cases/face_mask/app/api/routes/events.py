@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_runtime, get_session, require_api_key
 from app.core.exceptions import NotFoundError
 from app.core.paths import STORAGE_DIR
+from fedbank_core.storage import legacy_resolve
 from app.db.repositories.sql_repo import CameraRepository, EntryRoiRepository, EventRepository, ReviewRepository
 from app.schemas.event import ConcealmentEvent, EventPage, EventStatus, EvidenceDetails
 from app.schemas.review import CloseRequest, ReviewAction, ReviewRequest
@@ -46,6 +47,10 @@ def _storage_file(relative: str):
     if not relative:
         raise NotFoundError("No evidence file for this event")
     path = (STORAGE_DIR / relative).resolve()
+    if not path.is_file():
+        path = legacy_resolve(relative, "face_mask")
+        if path is None:
+            raise NotFoundError("Evidence file not found (it may have been deleted)")
     if not path.is_relative_to(STORAGE_DIR.resolve()) or not path.is_file():
         raise NotFoundError("Evidence file not found (it may have been deleted)")
     return path

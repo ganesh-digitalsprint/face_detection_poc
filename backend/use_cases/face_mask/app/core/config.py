@@ -97,6 +97,8 @@ class ConfirmationConfig(_Section):
 
 class QualityGateConfig(_Section):
     min_head_height_px: int = Field(ge=1)
+    low_res_head_px: int = Field(default=16, ge=1)
+    upscale_low_res: int = Field(default=4, ge=1, le=8)
     min_sharpness: float = Field(ge=0.0)
     min_brightness: float = Field(ge=0.0, le=255.0)
     max_brightness: float = Field(ge=0.0, le=255.0)
@@ -106,7 +108,22 @@ class QualityGateConfig(_Section):
     def _brightness_order(self) -> "QualityGateConfig":
         if self.min_brightness >= self.max_brightness:
             raise ValueError("quality_gate.min_brightness must be < quality_gate.max_brightness")
+        if self.low_res_head_px >= self.min_head_height_px:
+            raise ValueError("quality_gate.low_res_head_px must be < min_head_height_px")
         return self
+
+
+class AnalysisConfig(_Section):
+    scope: Literal["entry_roi_strict", "whole_frame"] = "whole_frame"
+    alert_outside_roi: bool = False
+    max_per_frame: int = Field(default=4, ge=1)
+    max_per_track_fps: float = Field(default=3.0, gt=0.0)
+    latch_concealed_frames: int = Field(default=3, ge=1)
+    release_visible_frames: int = Field(default=4, ge=1)
+    zone_hit: Literal["foot", "bbox_overlap", "either"] = "either"
+    min_bbox_overlap: float = Field(default=0.15, ge=0.0, le=1.0)
+    direction_mode: Literal["off", "soft", "strict"] = "soft"
+    direction_cone_degrees: float = Field(default=45.0, gt=0.0, le=90.0)
 
 
 class EnteringConfig(_Section):
@@ -170,6 +187,8 @@ class FaceMaskConfig(_Section):
     confirmation: ConfirmationConfig
     quality_gate: QualityGateConfig
     entering: EnteringConfig
+    analysis: AnalysisConfig = AnalysisConfig()
+    detector_mode: Literal["fast", "accurate"] = "fast"
     evidence: EvidenceConfig
     cooldown: CooldownConfig
     alerts: AlertsConfig

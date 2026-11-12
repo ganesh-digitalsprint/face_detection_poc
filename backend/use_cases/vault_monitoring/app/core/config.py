@@ -7,11 +7,18 @@ Application and infrastructure values come from environment variables or
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import sys
 from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_shared = Path(os.environ.get("FEDBANK_SHARED_PATH") or Path(__file__).resolve().parents[4] / "shared")
+if str(_shared) not in sys.path:
+    sys.path.insert(0, str(_shared))
+from fedbank_core.storage import root as common_storage_root
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 ComputeDevice = Literal["auto", "cpu", "gpu", "cuda"]  # "gpu" is the legacy spelling of "cuda"
@@ -119,7 +126,7 @@ class Settings(BaseSettings):
     GRILL_GATE_STATE_MOTION_THRESHOLD_PER_SECOND: float = Field(default=0.10, gt=0.0, le=2.0)
     GRILL_GATE_STATE_UNKNOWN_AFTER_SECONDS: float = Field(default=2.0, gt=0.0, le=60.0)
     MAX_VIDEO_UPLOAD_MB: int = Field(default=500, ge=1)
-    GRILL_GATE_VIDEO_UPLOAD_DIR: Path = Path("uploads/grill-gate-videos")
+    GRILL_GATE_VIDEO_UPLOAD_DIR: Path = common_storage_root() / "uploads" / "gate_mesh"
     GRILL_GATE_VIDEO_MAX_CONCURRENT: int = Field(default=1, ge=1, le=4)
     GRILL_GATE_VIDEO_MAX_QUEUED: int = Field(default=3, ge=0, le=20)
 

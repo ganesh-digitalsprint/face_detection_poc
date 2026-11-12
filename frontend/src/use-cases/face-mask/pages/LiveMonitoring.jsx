@@ -7,13 +7,14 @@ import { EventStatusBadge, PageState, ServiceDown, StateDot, StreamBadge, Empty 
 import usePolling from '../hooks/usePolling.js';
 import { faceMaskEventLink } from '../../../layouts/routes.js';
 
-// A sensible default entrance for a quick video test: the lower part of the frame, people walking "up" into the building.
-// Real cameras get their own Entry ROI on the common Regions & Zones page.
 const DEFAULT_ROI = {
-  name: 'Default entrance (lower frame)',
-  polygon: [{ x: 0.05, y: 0.4 }, { x: 0.95, y: 0.4 }, { x: 0.95, y: 0.98 }, { x: 0.05, y: 0.98 }],
+  name: 'Full frame default',
+  polygon: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }],
   inward_vector: { x: 0, y: -1 },
 };
+
+// A sensible default entrance for a quick video test: the lower part of the frame, people walking "up" into the building.
+// Real cameras get their own Entry ROI on the common Regions & Zones page.
 const STAGE = { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', textAlign: 'center', padding: 16 };
 const LIVE_STATES = ['ONLINE', 'PROCESSING', 'RECONNECTING', 'DONE'];
 
@@ -21,7 +22,7 @@ function VideoPanel({ onCreated }) {
   const [files, setFiles] = useState([]);
   const [picked, setPicked] = useState('');
   const [upload, setUpload] = useState(null);
-  const [useDefaultRoi, setUseDefaultRoi] = useState(true);
+  const [useDefaultRoi, setUseDefaultRoi] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const loadFiles = useCallback(() => api.get('/uploads/browse').then(setFiles).catch(() => setFiles([])), []);
@@ -60,9 +61,10 @@ function VideoPanel({ onCreated }) {
           </select>
         </label>
       </div>
+      <button type="button" className="bx-btn" onClick={loadFiles}>Refresh server videos</button>
       <label className="bx-row bx-gap-8" style={{ fontSize: 13, marginBottom: 10 }}>
         <input type="checkbox" checked={useDefaultRoi} onChange={(e) => setUseDefaultRoi(e.target.checked)} />
-        Use a default entrance (lower part of the frame, walking up). Untick to set the entry area yourself on <Link to="/regions?use_case=face_mask">Regions &amp; Zones</Link> first.
+        Restrict evaluation to a saved entry area. If unchecked, Face Mask evaluates and plots the whole video frame; configure a reusable zone on <Link to="/regions?use_case=face_mask">Regions &amp; Zones</Link>.
       </label>
       <button type="button" className="bx-btn bx-btn-primary" disabled={busy} onClick={submit}>{busy ? 'Starting…' : 'Analyse video'}</button>
     </div>
@@ -90,6 +92,7 @@ export default function LiveMonitoring() {
   const [actionError, setActionError] = useState('');
   const [nonce, setNonce] = useState(0);
   const [imgFailed, setImgFailed] = useState(false);
+  const [debugOverlay, setDebugOverlay] = useState(false);
 
   const cams = usePolling(() => api.get('/cameras'), 1500);
   const events = usePolling(() => api.get('/events?limit=10'), 3000);
@@ -104,9 +107,9 @@ export default function LiveMonitoring() {
     setSelectedId(id); setNonce((n) => n + 1);
     try { if (id) localStorage.setItem('fmCameraId', id); else localStorage.removeItem('fmCameraId'); } catch { /* ignore */ }
   };
-  const streamSrc = useMemo(() => (hasFrame ? fmApiUrl(`/streams/${cam.id}/processed?t=${Date.now()}`) : ''),
+  const streamSrc = useMemo(() => (hasFrame ? fmApiUrl(`/streams/${cam.id}/processed?debug=${debugOverlay}&t=${Date.now()}`) : ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hasFrame, cam?.id, nonce]);
+    [hasFrame, cam?.id, nonce, debugOverlay]);
 
   const act = async (fn) => {
     setActionError('');
@@ -165,6 +168,7 @@ export default function LiveMonitoring() {
               {cam && <div className="bx-live-badge"><span className={running ? 'bx-dot-live' : 'bx-dot-off'} /> {st.status}</div>}
             </div>
             <div className="bx-tile-meta">
+              <label className="bx-row bx-gap-8" style={{ fontSize: 12 }}><input type="checkbox" checked={debugOverlay} onChange={(event) => setDebugOverlay(event.target.checked)} /> Debug overlay</label>
               <div>
                 <div className="name">{cam ? cam.name : 'No camera selected'} {cam && <StreamBadge status={st.status} />}</div>
                 <div className="loc">{cam ? (cam.location || cam.source) : 'Pick a camera or video from the list above.'}</div>

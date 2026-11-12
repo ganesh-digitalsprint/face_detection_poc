@@ -13,25 +13,25 @@ export function isNear(p, target, size, radiusPx = 12) {
 }
 
 /**
- * Direction of the drawn arrow as the backend wants it: movement in PIXEL space, not in 0..1 space.
- * dx is scaled by the image aspect ratio (width / height), so a 45-degree arrow on a 4:3 picture stays 45 degrees.
+ * Direction of the drawn arrow in normalized image coordinates (y grows downward).
  * Returns null for a zero-length arrow.
  */
 export function arrowToVector(arrow, aspect) {
   if (!arrow) return null;
-  const dx = (arrow.x2 - arrow.x1) * aspect;
+  const dx = arrow.x2 - arrow.x1;
   const dy = arrow.y2 - arrow.y1;
   const length = Math.hypot(dx, dy);
   if (length < 1e-6) return null;
-  return { x: Number((dx / length).toFixed(4)), y: Number((dy / length).toFixed(4)) };
+  return { x: Number((dx / length).toFixed(4)), y: Number((dy / length).toFixed(4)), space: 'normalized' };
 }
 
-/** Inverse of arrowToVector, used to draw a saved ROI's arrow: a vector in pixel space -> end point in 0..1 space. */
+/** Draw both new normalized vectors and legacy pixel-space vectors without changing existing zones. */
 export function vectorToArrow(origin, vector, aspect, length = 0.14) {
   const len = Math.hypot(vector.x, vector.y) || 1;
+  const xScale = vector.space === 'normalized' ? 1 : aspect;
   return {
     x1: origin.x, y1: origin.y,
-    x2: origin.x + ((vector.x / len) * length) / aspect,
+    x2: origin.x + ((vector.x / len) * length) / xScale,
     y2: origin.y + (vector.y / len) * length,
   };
 }

@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.core.paths import CLIP_DIR, SNAPSHOT_DIR, STORAGE_DIR
+from fedbank_core.storage import legacy_resolve
 from app.db.init_db import get_db
 from app.db.repositories.interfaces import Repositories
 from app.schemas.event import EventFilter
@@ -47,6 +48,10 @@ def _abs(rel: str) -> Path | None:
     if not rel:
         return None
     p = (STORAGE_DIR / rel).resolve()
+    if not p.is_file():
+        p = legacy_resolve(rel, "branch_exterior")
+        if p is None:
+            return None
     try:
         p.relative_to(STORAGE_DIR.resolve())
     except ValueError:
@@ -82,7 +87,8 @@ def _scan() -> dict[str, tuple[Path, float, int]]:
                 try:
                     if e.is_file() and e.name != ".gitkeep":
                         st = e.stat()
-                        out[f"{folder.name}/{e.name}"] = (Path(e.path), st.st_mtime, st.st_size)
+                        old_category = "snapshots" if folder == SNAPSHOT_DIR else "clips"
+                        out[f"{old_category}/{e.name}"] = (Path(e.path), st.st_mtime, st.st_size)
                 except OSError:
                     pass
     return out

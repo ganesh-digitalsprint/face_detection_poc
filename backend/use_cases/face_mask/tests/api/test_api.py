@@ -111,8 +111,10 @@ def test_roi_crud_is_applied_to_the_runtime_immediately(client) -> None:
     assert roi.status_code == 201
     assert [r.name for r in runtime.rois_for(cid)] == ["Grill Gate"]
     rid = roi.json()["id"]
-    client.patch(f"/api/roi/{rid}", json={"name": "Side Door", "inward_vector": {"x": 1, "y": 0}})
+    client.patch(f"/api/roi/{rid}", json={"name": "Side Door", "polygon": POLY,
+                                          "inward_vector": {"x": 1, "y": 0}})
     assert runtime.rois_for(cid)[0].name == "Side Door" and runtime.rois_for(cid)[0].inward == (1, 0)
+    assert [roi["id"] for roi in client.get(f"/api/roi?camera_id={cid}").json()] == [rid]
     assert client.delete(f"/api/roi/{rid}").status_code == 204
     assert runtime.rois_for(cid) == []
 

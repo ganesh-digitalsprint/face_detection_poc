@@ -99,7 +99,7 @@ async def browse_videos():
     """Existing videos: this service's uploads and sample_videos, data/uploads, and the folders branch_exterior scans."""
     found: dict[str, VideoFile] = {}
     for root in video_roots():
-        for path in sorted(root.iterdir()):
+        for path in sorted(root.rglob("*")):
             if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS:
                 shown = _display_path(path)
                 found.setdefault(shown, VideoFile(name=path.name, path=shown, folder=root.name,

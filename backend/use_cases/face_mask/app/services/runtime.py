@@ -5,7 +5,7 @@
   `stream.offline_after_seconds` without a frame (branch_exterior has no reconnect; this is stricter).
 * Video files are processed one-shot (or looped when `loop_video`) with progress, and keep running in the
   background when the browser page is refreshed.
-* Pose/face analysis only runs for entering people; frames are skipped to hold `stream.processing_fps`.
+* Visibility analysis runs across the frame; frames are skipped to hold `stream.processing_fps`.
 * The pipeline never waits on the database, evidence encoding or the Alert Service (all off-thread).
 """
 from __future__ import annotations
@@ -70,7 +70,7 @@ class RuntimeSink:
         self._rt.event_opened(event.camera_id)
 
         # Pre-roll must be taken at confirmation time (cheap list copy); encoding happens on the pool.
-        self._rt.evidence.start_clip(event.camera_id, event_id, event.ts, self._clip_done)
+        self._rt.evidence.start_clip(event.camera_id, event_id, event.ts, self._clip_done, event.track_id)
         self._rt.evidence_submit(self._store_snapshot, event_id, event, now)
 
         alert = AlertEvent(
@@ -104,7 +104,11 @@ class RuntimeSink:
     def _store_snapshot(self, event_id: str, event: NewEvent, now: datetime) -> None:
         try:
             path = self._rt.evidence.save_snapshot(event_id, event.best_frame, event.head_box, now.timestamp(),
-                                                   f"{event.camera_id} track {event.track_id}")
+                                                   f"{event.camera_id} track {event.track_id}", event.person_box,
+                                                   {"camera_id": event.camera_id, "zone_name": event.roi_name,
+                                                    "track_id": event.track_id, "timestamp": now.isoformat(),
+                                                    "score": event.score, "covering_type": event.covering_type,
+                                                    "direction": event.direction})
         except Exception as exc:
             logger.warning("Snapshot for event %s failed: %s", event_id, exc)
             return
@@ -170,7 +174,7 @@ class CameraSession(threading.Thread):
             self._publish(status="ERROR", running=False, last_error=f"{type(exc).__name__}: {exc}")
             return
 
-        events = EventService(cfg.confirmation, cfg.cooldown, self._rt.sink)
+        events = EventService(cfg.confirmation, cfg.cooldown, self._rt.sink, cfg.analysis)
         interval = 1.0 / cfg.stream.processing_fps
         cap: cv2.VideoCapture | None = None
         backoff = cfg.stream.reconnect_initial_seconds
@@ -223,7 +227,7 @@ class CameraSession(threading.Thread):
                         self._finish_tracks(events, pipeline, cam.id, last_ts)
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         pipeline = self._rt.make_pipeline(cam.id)
-                        events = EventService(cfg.confirmation, cfg.cooldown, self._rt.sink)
+                        events = EventService(cfg.confirmation, cfg.cooldown, self._rt.sink, cfg.analysis)
                         continue
                     break                         # one-shot video finished
                 cap.release()
@@ -243,13 +247,15 @@ class CameraSession(threading.Thread):
             frame = self._resize(frame, cfg.stream.frame_width)
 
             try:
-                result = pipeline.process_frame(frame, ts, self._rt.rois_for(cam.id))
+                result = pipeline.process_frame(frame, ts, self._rt.effective_rois_for(cam.id))
                 for obs in result.observations:
                     events.process(obs)
                 for track_id in result.ended_track_ids:
                     events.end_track(cam.id, track_id, ts)
-                self._rt.evidence.push_frame(cam.id, ts, frame)
-                self._rt.bus.update_frame(cam.id, annotate(frame, result.observations, self._rt.rois_for(cam.id)))
+                self._rt.evidence.push_frame(cam.id, ts, frame, {obs.track_id: obs.box for obs in result.observations})
+                rois = self._rt.effective_rois_for(cam.id)
+                self._rt.bus.update_frame(cam.id, annotate(frame, result.observations, rois),
+                                          annotate(frame, result.observations, rois, debug=True))
             except Exception as exc:
                 logger.exception("Camera %s: frame processing failed", cam.id)
                 self._publish(last_error=f"{type(exc).__name__}: {exc}")
@@ -257,11 +263,11 @@ class CameraSession(threading.Thread):
 
             elapsed = max(time.monotonic() - started, 1e-3)   # never 0: coarse Windows timers + very fast frames
             fps_ema = 0.8 * fps_ema + 0.2 * (1.0 / elapsed) if fps_ema else 1.0 / elapsed
-            rois = self._rt.rois_for(cam.id)
+            rois = self._rt.effective_rois_for(cam.id)
             self._publish(
                 status="PROCESSING" if is_file else "ONLINE", frames_read=frames_read, fps=round(fps_ema, 1),
                 last_error="", active_tracks=len(result.observations),
-                notice="" if rois else "No entry ROI is configured for this camera: nobody can be evaluated",
+                notice="" if self._rt.has_saved_rois(cam.id) else "No saved entry ROI: evaluating and plotting the whole frame",
                 track_states={o.track_id: o.display for o in result.observations})
             if is_file and cfg.stream.file_realtime:
                 self._stop_flag.wait(max(0.0, interval - elapsed))
@@ -336,6 +342,16 @@ class Runtime:
 
     def rois_for(self, camera_id: str) -> list[RoiSpec]:
         return self._rois.get(camera_id, [])
+
+    def effective_rois_for(self, camera_id: str) -> list[RoiSpec]:
+        saved = self.rois_for(camera_id)
+        if saved:
+            return saved
+        return [RoiSpec(id="__default_full_frame__", name="Full frame (no saved entry zone)",
+                        polygon=((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)), inward=(0.0, -1.0))]
+
+    def has_saved_rois(self, camera_id: str) -> bool:
+        return bool(self._rois.get(camera_id, []))
 
     # -- sessions --------------------------------------------------------------------------------------
     def start_camera(self, camera: Camera) -> CameraStatus:

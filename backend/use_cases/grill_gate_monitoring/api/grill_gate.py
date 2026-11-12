@@ -104,7 +104,10 @@ def upload_video(video: UploadFile, db: Db, caller: Caller,
         raw_config = {key: value for key, value in parsed.items() if key != "zone"}
     jobs = get_grill_gate_video_jobs()
     settings.GRILL_GATE_VIDEO_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    path = settings.GRILL_GATE_VIDEO_UPLOAD_DIR / f"{uuid4().hex}.video"
+    suffix = Path(video.filename or "").suffix.lower()
+    if suffix not in {".mp4", ".avi"}:
+        raise HTTPException(415, "Upload an MP4 or AVI video")
+    path = settings.GRILL_GATE_VIDEO_UPLOAD_DIR / f"{uuid4().hex}{suffix}"
     written = 0
     try:
         with path.open("wb") as target:
