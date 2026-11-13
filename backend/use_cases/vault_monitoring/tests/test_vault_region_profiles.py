@@ -76,6 +76,20 @@ def test_profiles_persist_version_and_keep_source_profiles_and_global_zones_sepa
     assert store.load(new["id"])["zones"] == []
 
 
+def test_zone_set_name_saves_with_unchanged_polygons_and_version_validation(profile_client):
+    client, root = profile_client
+    rows = [zone(key) for key in REGIONS]
+    response = client.put(f"{BASE}/upload", json={"version": 0, "zones": rows, "name": "Vault Night Shift – Gate A"})
+    assert response.status_code == 200
+    saved = response.json()
+    assert saved['name'] == 'Vault Night Shift – Gate A'
+    assert saved['zones'] == VaultRegionProfiles(root).load('upload')['zones']
+    assert [row['polygon'] for row in saved['zones']] == [row['polygon'] for row in rows]
+    assert client.put(f"{BASE}/upload", json={"version": 0, "zones": rows, "name": "Stale"}).status_code == 409
+    assert client.put(f"{BASE}/upload", json={"version": 1, "zones": rows, "name": "   "}).status_code == 422
+    assert client.get(f"{BASE}/upload").json() == saved
+
+
 def test_profile_api_auth_validation_version_conflict_and_camera_admission(tmp_path, monkeypatch):
     store = VaultRegionProfiles(tmp_path)
     monkeypatch.setattr(routes, "get_vault_region_profiles", lambda: store)

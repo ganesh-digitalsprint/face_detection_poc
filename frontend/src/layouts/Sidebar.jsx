@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronRight, ScanEye } from 'lucide-react';
-import { NAV_SECTIONS, formatBadge, isItemActive, openGroupIds, visibleSections } from './navConfig.js';
+import { NAV_SECTIONS, formatBadge, isItemActive, navigationTarget, openGroupIds, visibleSections } from './navConfig.js';
 
 const ROW = 'relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-left';
 const ACTIVE_BAR = 'before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-r before:bg-accent';
@@ -47,7 +47,7 @@ function NavItem({ item, pathname, search, collapsed, muted, sub = false, badgeT
   const active = isItemActive(item, pathname, search);
   return (
     <Link
-      to={item.to}
+      to={navigationTarget(item, pathname, search)}
       title={title}
       aria-current={active ? 'page' : undefined}
       onClick={onNavigate}

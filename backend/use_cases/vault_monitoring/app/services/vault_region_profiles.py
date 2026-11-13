@@ -55,7 +55,9 @@ class VaultRegionProfiles:
                 raise ValueError("At most 100 Vault Room profiles are supported")
             return self.save(uuid4().hex, [], 0, name=name.strip())
 
-    def save(self, profile_id, rows, expected_version, *, name=None):
+    def save(self, profile_id, rows, expected_version, *, name=None, display_name=None):
+        if display_name is not None and (not display_name.strip() or len(display_name) > 60):
+            raise ValueError("Use a zone set name between 1 and 60 characters")
         if len(rows) > len(REGIONS) or len({row["id"] for row in rows}) != len(rows):
             raise ValueError("Configure each predefined Vault region at most once")
         zones = []
@@ -75,7 +77,7 @@ class VaultRegionProfiles:
             try:
                 save_zones(staging, zones)
                 data = json.loads(staging.read_text(encoding="utf-8"))
-                data.update(name=current["name"], version=current["version"] + 1,
+                data.update(name=display_name.strip() if display_name is not None else current["name"], version=current["version"] + 1,
                     confirmation_seconds={row["id"]: row.get("confirmation_seconds", 1.0) for row in rows})
                 staging.write_text(json.dumps(data, indent=2), encoding="utf-8")
                 os.replace(staging, path)

@@ -27,6 +27,7 @@ class Region(BaseModel):
 class Configuration(BaseModel):
     zones: list[Region] = Field(max_length=6)
     version: int = Field(ge=0)
+    name: str | None = Field(default=None, min_length=1, max_length=60)
 
 
 class ProfileName(BaseModel):
@@ -62,7 +63,7 @@ def get_profile(profile_id: str):
 @router.put("/{profile_id}")
 def save_profile(profile_id: str, payload: Configuration):
     return _call(get_vault_region_profiles().save, profile_id,
-        [item.model_dump() for item in payload.zones], payload.version)
+        [item.model_dump() for item in payload.zones], payload.version, display_name=payload.name)
 
 
 @router.post("/{profile_id}/activate")

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Box, Eye, EyeOff, Pencil, Plus, RotateCcw, Trash2, Save } from 'lucide-react';
+import { Box, Eye, EyeOff, FolderOpen, Pencil, Plus, RotateCcw, Trash2, Save } from 'lucide-react';
 import PolygonFrameCanvas from '../../../../components/regions/PolygonFrameCanvas.jsx';
 import VaultVideoScrubber from './VaultVideoScrubber.jsx';
+import VaultSavedZones from './VaultSavedZones.jsx';
 import { VAULT_REGIONS, vaultRegionColor } from '../../hooks/useVaultRoomRegions.js';
 
 const button = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#d0d7e6] bg-white px-3 text-sm font-medium text-[#34479b] hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
@@ -10,10 +11,11 @@ const button = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-x
 export default function VaultRoomZones({ regions, previewRef, previewSlotRef, replay, camera, active = true }) {
   const [target, setTarget] = useState(null);
   const [frame, setFrame] = useState(null);
-  const [newName, setNewName] = useState('');
-  const [addingProfile, setAddingProfile] = useState(false);
+  const [nameMode, setNameMode] = useState('custom');
+  const [customName, setCustomName] = useState('');
+  const [showSaved, setShowSaved] = useState(false);
+  const [showLoadZones, setShowLoadZones] = useState(false);
   const connected = ['ready', 'connected', 'streaming', 'starting', 'connecting', 'reconnecting', 'stopping'].includes(camera.status);
-  const profileLocked = connected || replay.active || replay.busy || regions.editing || regions.dirty || regions.saving;
   const locked = regions.loading || regions.saving || regions.preparing || replay.busy;
   useEffect(() => {
     const root = previewRef.current;
@@ -42,7 +44,20 @@ export default function VaultRoomZones({ regions, previewRef, previewSlotRef, re
   const finish = () => regions.finish(frame);
   const editable = regions.editId ? regions.zones.find((row) => row.id === regions.editId) : null;
   const configInUse = connected || replay.active;
-  const profileName = regions.profiles.find((profile) => profile.id === regions.profileId)?.name || 'Vault Room';
+  const profileName = regions.profileName || regions.profiles.find((profile) => profile.id === regions.profileId)?.name || 'Vault Room';
+  const videoName = (replay.file?.name || replay.session?.filename || '').replace(/\.[^.]+$/, '').slice(0, 60);
+  const saveName = (nameMode === 'video' ? videoName : customName).trim();
+  const invalidName = !saveName || saveName.length > 60;
+  useEffect(() => {
+    if (regions.loading) setNameMode('custom');
+    else setCustomName(profileName);
+  }, [regions.profileId, regions.loading, profileName]);
+  useEffect(() => {
+    setShowSaved(Boolean(regions.notice));
+    const timer = window.setTimeout(() => setShowSaved(false), 4500);
+    return () => window.clearTimeout(timer);
+  }, [regions.notice]);
+  const namingChanged = () => regions.change(regions.zones);
   // The portal lives in the shared preview, outside this section's hidden subtree.
   // Mount it only in the editor; hiding the section does not hide portalled polygons.
   const overlay = active && target && frame && createPortal(<PolygonFrameCanvas frame={frame} zones={regions.visibleZones}
@@ -55,11 +70,11 @@ export default function VaultRoomZones({ regions, previewRef, previewSlotRef, re
     {overlay}
     <div className="zone-section-header flex flex-wrap items-center gap-3 border-b border-[#e3e7f0] p-5">
       <h3 className="mr-auto flex items-center gap-3 font-bold text-[#0f1b3d]"><span className="zone-section-icon"><Box size={18} aria-hidden /></span>Zones &amp; Regions</h3>
-      <button type="button" className={button} disabled={profileLocked} onClick={() => setAddingProfile((value) => !value)}><Plus size={15} aria-hidden />New profile</button>
-      <button type="button" className={button} disabled={locked || regions.editing} onClick={regions.reload}><RotateCcw size={14} aria-hidden />{regions.dirty ? 'Discard changes' : 'Reload'}</button>
+      <button type="button" className={button} aria-expanded={showLoadZones} onClick={() => { if (!showLoadZones) regions.refreshProfiles(); setShowLoadZones((value) => !value); }}><FolderOpen size={15} aria-hidden />Load Zones</button>
+      <button type="button" className={button} disabled={locked || regions.editing} onClick={regions.reload}><RotateCcw size={14} aria-hidden />Reload</button>
     </div>
-    {addingProfile && <form className="flex flex-wrap gap-2 px-4 pt-4" onSubmit={async (event) => { event.preventDefault(); await regions.createProfile(newName); setAddingProfile(false); setNewName(''); }}><input aria-label="New Vault Room profile name" required maxLength={80} value={newName} onChange={(event) => setNewName(event.target.value)} className="min-h-10 rounded-xl border border-slate-300 px-3 text-sm" /><button className={button} disabled={profileLocked}>Create profile</button></form>}
     <div className="zone-editor-layout">
+    <VaultSavedZones regions={regions} open={active && showLoadZones} monitoringActive={configInUse} />
     <div className="zone-canvas-column">
     <div className="mb-3 flex flex-wrap items-center gap-2">
       <select aria-label="Vault monitoring region" value={regions.selectedType} disabled={regions.editing || locked} onChange={(event) => regions.setSelectedType(event.target.value)} className="min-h-10 rounded-xl border border-[#d0d7e6] bg-white px-3 text-sm text-[#34479b]">{VAULT_REGIONS.map((region) => <option key={region.key} value={region.key}>{region.label}</option>)}</select>
@@ -78,7 +93,7 @@ export default function VaultRoomZones({ regions, previewRef, previewSlotRef, re
     <div className="mb-3 flex min-h-10 items-center justify-between gap-3"><h4 className="text-sm font-bold text-[#0f1b3d]">Regions <span className="font-medium text-[#747da6]">({regions.zones.length})</span></h4><span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${regions.dirty ? 'bg-amber-100 text-amber-800' : 'bg-[#dcf7ed] text-[#008d68]'}`}>{regions.loading ? 'Loading…' : regions.error ? 'Profile unavailable' : regions.dirty ? 'Unsaved changes' : 'Profile loaded'}</span></div>
     <div className="space-y-3">{regions.zones.map((row) => <div key={row.id} className="zone-region-card">
       <span className="zone-region-color" style={{ background: vaultRegionColor(row.id) }} aria-hidden />
-      <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-[#0f1b3d]">{row.name}</p><p className="mt-1 text-xs text-[#747da6]">{row.polygon.length} points</p><p className="mt-0.5 break-all text-[11px] text-[#747da6]">{row.id}</p></div>
+      <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-[#0f1b3d]">{row.name}</p><p className="mt-1 text-xs text-[#747da6]" title={row.id}>{VAULT_REGIONS.find((region) => region.key === row.id)?.label || row.id} · {row.polygon.length} points</p></div>
       <div className="flex shrink-0 items-center gap-1">
       <button type="button" className="zone-icon-button" aria-label={`${regions.hidden.has(row.id) ? 'Show' : 'Hide'} ${row.name}`} disabled={regions.editing} onClick={() => regions.setHidden((current) => { const next = new Set(current); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); return next; })}>{regions.hidden.has(row.id) ? <EyeOff size={17} /> : <Eye size={17} />}</button>
       <button type="button" className="zone-icon-button" aria-label={`Edit ${row.name}`} disabled={!frame || locked || regions.editing} onClick={() => edit(row.id)}><Pencil size={15} /></button>
@@ -91,19 +106,28 @@ export default function VaultRoomZones({ regions, previewRef, previewSlotRef, re
     </div>
     <aside className="zone-save-panel" aria-label="Save region configuration">
       <h4 className="text-sm font-bold text-[#0f1b3d]">Save changes</h4>
-      <p className="mt-2 text-xs leading-5 text-[#747da6]">Review your regions, then save before starting monitoring.</p>
+      <p className="text-xs leading-5 text-[#747da6]">Review your regions, then save the profile before starting monitoring.</p>
+      <div className="zone-set-naming">
+        <p className="zone-set-label">Zone set name</p>
+        <div role="group" aria-label="Zone set naming" className="zone-name-tabs">
+          <button type="button" aria-pressed={nameMode === 'video'} disabled={!videoName || locked || regions.editing} onClick={() => { setNameMode('video'); namingChanged(); }}>Video file name</button>
+          <button type="button" aria-pressed={nameMode === 'custom'} disabled={locked || regions.editing} onClick={() => { setNameMode('custom'); namingChanged(); }}>Custom name</button>
+        </div>
+        <label className="zone-name-field"><Pencil size={13} aria-hidden /><input aria-label="Zone set name" aria-invalid={invalidName} maxLength={60} placeholder="Enter zone set name" value={nameMode === 'video' ? videoName : customName} readOnly={nameMode === 'video'} disabled={locked || regions.editing} onChange={(event) => { setCustomName(event.target.value); namingChanged(); }} /><span>{(nameMode === 'video' ? videoName : customName).length}/60</span></label>
+        <p className="zone-name-hint">{invalidName ? 'Enter a name between 1 and 60 characters.' : nameMode === 'custom' ? 'Custom name will be used when you save.' : 'Video file name will be used when you save.'}</p>
+      </div>
       <dl className="zone-save-summary">
-        <div><dt>Profile</dt><dd>{profileName}</dd></div>
+        <div><dt>Will save as</dt><dd>{saveName || 'Enter a name'}</dd></div>
         <div><dt>Regions</dt><dd>{regions.zones.length}</dd></div>
         <div><dt>Visible on frame</dt><dd>{regions.visibleZones.length} of {regions.zones.length}</dd></div>
       </dl>
-      <button type="button" className={`${button} zone-primary-button`} disabled={locked || regions.editing || !regions.dirty} onClick={() => regions.save(frame)}><Save size={15} aria-hidden />{regions.saving ? 'Saving…' : regions.dirty ? 'Save configuration' : 'Saved'}</button>
+      <button type="button" className={`${button} zone-primary-button`} disabled={locked || regions.editing || !regions.dirty || invalidName} onClick={() => regions.save(frame, saveName)}><Save size={15} aria-hidden />{regions.saving ? 'Saving…' : regions.dirty ? 'Save changes' : 'Saved'}</button>
       <button type="button" className={button} disabled={locked || regions.editing || !regions.dirty} onClick={regions.reload}>Discard changes</button>
     </aside>
     </div>
     <p className="zone-editor-footer text-xs leading-5 text-[#747da6]">Visibility does not disable detection. {configInUse ? 'Saved changes apply to the next monitoring run.' : 'Save before starting monitoring.'}<span>{regions.dirty ? 'You have unsaved changes' : 'All changes saved'}</span></p>
     </div>
     {regions.error && <p role="alert" className="px-4 pb-4 text-sm text-red-700">{regions.error}</p>}
-    {regions.notice && <p role="status" className="px-4 pb-4 text-sm text-green-700">{regions.notice}</p>}
+    {showSaved && regions.notice && <p role="status" className="zone-save-toast">{regions.notice}</p>}
   </section>;
 }

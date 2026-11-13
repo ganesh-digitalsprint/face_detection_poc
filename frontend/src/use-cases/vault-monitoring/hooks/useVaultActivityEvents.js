@@ -6,14 +6,18 @@ const PAGE_SIZE = 25;
 const empty = (key) => ({ key, items: [], total: 0, loading: false, loadingMore: false, error: null });
 
 export default function useVaultActivityEvents({ sessionId, source, sourceId, replay, enabled, liveEvents = [] }) {
-  const key = JSON.stringify([enabled, sessionId, source, sourceId, replay]);
+  const key = JSON.stringify([sessionId, source, sourceId, replay]);
   const [state, setState] = useState(() => empty(key));
   const operation = useRef(null);
+  const snapshot = useRef(state); snapshot.current = state;
   const refresh = useCallback((options) => operation.current?.(options), []);
   useEffect(() => {
-    let active = true, controller, count = 0, wanted = PAGE_SIZE, inFlight = false, sequence = 0, knownTotal = 0, hasLoaded = false;
-    setState({ ...empty(key), loading: Boolean(enabled && sessionId) });
-    if (!enabled || !sessionId) { operation.current = null; return undefined; }
+    if (!enabled) { operation.current = null; return undefined; }
+    const previous = snapshot.current.key === key ? snapshot.current : empty(key);
+    let active = true, controller, count = previous.items.length, wanted = Math.max(PAGE_SIZE, count),
+      inFlight = false, sequence = 0, knownTotal = previous.total, hasLoaded = previous.items.length > 0;
+    setState({ ...previous, loading: Boolean(sessionId), loadingMore: false });
+    if (!sessionId) { operation.current = null; return undefined; }
     const fetch = async ({ append = false, quiet = false } = {}) => {
       if (quiet && inFlight) return;
       controller?.abort(); controller = new AbortController();
@@ -35,7 +39,8 @@ export default function useVaultActivityEvents({ sessionId, source, sourceId, re
         count = page.nextOffset; wanted = Math.max(PAGE_SIZE, count); knownTotal = total; hasLoaded = true;
         const scoped = incoming.filter((event) => event.session_id === sessionId && event.source === source
           && (!sourceId || event.source_id === sourceId) && event.replay === replay);
-        setState((current) => ({ key, items: mergeActivities(append ? [...current.items, ...scoped] : scoped), total, loading: false, loadingMore: false, error: null }));
+        setState((current) => ({ key, items: mergeActivities([...(current.key === key ? current.items : []), ...scoped]),
+          total: Math.max(current.key === key ? current.total : 0, total), loading: false, loadingMore: false, error: null }));
       } catch (error) {
         if (active && request === sequence && !controller.signal.aborted) setState((current) => ({ ...current, loading: false, loadingMore: false, error }));
       } finally { if (request === sequence) inFlight = false; }

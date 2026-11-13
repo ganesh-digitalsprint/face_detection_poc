@@ -17,14 +17,14 @@ export default function VaultVideoScrubber({ previewRef, replay, editing, active
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const attemptedFile = useRef(null);
-  const fps = replay.session?.metadata?.fps;
+  const fps = replay.metadata?.fps;
 
   useEffect(() => {
-    if (active && replay.enabled && replay.file && !replay.session?.metadata && !replay.busy && attemptedFile.current !== replay.file) {
+    if (active && replay.enabled && replay.file && !replay.metadata && !replay.busy && attemptedFile.current !== replay.file) {
       attemptedFile.current = replay.file;
       replay.prepare();
     }
-  }, [active, replay.enabled, replay.file, replay.busy, replay.session?.metadata, replay.prepare]);
+  }, [active, replay.enabled, replay.file, replay.busy, replay.metadata, replay.prepare]);
 
   useEffect(() => {
     const root = previewRef.current;

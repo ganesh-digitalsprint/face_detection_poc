@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Cctv, Eye, EyeOff, FileVideo, Pause, Play, Square, Upload, Webcam } from 'lucide-react';
+import { Cctv, Eye, EyeOff, FileVideo, Minus, Pause, Play, Plus, Square, Upload, Webcam } from 'lucide-react';
 
 const button = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50';
 const field = 'mt-1 min-h-11 w-full rounded-lg border border-[#C8CEDB] bg-white px-3 font-normal text-[#0F1B3D] outline-none focus-visible:border-[#34479B] focus-visible:ring-2 focus-visible:ring-[#34479B]/20';
 
-export default function VaultRoomCameraControls({ camera, counting, children, closeAction, replay, regions, zonesLayout = false }) {
-  const [source, setSource] = useState('webcam');
+export default function VaultRoomCameraControls({ camera, counting, children, closeAction, replay, regions, source, onSourceChange: setSource, zonesLayout = false }) {
   const [name, setName] = useState('Vault Room Camera');
   const [mode, setMode] = useState('details');
   const [protocol, setProtocol] = useState('rtsp');
@@ -19,6 +18,7 @@ export default function VaultRoomCameraControls({ camera, counting, children, cl
   const [showUrl, setShowUrl] = useState(false);
   const [formError, setFormError] = useState('');
   const [connectingProfile, setConnectingProfile] = useState(false);
+  const [uploadDragging, setUploadDragging] = useState(false);
   const busy = connectingProfile || ['starting', 'connecting', 'reconnecting', 'stopping'].includes(camera.status);
   const connected = ['ready', 'connected', 'streaming'].includes(camera.status);
   const statusText = camera.status === 'streaming' || (camera.status === 'ready' && counting?.status === 'running') ? 'Tracking' : ['ready', 'connected'].includes(camera.status) ? 'Connected'
@@ -84,28 +84,38 @@ export default function VaultRoomCameraControls({ camera, counting, children, cl
       </button>}
     </div>
 
-    <div className={`room-connection-panel ${source === 'webcam' ? 'is-webcam' : ''}`}>
+    <div className={`room-connection-panel ${source === 'webcam' ? 'is-webcam' : source === 'upload' && !zonesLayout ? 'is-upload' : ''}`}>
     {source === 'upload' && replay && <div className="room-upload-controls space-y-3">
-      <div className="room-upload-heading flex flex-wrap items-center justify-between gap-3">
-        <div className="room-upload-file-heading min-w-0">{zonesLayout && <span className="zone-section-icon"><FileVideo size={18} aria-hidden /></span>}<div><p className="break-words text-sm font-semibold">{replay.file?.name || 'Select a video file'}</p>
+      <div className={`room-upload-heading flex flex-wrap items-center justify-between gap-3 ${uploadDragging && !zonesLayout ? 'is-dragging' : ''}`}
+        onDragOver={zonesLayout ? undefined : (event) => { event.preventDefault(); if (!replay.busy && !replay.active && !regions?.editing && event.dataTransfer.types.includes('Files')) setUploadDragging(true); }}
+        onDragLeave={zonesLayout ? undefined : (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setUploadDragging(false); }}
+        onDrop={zonesLayout ? undefined : (event) => { event.preventDefault(); setUploadDragging(false); if (!replay.busy && !replay.active && !regions?.editing) replay.chooseFile(event.dataTransfer.files?.[0]); }}>
+        <div className={`room-upload-file-heading min-w-0 ${zonesLayout ? '' : 'room-upload-file-summary'}`}><span className={zonesLayout ? 'zone-section-icon' : 'room-upload-file-icon'}><FileVideo size={zonesLayout ? 18 : 24} aria-hidden /></span><div><p className="break-words text-sm font-semibold">{replay.file?.name || 'Select a video file'}</p>
           <p className="mt-1 text-xs text-[#66718A]">{replay.file ? `${(replay.file.size / 1048576).toFixed(1)} MB · ` : ''}{Number.isFinite(replay.duration) ? `${replay.duration.toFixed(1)}s · ` : ''}Replay test mode · no live alerts or door changes</p></div></div>
-        <label className={`${button} relative cursor-pointer border border-slate-200 bg-white text-[#34479B] ${replay.active || replay.busy ? 'opacity-50' : ''}`}>Choose file
+        <label className={`${button} room-upload-picker relative cursor-pointer border border-slate-200 bg-white text-[#34479B] ${replay.active || replay.busy ? 'opacity-50' : ''}`}>{!zonesLayout && <Upload size={18} aria-hidden />}Choose file
           <input type="file" aria-label="Choose replay video" accept=".mp4,.avi,.mov,.mkv,.webm" disabled={replay.busy || replay.active || regions?.editing}
             onChange={(event) => { replay.chooseFile(event.target.files?.[0]); event.target.value = ''; }}
             className="absolute inset-0 h-full w-full cursor-pointer opacity-0" /></label>
       </div>
       {!zonesLayout && <div className="room-upload-action-row flex flex-wrap items-center gap-3">
-        <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold text-[#34479B]">
-          <input type="checkbox" checked={replay.showPoseDebug} onChange={(event) => replay.togglePoseDebug(event.target.checked)} className="h-4 w-4 accent-[#34479B]" />
-          Show Pose &amp; ROI Debug
+        <div className="room-upload-count"><span>Expected people</span><div className="room-upload-stepper">
+          <button type="button" aria-label="Decrease expected people" disabled={replay.active || replay.busy || replay.requiredPersons <= 1} onClick={() => replay.setRequiredPersons(replay.requiredPersons - 1)}><Minus size={15} aria-hidden /></button>
+          <select aria-label="Replay expected people" value={replay.requiredPersons} disabled={replay.active || replay.busy} onChange={(event) => replay.setRequiredPersons(Number(event.target.value))}><option value={1}>1</option><option value={2}>2</option></select>
+          <button type="button" aria-label="Increase expected people" disabled={replay.active || replay.busy || replay.requiredPersons >= 2} onClick={() => replay.setRequiredPersons(replay.requiredPersons + 1)}><Plus size={15} aria-hidden /></button>
+        </div></div>
+        <label className="room-upload-pose inline-flex min-h-11 cursor-pointer items-center gap-3">
+          <input type="checkbox" role="switch" checked={replay.showPoseDebug} onChange={(event) => replay.togglePoseDebug(event.target.checked)} className="room-upload-switch" />
+          Show pose &amp; ROI debug
         </label>
-        <label className="text-xs font-semibold text-[#55607A]">Expected people <select aria-label="Replay expected people" value={replay.requiredPersons} disabled={replay.active || replay.busy} onChange={(event) => replay.setRequiredPersons(Number(event.target.value))} className="ml-2 min-h-9 rounded-lg border border-slate-200 bg-white px-2"><option value={1}>1</option><option value={2}>2</option></select></label>
-        <span role="status" className="text-xs text-[#55607A]">{replay.session?.state?.simulated_authorization ? 'SIMULATED authorization active · replay only' : 'Simulated authorization activates after two people are confirmed'}</span>
-        {!replay.active && <button type="button" disabled={!replay.file || replay.busy || (regions && !regions.ready)} onClick={replay.process} className={`${button} bg-[#34479B] text-white`}><Play className="h-4 w-4" aria-hidden />{replay.busy ? `Uploading ${replay.uploadProgress}%` : 'Process video'}</button>}
+        <span role="status" className="room-upload-authorization">{replay.session?.state?.simulated_authorization ? 'SIMULATED authorization active · replay only' : 'Simulated authorization activates after two people are confirmed.'}</span>
+        <div className="room-upload-processing-actions">
+        {!replay.active && <button type="button" disabled={!replay.file || replay.busy || (regions && !regions.ready)} onClick={replay.process} className={`${button} room-upload-process bg-[#34479B] text-white`}><Play className="h-5 w-5" aria-hidden />{replay.busy ? `Uploading ${replay.uploadProgress}%` : 'Process video'}</button>}
         {replay.active && <><button type="button" disabled={replay.busy || replay.session?.status === 'starting' || regions?.editing} onClick={() => replay.control(replay.session?.status === 'paused' ? 'resume' : 'pause')} className={`${button} border border-slate-200 bg-white text-[#34479B]`}><Pause className="h-4 w-4" aria-hidden />{replay.session?.status === 'paused' ? 'Resume' : 'Pause'}</button>
           <button type="button" disabled={replay.busy} onClick={() => replay.control('stop')} className={`${button} border border-red-200 bg-white text-red-700`}><Square className="h-4 w-4" aria-hidden />Stop processing</button></>}
+        </div>
       </div>}
-      {!zonesLayout && replay.session && <div><progress aria-label="Replay processing progress" max={1} value={replay.session.progress} className="h-2 w-full accent-[#34479B]" /><p className="mt-1 text-xs text-[#66718A]">{Math.round(replay.session.progress * 100)}% · {replay.session.processed_frames} frames processed · {replay.session.status}</p></div>}
+      {!zonesLayout && replay.session?.metadata && <div className="room-upload-progress"><progress aria-label="Replay processing progress" max={1} value={replay.session.progress} className="h-2 w-full accent-[#34479B]" /><p className="mt-1 text-xs text-[#66718A]">{Math.round(replay.session.progress * 100)}% · {replay.session.processed_frames} frames processed · {replay.session.status}</p></div>}
+      {replay.notice && <p role="status" className="text-sm text-[#55607A]">{replay.notice}</p>}
       {replay.error && <p role="alert" className="text-sm text-red-700">{replay.error}</p>}
     </div>}
     {!connected && source === 'webcam' && <div className="room-webcam-form grid gap-3 rounded-xl border border-[#E3E7F0] bg-white p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">

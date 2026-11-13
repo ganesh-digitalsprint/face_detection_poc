@@ -25,6 +25,7 @@ class VaultWorkflowMonitor:
         self.last_time = now
         active = {track['track_id'] for track in tracks}
         handle_zone = self.regions.zones.get('vault_door_handle_roi')
+        tray_zone = self.regions.zones.get('tray_area_roi')
         observations = {(w['track_id'], w['hand']): w.get('wrist') for w in wrists
                         if w['track_id'] in active and reliable(w.get('wrist'), self.confidence)}
         # Retain confirmed tombstones: pose/track loss is never proof of exit.
@@ -36,6 +37,7 @@ class VaultWorkflowMonitor:
                 point = observations.get((identifier, hand))
                 track_debug['memberships'][hand] = {}
                 handle_inside = self.regions.contains(point['x'], point['y'], handle_zone['polygon']) if point and handle_zone else None
+                tray_inside = self.regions.contains(point['x'], point['y'], tray_zone['polygon']) if point and tray_zone else None
                 track_debug['memberships'][hand]['vault_door_handle_roi'] = handle_inside
                 for region, event_type in INTERACTIONS.items():
                     zone = self.regions.zones.get(region)
@@ -49,6 +51,11 @@ class VaultWorkflowMonitor:
                         # leaving its polygon. Preserve fired latches, clear all pending evidence.
                         state.update(pending=None, exit=None)
                         reason = 'DOOR_HANDLE_PRIORITY'
+                    elif region == 'vault_door_roi' and inside is True and tray_inside is True:
+                        # Spatial priority is local to this wrist. Tray overlap is
+                        # neither Door evidence nor a confirmed exit from Door.
+                        state.update(pending=None, exit=None)
+                        reason = 'TRAY_AREA_PRIORITY'
                     elif inside is None:
                         state['exit'] = None
                         if state['pending'] and now-state['pending']['last'] > self.cfg.dropout_tolerance_seconds:

@@ -3,9 +3,11 @@ import { Bell } from 'lucide-react';
 import { getRoomReplayEvidence } from '../../api/vaultRoom.js';
 import CompactAlertCard from '../../../../components/alerts/CompactAlertCard.jsx';
 import { describeError } from '../../../../utils/errors.js';
+import { readVaultUi, saveVaultUi } from '../../utils/replayStorage.js';
 
 export default function VaultRoomReplayAlerts({ replay, activity = null }) {
-  const [scope, setScope] = useState('active');
+  const [scope, setScopeState] = useState(() => readVaultUi().scope);
+  const setScope = (scope) => { setScopeState(scope); saveVaultUi({ scope }); };
   const [selected, setSelected] = useState(null);
   const [evidence, setEvidence] = useState('');
   const [error, setError] = useState('');

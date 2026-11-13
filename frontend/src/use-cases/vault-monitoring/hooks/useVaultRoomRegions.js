@@ -23,8 +23,19 @@ export default function useVaultRoomRegions(enabled) {
   const [source, setSource] = useState('webcam');
   const [profileId, setProfileId] = useState(() => remembered('webcam'));
   const [profiles, setProfiles] = useState([]);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [profilesError, setProfilesError] = useState('');
+  const [profilesRevision, setProfilesRevision] = useState(0);
+  const [savedProfile, setSavedProfile] = useState(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [loadProfileError, setLoadProfileError] = useState('');
+  const prefetchedProfile = useRef(null);
+  const loadRequest = useRef(null);
+  const loadSequence = useRef(0);
+  const editRevision = useRef(0);
   const [zones, setZones] = useState([]);
   const [version, setVersion] = useState(0);
+  const [profileName, setProfileName] = useState('');
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -43,7 +54,11 @@ export default function useVaultRoomRegions(enabled) {
   const [loadedEpoch, setLoadedEpoch] = useState(-1);
   const currentSnapshot = enabled && loadedEpoch === context.current.epoch;
 
-  useEffect(() => { setSaving(false); setPreparing(false); editingBackup.current = null; }, [contextKey]);
+  useEffect(() => {
+    setSaving(false); setPreparing(false); editingBackup.current = null;
+    setLoadingProfile(false); setLoadProfileError('');
+    return () => { loadSequence.current += 1; loadRequest.current?.abort(); };
+  }, [contextKey]);
 
   useEffect(() => {
     if (!enabled) {
@@ -54,21 +69,30 @@ export default function useVaultRoomRegions(enabled) {
   useEffect(() => {
     if (!enabled) return undefined;
     let active = true;
+    setProfilesLoading(true); setProfilesError('');
     listRoomRegionProfiles().then((items) => { if (active) setProfiles(items); })
-      .catch((err) => { if (active) setError(profileError(err)); });
+      .catch((err) => { if (active) setProfilesError(profileError(err)); })
+      .finally(() => { if (active) setProfilesLoading(false); });
     return () => { active = false; };
-  }, [enabled, reload]);
+  }, [enabled, reload, profilesRevision]);
   useEffect(() => {
     if (!enabled) return undefined;
     const controller = new AbortController();
     const epoch = context.current.epoch;
     setZones([]);
     setLoading(true); setError(''); setNotice(''); setDrawing(null); setEditId(null); setHidden(new Set());
-    getRoomRegionProfile(profileId, controller.signal).then((profile) => {
+    const apply = (profile) => {
       if (controller.signal.aborted || context.current.epoch !== epoch) return;
-      setZones(normalize(profile.zones)); setVersion(profile.version); setDirty(false);
+      setZones(normalize(profile.zones)); setVersion(profile.version); setProfileName(profile.name); setDirty(false);
+      setSavedProfile(profile);
       setLoadedEpoch(epoch);
-    }).catch((err) => { if (!controller.signal.aborted && context.current.epoch === epoch) setError(profileError(err)); })
+    };
+    const cached = prefetchedProfile.current;
+    prefetchedProfile.current = null;
+    if (cached?.source === source && cached.profile.id === profileId) {
+      apply(cached.profile); setLoading(false);
+    } else getRoomRegionProfile(profileId, controller.signal).then(apply)
+      .catch((err) => { if (!controller.signal.aborted && context.current.epoch === epoch) setError(profileError(err)); })
       .finally(() => { if (!controller.signal.aborted && context.current.epoch === epoch) setLoading(false); });
     return () => controller.abort();
   }, [enabled, source, profileId, reload]);
@@ -81,13 +105,35 @@ export default function useVaultRoomRegions(enabled) {
     const nextSource = kind === 'rtsp' ? 'cctv' : kind;
     setSource(nextSource); setProfileId(remembered(nextSource));
   };
-  const change = (next) => { if (currentSnapshot) { setZones(next); setDirty(true); setNotice(''); } };
+  const change = (next) => { if (currentSnapshot) { editRevision.current += 1; setZones(next); setDirty(true); setNotice(''); } };
+  const loadProfile = async (id) => {
+    if (!currentSnapshot || saving || loadingProfile) return;
+    const epoch = context.current.epoch, revision = editRevision.current, sequence = ++loadSequence.current;
+    const controller = new AbortController(); loadRequest.current?.abort(); loadRequest.current = controller;
+    setLoadingProfile(true); setLoadProfileError('');
+    try {
+      const profile = await getRoomRegionProfile(id, controller.signal);
+      if (controller.signal.aborted || context.current.epoch !== epoch || sequence !== loadSequence.current) return;
+      if (revision !== editRevision.current) {
+        setLoadProfileError('Your regions changed while loading. Load again to confirm replacing the latest edits.');
+        return;
+      }
+      prefetchedProfile.current = { source, profile };
+      selectProfile(id); setReload((value) => value + 1);
+    } catch (err) {
+      if (!controller.signal.aborted && context.current.epoch === epoch && sequence === loadSequence.current) setLoadProfileError(profileError(err));
+    } finally {
+      if (context.current.epoch === epoch && sequence === loadSequence.current) setLoadingProfile(false);
+    }
+  };
   const cancel = () => {
+    editRevision.current += 1;
     if (editId && editingBackup.current) { setZones(editingBackup.current.zones); setDirty(editingBackup.current.dirty); }
     setDrawing(null); setEditId(null); setError(''); editingBackup.current = null;
   };
   const start = async (kind, id, pause) => {
     if (!currentSnapshot || loading || saving) return;
+    editRevision.current += 1;
     const epoch = context.current.epoch;
     setPreparing(true); setError('');
     try {
@@ -102,6 +148,7 @@ export default function useVaultRoomRegions(enabled) {
   };
   const finish = (frame) => {
     if (!currentSnapshot || loading) return;
+    editRevision.current += 1;
     try {
       if (drawing) {
         const type = VAULT_REGIONS.find((entry) => entry.key === drawing.zoneType);
@@ -116,16 +163,19 @@ export default function useVaultRoomRegions(enabled) {
       setDrawing(null); setEditId(null); editingBackup.current = null; setError('');
     } catch (err) { setError(err.message); }
   };
-  const save = async (frame) => {
+  const save = async (frame, name) => {
     if (!currentSnapshot || loading || saving) return;
+    editRevision.current += 1;
     const epoch = context.current.epoch;
     setSaving(true); setError('');
     try {
-      const clean = prepareZonePolygons(zones, frame).map(({ zone_type, ...entry }) => entry);
-      const result = await saveRoomRegionProfile(profileId, { version, zones: clean });
+      const clean = prepareZonePolygons(zones, frame || {}).map(({ zone_type, ...entry }) => entry);
+      const result = await saveRoomRegionProfile(profileId, { version, zones: clean, ...(name == null ? {} : { name }) });
       if (context.current.epoch !== epoch) return;
-      setZones(normalize(result.zones)); setVersion(result.version); setDirty(false);
-      setNotice('Configuration saved. It will be used when monitoring starts.');
+      setZones(normalize(result.zones)); setVersion(result.version); setProfileName(result.name); setDirty(false);
+      setSavedProfile(result);
+      setProfiles((items) => items.map((item) => item.id === result.id ? { ...item, name: result.name, version: result.version } : item));
+      setNotice(`Saved as “${result.name}” · ready for monitoring`);
     } catch (err) { if (context.current.epoch === epoch) setError(err.response ? profileError(err) : err.message); }
     finally { if (context.current.epoch === epoch) setSaving(false); }
   };
@@ -147,11 +197,17 @@ export default function useVaultRoomRegions(enabled) {
     if (context.current.epoch !== epoch) throw new Error('The camera selection changed. Connect the selected source again.');
   };
   const displayedZones = currentSnapshot ? zones : [];
-  return { profileId, profiles, zones: displayedZones, visibleZones: displayedZones.filter((row) => !hidden.has(row.id)), source,
+  return { profileId, profileName, profiles, zones: displayedZones, visibleZones: displayedZones.filter((row) => !hidden.has(row.id)), source,
+    profilesLoading, profilesError, refreshProfiles: () => setProfilesRevision((value) => value + 1),
+    savedProfile: currentSnapshot ? savedProfile : null, loadingProfile, loadProfileError, loadProfile,
     dirty: currentSnapshot && dirty, loading: loading || !currentSnapshot, saving, error, notice,
     drawing: currentSnapshot ? drawing : null, editId: currentSnapshot ? editId : null, hidden, selectedType, setSelectedType,
     setDrawing, setHidden, setError, selectProfile, selectSource, change, cancel, start, finish, save,
-    createProfile, beforeConnect, preparing, reload: () => setReload((n) => n + 1),
+    createProfile, beforeConnect, preparing, reload: () => {
+      editRevision.current += 1; loadSequence.current += 1; loadRequest.current?.abort();
+      prefetchedProfile.current = null; setLoadingProfile(false); setLoadProfileError('');
+      setReload((n) => n + 1);
+    },
     ready: currentSnapshot && !dirty && !loading && !saving && !drawing && !editId && !error,
     editing: Boolean(currentSnapshot && (drawing || editId || preparing)) };
 }

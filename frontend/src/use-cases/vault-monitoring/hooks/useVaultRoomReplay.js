@@ -1,17 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { controlRoomReplay, deleteRoomReplay, getRoomReplay, getRoomReplayFrame, startRoomReplay, uploadRoomVideo } from '../api/vaultRoom.js';
 import { describeError } from '../../../utils/errors.js';
+import { readReplayContext, restoredReplay, saveReplayContext } from '../utils/replayStorage.js';
 
 const ACTIVE = ['starting', 'processing', 'paused'];
 const message = (error) => error?.response ? describeError(error).message : error?.message || 'Video replay could not be completed.';
 
 /** Owns only file replay state. No live camera, room state, or production alert mutation. */
 export default function useVaultRoomReplay(profileId, configurationReady = true) {
+  const [restored] = useState(readReplayContext);
   const [enabled, setEnabled] = useState(false);
   const [file, setFile] = useState(null);
   const [localUrl, setLocalUrl] = useState('');
   const [duration, setDuration] = useState(null);
-  const [session, setSession] = useState(null);
+  const [session, setSession] = useState(() => restoredReplay(restored));
+  const [sourceId, setSourceId] = useState(restored?.sourceId || null);
+  const [prepared, setPrepared] = useState(null);
+  const preparedRef = useRef(null);
+  const fileRef = useRef(null);
+  const [previewingFile, setPreviewingFile] = useState(false);
+  const [notice, setNotice] = useState('');
   const [frameUrl, setFrameUrl] = useState('');
   const [showPoseDebug, setShowPoseDebug] = useState(false);
   const togglePoseDebug = useCallback((value) => { pollRevision.current += 1; setFrameUrl(''); setShowPoseDebug(value); }, []);
@@ -20,27 +28,20 @@ export default function useVaultRoomReplay(profileId, configurationReady = true)
   const [uploadProgress, setUploadProgress] = useState(0);
   const [requiredPersons, setRequiredPersons] = useState(2);
   const [clearedEvents, setClearedEvents] = useState(new Set());
-  const idRef = useRef(null);
+  const idRef = useRef(restored?.sessionId || null);
   const generation = useRef(0);
   const requestRef = useRef(null);
   const actionBusy = useRef(false);
   const pollRevision = useRef(0);
 
-  const dispose = useCallback(async () => {
+  const detach = useCallback(() => {
     generation.current += 1;
     pollRevision.current += 1;
     requestRef.current?.abort();
-    const id = idRef.current; idRef.current = null;
-    if (id) {
-      try { await deleteRoomReplay(id); }
-      catch {
-        // A detector call may still be finishing. A stopped session is reaped by the backend TTL.
-        await controlRoomReplay(id, 'stop').catch(() => {});
-      }
-    }
   }, []);
 
-  useEffect(() => () => { dispose(); }, [dispose]);
+  // Navigation releases browser requests, never the worker or durable history.
+  useEffect(() => () => { detach(); }, [detach]);
   useEffect(() => {
     if (!file) { setLocalUrl(''); return undefined; }
     const url = URL.createObjectURL(file); setLocalUrl(url);
@@ -48,59 +49,48 @@ export default function useVaultRoomReplay(profileId, configurationReady = true)
   }, [file]);
   useEffect(() => () => { if (frameUrl) URL.revokeObjectURL(frameUrl); }, [frameUrl]);
 
-  const select = useCallback(async (value) => {
-    setEnabled(value);
-    if (!value) {
-      setSession(null); setFrameUrl('');
-      await dispose();
-    }
-  }, [dispose]);
+  const select = useCallback((value) => setEnabled(value), []);
 
   const chooseFile = useCallback(async (nextFile) => {
     if (!nextFile) return;
     if (!/\.(mp4|avi|mov|mkv|webm)$/i.test(nextFile.name)) {
       setError('Choose an MP4, AVI, MOV, MKV, or WebM video.'); return;
     }
-    const cleanup = dispose();
-    const current = generation.current;
-    await cleanup;
-    if (generation.current !== current) return;
-    setFile(nextFile); setDuration(null); setSession(null); setFrameUrl(''); setShowPoseDebug(false); setError('');
-    setUploadProgress(0); setClearedEvents(new Set());
-  }, [dispose]);
+    if (actionBusy.current) return;
+    const candidate = preparedRef.current; preparedRef.current = null; setPrepared(null);
+    if (candidate) deleteRoomReplay(candidate.session_id).catch(() => {});
+    fileRef.current = nextFile;
+    setFile(nextFile); setDuration(null); setPreviewingFile(true); setError(''); setUploadProgress(0);
+    // Keep the committed replay and its events until a new start succeeds.
+  }, []);
 
   const prepare = useCallback(async () => {
     if (!file || actionBusy.current) return null;
-    if (session?.status === 'uploaded' && idRef.current === session.session_id) return session;
+    if (preparedRef.current) return preparedRef.current;
     actionBusy.current = true; setBusy(true); setError('');
-    const cleanup = dispose();
     const current = generation.current;
-    await cleanup;
-    if (generation.current !== current) { actionBusy.current = false; setBusy(false); return; }
     const controller = new AbortController(); requestRef.current = controller;
-    setSession(null); setFrameUrl(''); setClearedEvents(new Set());
     let uploaded;
     try {
       uploaded = await uploadRoomVideo(file, controller.signal, (event) => {
         if (generation.current === current) setUploadProgress(Math.round(event.loaded / (event.total || file.size) * 100));
       });
-      if (generation.current !== current) { await deleteRoomReplay(uploaded.session_id); return; }
+      if (generation.current !== current || fileRef.current !== file) { await deleteRoomReplay(uploaded.session_id); return; }
       setDuration(uploaded.metadata.duration);
-      idRef.current = uploaded.session_id;
-      if (generation.current === current) { setSession(uploaded); return uploaded; }
+      preparedRef.current = uploaded; setPrepared(uploaded); return uploaded;
     } catch (err) {
       if (generation.current === current) {
         setError(message(err));
-        if (uploaded) { await deleteRoomReplay(uploaded.session_id).catch(() => {}); idRef.current = null; }
+        if (uploaded) await deleteRoomReplay(uploaded.session_id).catch(() => {});
       }
     } finally { actionBusy.current = false; setBusy(false); }
     return null;
-  }, [file, dispose, session]);
+  }, [file]);
 
   const process = useCallback(async () => {
     if (!file || actionBusy.current || !configurationReady) return;
     const uploaded = await prepare();
-    if (!uploaded || idRef.current !== uploaded.session_id) return;
+    if (!uploaded || preparedRef.current?.session_id !== uploaded.session_id) return;
     const current = generation.current;
     const controller = new AbortController(); requestRef.current = controller;
     actionBusy.current = true; setBusy(true); setError('');
@@ -108,7 +98,18 @@ export default function useVaultRoomReplay(profileId, configurationReady = true)
     try {
       const started = await startRoomReplay(uploaded.session_id, requiredPersons, controller.signal, profileId);
       pollRevision.current += 1;
-      if (generation.current === current) setSession(started);
+      if (generation.current === current) {
+        const previousId = idRef.current;
+        generation.current += 1;
+        idRef.current = started.session_id;
+        saveReplayContext({ sessionId: started.session_id, sourceId: started.session_id, profileId });
+        setSourceId(started.session_id); setSession(started); setFrameUrl('');
+        preparedRef.current = null; setPrepared(null); setPreviewingFile(false);
+        setShowPoseDebug(false); setClearedEvents(new Set()); setNotice('');
+        // Only a successful explicit new start retires the previous temporary worker.
+        // DELETE does not remove its PostgreSQL activities or evidence.
+        if (previousId && previousId !== started.session_id) deleteRoomReplay(previousId).catch(() => {});
+      }
     } catch (err) { if (generation.current === current) setError(message(err)); }
     finally { actionBusy.current = false; setBusy(false); }
   }, [file, requiredPersons, prepare, profileId, configurationReady]);
@@ -129,7 +130,8 @@ export default function useVaultRoomReplay(profileId, configurationReady = true)
         if (disposed || generation.current !== current) return;
         if (revision !== pollRevision.current) { timer = window.setTimeout(poll, 200); return; }
         setSession(next);
-        if (next.error) setError(next.error);
+        setNotice(''); setError(next.error || '');
+        if (session?.status === 'restoring') setRequiredPersons(next.state?.required_persons || 2);
         let url, framePending = false;
         if (next.frame_sequence > 0 && next.frame_sequence !== sequence) {
           try {
@@ -148,6 +150,12 @@ export default function useVaultRoomReplay(profileId, configurationReady = true)
         timer = window.setTimeout(poll, framePending ? 1500 : ACTIVE.includes(next.status) || next.finalized === false && next.status !== 'uploaded' ? 200 : 30000);
       } catch (err) {
         if (!disposed && generation.current === current) {
+          if (err?.response?.status === 404) {
+            setSession((current) => current?.session_id === id ? { ...current, status: 'unavailable', finalized: true, frame_sequence: 0 } : current);
+            setFrameUrl(''); setError('');
+            setNotice('The replay worker is no longer available. Saved activity events and evidence remain available.');
+            timer = window.setTimeout(poll, 30000); return;
+          }
           setError(message(err)); timer = window.setTimeout(poll, 1500);
         }
       }
@@ -185,7 +193,9 @@ export default function useVaultRoomReplay(profileId, configurationReady = true)
     events, alertEvents: [], connection: 'live', countdownProgress: 100, closeSummary: null,
     clearEvents: () => setClearedEvents(new Set((session?.events || []).map((event) => event.id))),
   };
-  return { enabled, select, file, localUrl, duration, setDuration, session, frameUrl, showPoseDebug, togglePoseDebug, error, busy,
+  return { enabled, select, file, localUrl, duration: previewingFile ? duration : session?.metadata?.duration ?? duration,
+    metadata: previewingFile ? prepared?.metadata : session?.metadata, setDuration, session, sourceId, frameUrl, previewingFile,
+    showPoseDebug, togglePoseDebug, error, notice, busy,
     uploadProgress, requiredPersons, setRequiredPersons, chooseFile, prepare, process, control, room,
     active: ACTIVE.includes(session?.status), pauseForEditing };
 }

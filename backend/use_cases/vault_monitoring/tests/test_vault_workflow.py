@@ -172,3 +172,61 @@ def test_missing_or_disabled_handle_preserves_existing_independent_behavior():
     for t in (0,.25,.5):events+=run(disabled,t,.25,.3)
     assert {e[0] for e in events}=={'VAULT_DOOR_INTERACTION','ORNAMENT_AREA_INTERACTION'}
     assert disabled.debug['door_handle_exclusion']=='HANDLE_EXCLUSION_NOT_CONFIGURED'
+
+
+def tray_overlap_engine():
+    m=engine()
+    # Synthetic overlap; saved camera profiles are never changed by these tests.
+    m.regions.zones['tray_area_roi']['polygon']=rectangle(.2,.2,.28,.4)
+    return m
+
+
+def test_tray_overlap_confirms_tray_and_clears_pending_door_evidence():
+    m=tray_overlap_engine()
+    run(m,0,.32,.3);run(m,.25,.32,.3)  # Door pending outside Tray.
+    events=[]
+    for t in (.5,.75,1,1.25):events+=run(m,t,.25,.3)
+    assert [e[0] for e in events]==['TRAY_INTERACTION']
+    door=m.debug['tracks']['1']['regions']['vault_door_roi']['right']
+    assert door['reason']=='TRAY_AREA_PRIORITY' and door['pending'] is None
+    assert run(m,1.5,.32,.3)==[]
+    assert run(m,1.75,.32,.3)==[]
+    events=run(m,2,.32,.3)
+    assert [e[0] for e in events]==['VAULT_DOOR_INTERACTION']
+    assert events[0][2]['interaction_duration_seconds']==.5 and events[0][2]['valid_observations']==3
+
+
+def test_tray_priority_does_not_suppress_other_hand_or_other_track_door():
+    m=tray_overlap_engine();events=[]
+    for t in (0,.25,.5):
+        events+=m.update(t,[wrist(.25,.3),wrist(.32,.3,hand='left'),wrist(.32,.3,track=2)],
+            [dict(track_id=1),dict(track_id=2)],[],presence_confirmed=True,authorized=True)
+    assert [(e[2]['track_id'],e[2]['hand']) for e in events if e[0]=='VAULT_DOOR_INTERACTION']==[(1,'left'),(2,'right')]
+    assert [(e[2]['track_id'],e[2]['hand']) for e in events if e[0]=='TRAY_INTERACTION']==[(1,'right')]
+
+
+def test_tray_overlap_cannot_rearm_confirmed_door_but_real_exit_allows_later_handle_reach():
+    m=tray_overlap_engine();events=[]
+    for t in (0,.25,.5):events+=run(m,t,.32,.3)
+    assert [e[0] for e in events]==['VAULT_DOOR_INTERACTION']
+    events=[]
+    for t in (.75,1,1.25,1.5):events+=run(m,t,.25,.3)
+    assert [e[0] for e in events]==['TRAY_INTERACTION']
+    for t in (1.75,2,2.25):assert run(m,t,.32,.3)==[]
+    for t in (2.5,2.75,3):assert run(m,t)==[]
+    for t in (3.25,3.5):assert run(m,t,.32,.3)==[]
+    assert [e[0] for e in run(m,3.75,.32,.3)]==['VAULT_DOOR_INTERACTION']
+
+
+def test_ornament_boundary_flicker_dropouts_and_unreliable_samples_never_rearm_continuous_episode():
+    m=engine();events=[]
+    for t in (0,.25,.5):events+=run(m,t,.5,.3)
+    assert [e[0] for e in events]==['ORNAMENT_AREA_INTERACTION']
+    assert run(m,.75,.44,.3)==[]  # Single outside boundary sample.
+    assert run(m,1,.5,.3)==[]
+    for t in (1.25,1.5,1.75):assert run(m,t,.44,.3,valid=False)==[]
+    assert run(m,2,missing=True)==[]
+    assert run(m,2.25,.5,.3)==[]
+    for t in (2.5,2.75,3):assert run(m,t,.05,.05)==[]
+    for t in (3.25,3.5):assert run(m,t,.5,.3)==[]
+    assert [e[0] for e in run(m,3.75,.5,.3)]==['ORNAMENT_AREA_INTERACTION']

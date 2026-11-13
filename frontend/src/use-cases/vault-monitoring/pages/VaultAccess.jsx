@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Camera, Maximize2, RotateCcw, Shapes } from 'lucide-react';
 import AuthorizationProgress from '../components/vault/AuthorizationProgress.jsx';
 import CameraPreview from '../components/vault/CameraPreview.jsx';
@@ -24,6 +24,7 @@ import useVaultRoomCamera from '../hooks/useVaultRoomCamera.js';
 import useVaultCounting from '../hooks/useVaultCounting.js';
 import { VAULT_VIEW, activeSlot, deriveVaultView, handoffSubject } from '../utils/vaultView.js';
 import './VaultRoom.css';
+import { readVaultUi, saveVaultUi, vaultUiFromSearch } from '../utils/replayStorage.js';
 
 const RUNNING_VIEWS = [VAULT_VIEW.STARTING, VAULT_VIEW.LIVENESS, VAULT_VIEW.IDENTITY, VAULT_VIEW.HANDOFF];
 const segment = (active) => `inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${active ? 'bg-[#34479B] text-white' : 'text-[#55607A] hover:bg-white'}`;
@@ -31,7 +32,20 @@ const segment = (active) => `inline-flex min-h-11 items-center justify-center ga
 /** Both panels keep one CameraPreview/video mounted, so switching views never touches the stream. */
 export default function VaultAccess() {
   const camera = useCameraSource();
-  const [cameraView, setCameraView] = useState('entrance');
+  const [initialUi] = useState(readVaultUi);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { view: cameraView, source: roomSource } = vaultUiFromSearch(searchParams, initialUi);
+  const selectUi = (patch) => {
+    saveVaultUi(patch);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (patch.view) next.set('view', patch.view);
+      if (patch.source) next.set('source', patch.source);
+      return next;
+    });
+  };
+  const setCameraView = (view) => selectUi({ view });
+  useEffect(() => { saveVaultUi({ view: cameraView, source: roomSource }); }, [cameraView, roomSource]);
   const isRoom = cameraView !== 'entrance';
   const roomPreviewRef = useRef(null);
   const roomPreviewSlotRef = useRef(null);
@@ -55,7 +69,10 @@ export default function VaultAccess() {
   const handleReady = () => { vault.reset(); setCameraView('entrance'); };
   const securitySlot = slot ?? (view === VAULT_VIEW.GRANTED ? vault.requiredCount : null);
   const requiredCount = vault.requiredCount ?? vault.config?.required_persons;
-  useEffect(() => { if (!isRoom) replay.select(false); }, [isRoom, replay.select]);
+  useEffect(() => {
+    replay.select(isRoom && roomSource === 'upload');
+    if (isRoom) regions.selectSource(roomSource);
+  }, [isRoom, roomSource, replay.select]);
   useLayoutEffect(() => {
     if (!isRoom) return undefined;
     const slot = cameraView === 'zones' ? zonesPreviewSlotRef.current : roomPreviewSlotRef.current;
@@ -94,7 +111,7 @@ export default function VaultAccess() {
             {cameraView === 'entrance' && granted && room.roomState?.state === 'ENTRY_BUFFER' && <div role="status" aria-live="polite" className="rounded-lg bg-blue-100 px-4 py-3 text-sm font-semibold text-blue-950">Entry window: {room.roomState.entry_buffer_remaining_seconds}s</div>}
 
             {isRoom ? <>
-              <VaultRoomCameraControls camera={roomCamera} counting={roomCounting} replay={replay} regions={regions} zonesLayout={cameraView === 'zones'} closeAction={<VaultRoomCloseAction room={room} />}>
+              <VaultRoomCameraControls camera={roomCamera} counting={roomCounting} replay={replay} regions={regions} source={roomSource} onSourceChange={(source) => selectUi({ source })} zonesLayout={cameraView === 'zones'} closeAction={<VaultRoomCloseAction room={room} />}>
               <div ref={roomPreviewSlotRef} hidden={cameraView === 'zones'} className="room-preview-shell-slot" />
               {createPortal(<div ref={roomPreviewRef} className="room-preview-shell">
               {replay.enabled ? <VaultRoomReplayPreview replay={replay} zonesLayout={cameraView === 'zones'} /> : <CameraPreview camera={roomCamera} variant="room" errorHint="Check browser camera permission or the RTSP URL and network reachability.">
@@ -133,7 +150,7 @@ export default function VaultAccess() {
           <CustodianList custodians={vault.custodians} requiredCount={vault.requiredCount} activeSlot={slot} handoff={handoff} handoffName={handoff ? handoffSubject(vault) : null} />
           <VaultStatusCard result={vault.result} requiredCount={requiredCount} />
         </div> : <aside hidden={cameraView === 'zones'} className="min-w-0 space-y-4" aria-label="Vault room information"><VaultRoomPanel room={replay.enabled ? replay.room : room} onRetry={room.retry}
-          activityContext={{ enabled: cameraView === 'room', source: regions.source, sourceId: replay.enabled ? replay.session?.session_id : regions.profileId }} /></aside>}
+          activityContext={{ enabled: cameraView === 'room', source: replay.enabled ? 'upload' : regions.source, sourceId: replay.enabled ? replay.sourceId : regions.profileId }} /></aside>}
       </div>
     </div>
   );

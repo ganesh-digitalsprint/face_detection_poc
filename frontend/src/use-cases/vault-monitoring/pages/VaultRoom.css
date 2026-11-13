@@ -13,6 +13,47 @@
 .vault-room-page .room-preview-shell-slot { order: 1; min-width: 0; }
 .vault-room-page .room-preview-shell { min-width: 0; }
 .vault-room-page .room-connection-panel { order: 3; display: grid; gap: 16px; padding: 16px; border: 1px solid #e3e6f5; border-radius: 16px; background: #eef0f9; }
+.vault-room-page:not(.vault-zones-page) .room-connection-panel.is-upload { padding: 0; overflow: hidden; border-radius: 16px; background: white; }
+.vault-room-page:not(.vault-zones-page) .room-upload-controls > * { margin-block: 0; }
+.vault-room-page:not(.vault-zones-page) .room-upload-heading { padding: 12px 16px; border-bottom: 1px solid #e3e6f5; background: #eef0f9; }
+.vault-room-page:not(.vault-zones-page) .room-upload-heading.is-dragging { box-shadow: inset 0 0 0 2px #5551df; background: #e7e7fb; }
+.vault-room-page .room-upload-file-summary { display: flex; flex: 1; align-items: center; gap: 12px; }
+.vault-room-page .room-upload-file-summary > div { min-width: 0; }
+.vault-room-page .room-upload-file-summary p:first-child { font-size: 13px; font-weight: 600; line-height: 1.4; }
+.vault-room-page .room-upload-file-summary p + p { margin-top: 2px; font-size: 11px; line-height: 1.5; color: #747da6; }
+.vault-room-page .room-upload-file-icon { display: grid; width: 40px; height: 40px; flex-shrink: 0; place-items: center; border-radius: 11px; background: #ecebff; color: #5551df; }
+.vault-room-page .room-upload-file-icon svg { width: 19px; height: 19px; }
+.vault-room-page:not(.vault-zones-page) .room-upload-picker { min-width: 150px; min-height: 38px; padding-inline: 14px; border-color: #afadf1; border-radius: 10px; color: #5551df; font-size: 12px; }
+.vault-room-page:not(.vault-zones-page) .room-upload-picker:hover { background: #f8f8ff; }
+.vault-room-page:not(.vault-zones-page) .room-upload-picker:focus-within { outline: 2px solid #5551df; outline-offset: 3px; }
+.vault-room-page:not(.vault-zones-page) .room-upload-action-row { gap: 10px 18px; padding: 12px 16px; }
+.vault-room-page .room-upload-count { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #0f1b3d; }
+.vault-room-page .room-upload-stepper { display: flex; align-items: center; height: 34px; padding-inline: 3px; border: 1px solid #e1e5f5; border-radius: 10px; background: #eef0f9; }
+.vault-room-page .room-upload-stepper button { display: grid; width: 26px; height: 28px; place-items: center; color: #5551df; border-radius: 6px; }
+.vault-room-page .room-upload-stepper button:hover:enabled { background: #e2e2fa; }
+.vault-room-page .room-upload-stepper button:disabled { cursor: not-allowed; opacity: .4; }
+.vault-room-page .room-upload-stepper select { width: 26px; padding: 0; appearance: none; border: 0; background: transparent; text-align: center; font-size: 13px; font-weight: 700; color: #0f1b3d; }
+.vault-room-page .room-upload-pose { min-height: 34px; color: #747da6; font-size: 12px; }
+.vault-room-page .room-upload-switch { position: relative; width: 36px; height: 22px; flex-shrink: 0; appearance: none; border-radius: 999px; background: #e3e5f2; cursor: pointer; transition: background .15s; }
+.vault-room-page .room-upload-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: white; box-shadow: 0 1px 4px #191e4230; transition: transform .15s; }
+.vault-room-page .room-upload-switch:checked { background: #5551df; }
+.vault-room-page .room-upload-switch:checked::after { transform: translateX(14px); }
+.vault-room-page .room-upload-switch:focus-visible, .vault-room-page .room-upload-stepper :focus-visible { outline: 2px solid #5551df; outline-offset: 3px; }
+.vault-room-page .room-upload-processing-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; order: 3; margin-left: auto; }
+.vault-room-page .room-upload-process { min-width: 150px; min-height: 38px; padding-inline: 14px; border-radius: 10px; background: #5551df; font-size: 12px; }
+.vault-room-page .room-upload-process svg { width: 16px; height: 16px; }
+.vault-room-page .room-upload-process:hover:enabled { background: #4540cb; }
+.vault-room-page .room-upload-process:disabled { background: #b3b0ef; opacity: 1; }
+.vault-room-page .room-upload-authorization { flex-basis: 100%; order: 4; color: #747da6; font-size: 11px; line-height: 1.5; }
+.vault-room-page:not(.vault-zones-page) .room-upload-progress, .vault-room-page:not(.vault-zones-page) .room-upload-controls > [role] { padding: 0 16px 12px; }
+@media (max-width: 767px) {
+  .vault-room-page:not(.vault-zones-page) .room-upload-heading { padding: 12px; }
+  .vault-room-page:not(.vault-zones-page) .room-upload-picker { width: 100%; }
+  .vault-room-page:not(.vault-zones-page) .room-upload-action-row { padding: 12px; gap: 10px; }
+  .vault-room-page .room-upload-processing-actions { flex-basis: 100%; }
+  .vault-room-page .room-upload-processing-actions > button { flex: 1; }
+  .vault-room-page .room-upload-file-summary { flex-basis: 100%; gap: 12px; }
+}
 .vault-room-page .room-connection-panel > form,
 .vault-room-page .room-webcam-form { padding: 0; border: 0; background: transparent; }
 .vault-room-page .room-webcam-form > p { grid-column: 1; grid-row: 2; }
@@ -151,8 +192,50 @@
 .vault-zones-page .zone-primary-button:hover { background: #4540cb; }
 .vault-zones-page .zone-primary-button:disabled { background: #afadef; color: white; opacity: 1; }
 .vault-zones-page .zone-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; padding: 22px 24px 18px; }
+.vault-zones-page .zone-load-panel { min-width: 0; padding: 20px; border: 1px solid #e3e7f0; border-radius: 20px; background: white; }
+.vault-zones-page .zone-load-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.vault-zones-page .zone-load-heading h4 { display: flex; align-items: center; gap: 10px; color: #191e42; font-size: 16px; font-weight: 700; }
+.vault-zones-page .zone-load-heading p, .vault-zones-page .zone-load-count { color: #747da6; font-size: 12px; }
+.vault-zones-page .zone-load-row { display: flex; align-items: stretch; gap: 14px; }
+.vault-zones-page .zone-load-selection { position: relative; display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; padding: 14px 16px; border: 1px solid #e1e5f5; border-radius: 16px; color: #747da6; }
+.vault-zones-page .zone-load-selection:focus-within { outline: 2px solid #5551df; outline-offset: 2px; }
+.vault-zones-page .zone-load-selection select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.vault-zones-page .zone-load-name { color: #191e42; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+.vault-zones-page .zone-load-detail { margin-top: 3px; font-size: 12px; }
+.vault-zones-page .zone-load-pill, .vault-zones-page .zone-load-in-use { flex-shrink: 0; padding: 6px 10px; border-radius: 999px; background: #eeedff; color: #5551df; font-size: 12px; font-weight: 600; }
+.vault-zones-page .zone-load-in-use { background: #dcf7ed; color: #008d68; }
+.vault-zones-page .zone-load-button { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 10px; min-width: 160px; padding: 16px; border-radius: 16px; background: #5551df; color: white; font-size: 14px; font-weight: 600; }
+.vault-zones-page .zone-load-button:hover:enabled { background: #4540cb; }
+.vault-zones-page .zone-load-button:disabled { background: #afadef; cursor: not-allowed; }
+.vault-zones-page .zone-load-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.vault-zones-page .zone-load-chips > span { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 7px 12px; border: 1px solid #e1e5f5; border-radius: 999px; background: #eef0f9; color: #191e42; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.vault-zones-page .zone-load-chips i { width: 10px; height: 10px; flex-shrink: 0; border-radius: 3px; }
+.vault-zones-page .zone-load-message { margin-top: 12px; color: #747da6; font-size: 12px; line-height: 1.6; }
+.vault-zones-page .zone-load-error { margin-top: 12px; color: #b3261e; font-size: 12px; }
+.vault-zones-page .zone-load-error button { display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; font-weight: 600; }
+@media (max-width: 767px) {
+  .vault-zones-page .zone-load-panel { padding: 14px; }
+  .vault-zones-page .zone-load-row { flex-wrap: wrap; }
+  .vault-zones-page .zone-load-selection { flex-basis: 100%; flex-wrap: wrap; gap: 8px; padding: 12px; }
+  .vault-zones-page .zone-load-selection > div { flex-basis: 100%; }
+  .vault-zones-page .zone-load-button { width: 100%; min-height: 44px; padding: 12px; }
+}
 .vault-zones-page .zone-bottom-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr); align-items: start; gap: 22px; padding-top: 20px; border-top: 1px solid #e3e7f0; }
-.vault-zones-page .zone-save-panel { display: grid; gap: 10px; min-width: 0; padding: 20px; border: 1px solid #e3e7f0; border-radius: 16px; background: #eef0f9; }
+.vault-zones-page .room-zones-section { position: relative; }
+.vault-zones-page .zone-save-panel { display: grid; gap: 10px; min-width: 0; padding: 16px; border: 1px solid #e3e7f0; border-radius: 16px; background: #eef0f9; }
+.vault-zones-page .zone-save-panel > button { width: 100%; min-height: 36px; border-radius: 9px; font-size: 12px; }
+.vault-zones-page .zone-set-naming { min-width: 0; padding: 12px; border-radius: 12px; background: white; }
+.vault-zones-page .zone-set-label { margin-bottom: 8px; font-size: 12px; font-weight: 700; color: #263257; }
+.vault-zones-page .zone-name-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 9px; background: #eef0f9; }
+.vault-zones-page .zone-name-tabs button { flex: 1; min-width: 0; min-height: 28px; border-radius: 7px; font-size: 11px; font-weight: 600; color: #747da6; }
+.vault-zones-page .zone-name-tabs button[aria-pressed="true"] { color: white; background: #504bdf; box-shadow: 0 2px 5px #504bdf40; }
+.vault-zones-page .zone-name-tabs button:disabled { cursor: not-allowed; opacity: .5; }
+.vault-zones-page .zone-name-field { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding: 8px; border: 1px solid #e1e5f5; border-radius: 8px; color: #747da6; }
+.vault-zones-page .zone-name-field:focus-within { border-color: #5551df; box-shadow: 0 0 0 2px #5551df15; }
+.vault-zones-page .zone-name-field input { flex: 1; width: 0; min-width: 0; background: transparent; color: #263257; font-size: 12px; font-weight: 600; outline: none; }
+.vault-zones-page .zone-name-field span { flex-shrink: 0; font-size: 10px; }
+.vault-zones-page .zone-name-hint { margin-top: 7px; color: #747da6; font-size: 10px; line-height: 1.5; }
+.vault-zones-page .zone-save-toast { position: absolute; z-index: 20; bottom: 65px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px); width: max-content; padding: 12px 16px; border-radius: 10px; background: #171a40; color: white; box-shadow: 0 5px 18px #171a4025; text-align: center; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .vault-zones-page .zone-save-summary { display: grid; gap: 10px; margin-block: 6px; font-size: 12px; }
 .vault-zones-page .zone-save-summary > div { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
 .vault-zones-page .zone-save-summary dt { color: #747da6; }
@@ -162,8 +245,8 @@
 .vault-zones-page .zone-list-column,
 .vault-zones-page .zone-frame-preview-slot { min-width: 0; }
 .vault-zones-page .zone-frame-preview-slot .room-camera-frame { aspect-ratio: 16 / 9; }
-.vault-zones-page .zone-region-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px; border: 1px solid #e1e5f5; border-radius: 17px; }
-.vault-zones-page .zone-region-color { width: 12px; min-height: 44px; align-self: stretch; flex-shrink: 0; border-radius: 8px; }
+.vault-zones-page .zone-region-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #e1e5f5; border-radius: 10px; }
+.vault-zones-page .zone-region-color { width: 7px; min-height: 34px; align-self: stretch; flex-shrink: 0; border-radius: 6px; }
 .vault-zones-page .zone-region-confirm { flex-basis: 100%; padding-left: 22px; }
 .vault-zones-page .zone-icon-button { display: inline-flex; width: 32px; height: 36px; align-items: center; justify-content: center; border-radius: 9px; color: #747da6; }
 .vault-zones-page .zone-icon-button:hover { background: #eef0f9; color: #4c49df; }
