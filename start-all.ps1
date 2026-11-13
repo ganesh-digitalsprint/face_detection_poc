@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$PreflightOnly,
+    [switch]$DemoPlatformWrites,
     [ValidateRange(15, 600)][int]$AlertTimeoutSeconds = 60,
     [ValidateRange(15, 600)][int]$VaultTimeoutSeconds = 180,
     [ValidateRange(15, 600)][int]$BranchTimeoutSeconds = 150,
@@ -294,10 +295,12 @@ try {
     if (-not (Test-Path -LiteralPath $logDir -PathType Container)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+    $branchScopedEnv = @{}
+    if ($DemoPlatformWrites) { $branchScopedEnv.FEDBANK_PLATFORM_DEMO_WRITES = '1' }
     $launchSpecs = @(
         @{ Service = 'Alert Service'; Exe = $alertPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8012'); Cwd = $alertDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8012'; Uri = 'http://127.0.0.1:8012/health'; Timeout = $AlertTimeoutSeconds; Env = $callerAlertEnv },
         @{ Service = 'Vault Monitoring'; Exe = $vaultPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8010'); Cwd = $vaultDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8010'; Uri = 'http://127.0.0.1:8010/api/v1/health'; Timeout = $VaultTimeoutSeconds; Env = $vaultScopedEnv },
-        @{ Service = 'Branch Exterior Monitoring'; Exe = $branchPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8011'); Cwd = $branchDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8011'; Uri = 'http://127.0.0.1:8011/api/health'; Timeout = $BranchTimeoutSeconds; Env = @{} },
+        @{ Service = 'Branch Exterior Monitoring'; Exe = $branchPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8011'); Cwd = $branchDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8011'; Uri = 'http://127.0.0.1:8011/api/health'; Timeout = $BranchTimeoutSeconds; Env = $branchScopedEnv },
         @{ Service = 'Frontend'; Exe = $nodeCommand.Source; Args = @('node_modules/vite/bin/vite.js','--host','127.0.0.1'); Cwd = $frontendDir; Marker = 'vite/bin/vite.js --host 127.0.0.1'; Uri = 'http://127.0.0.1:3000/'; Timeout = $FrontendTimeoutSeconds; Env = @{} }
     )
     if ($faceMaskEnabled) {

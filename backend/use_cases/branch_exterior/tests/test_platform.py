@@ -22,6 +22,23 @@ def write(client, path, payload):
     return client.post(f"/api/platform{path}", json=payload, headers={"X-Platform-Admin-Key": "test-admin-key"})
 
 
+def test_local_demo_creates_hierarchy_but_not_cameras_or_uploads(client, monkeypatch):
+    monkeypatch.delenv("FEDBANK_PLATFORM_ADMIN_KEY")
+    assert client.post("/api/platform/zones", json={"name": "South"}).status_code == 503
+    monkeypatch.setenv("FEDBANK_PLATFORM_DEMO_WRITES", "1")
+    local = TestClient(app, base_url="http://127.0.0.1:8011", client=("127.0.0.1", 50800))
+    zone_response = local.post("/api/platform/zones", json={"name": "South"})
+    assert zone_response.status_code == 201, zone_response.text
+    city_response = local.post("/api/platform/cities", json={"zone_id": zone_response.json()["id"], "name": "Bengaluru"})
+    assert city_response.status_code == 201, city_response.text
+    branch_response = local.post("/api/platform/branches", json={"city_id": city_response.json()["id"], "code": "C99127-01", "name": "Main"})
+    assert branch_response.status_code == 201, branch_response.text
+    assert local.post("/api/platform/cameras/bulk", json={"recorder": {"branch_id": branch_response.json()["id"], "host": "127.0.0.1"}, "cameras": [{"channel_no": 1, "name": "Door", "use_case": "face_mask"}]}).status_code == 503
+    assert local.post("/api/platform/uploads", json={"branch_id": branch_response.json()["id"], "name": "test.mp4", "size": 100}).status_code == 503
+    remote = TestClient(app, base_url="http://127.0.0.1:8011", client=("192.168.1.3", 50801))
+    assert remote.post("/api/platform/zones", json={"name": "Remote"}).status_code == 503
+
+
 def test_hierarchy_and_atomic_cameras(client):
     assert client.post("/api/platform/zones", json={"name": "South"}).status_code == 403
     zone = write(client, "/zones", {"name": "South"}).json()
