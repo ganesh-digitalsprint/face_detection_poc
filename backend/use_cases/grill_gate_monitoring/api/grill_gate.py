@@ -1135,6 +1135,18 @@ def backfill_grill_gate_alerts(db: Db, caller: Caller, dry_run: bool = True,
     return backfill_publications(db, dry_run=dry_run, limit=limit, offset=offset)
 
 
+@router.post('/alerts/publications/reconcile')
+def reconcile_grill_gate_publications(db: Db, caller: Caller, dry_run: bool = True,
+    limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0)):
+    from app.services.alert_reconciliation import reconcile_alerts
+    try:
+        return reconcile_alerts(db, get_grill_gate_alert_publisher(), use_case='grill_gate',
+            dry_run=dry_run, limit=limit, offset=offset)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(503, 'Common Alerts reconciliation is unavailable; check producer configuration') from exc
+
+
 @router.post("/alerts/{alert_id}/dismiss")
 def dismiss_grill_gate_alert(alert_id: str, body: AlertAction, db: Db, caller: Caller):
     if not body.note or not body.note.strip():

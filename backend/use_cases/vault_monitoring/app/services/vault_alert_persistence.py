@@ -117,24 +117,29 @@ class PersistentAlertWorker:
                 from app.db.models import VaultAuditEvent, VaultRoomAlert
                 from app.services.vault_event_publisher import publish_alert_event
                 with session_scope() as db:
-                    row = db.get(VaultRoomAlert, aid)
+                    row = db.get(VaultRoomAlert, aid, with_for_update=True)
                     if row is None: return
                     row.evidence_status = "CAPTURED" if success else "FAILED"
                     row.row_version += 1
+                    from app.services.vault_alert_lifecycle import stage_lifecycle
+                    stage_lifecycle(db, row)
                     db.add(VaultAuditEvent(id=str(uuid4()), action="EVIDENCE_CAPTURED" if success else "EVIDENCE_CAPTURE_FAILED",
                         entity_type="alert", entity_id=aid, details={"evidence_id":result if success else None,
                             "reason":None if success else result, "event_type":_alert_type}))
+                    version, session_ref, incident_id = row.row_version, row.session_ref, row.incident_id
                 publish_alert_event("evidence.available" if success else "evidence.upload_failed",
-                    entity_type="alert", entity_id=aid, entity_version=row.row_version,
-                    session_ref=row.session_ref, incident_id=row.incident_id, alert_id=aid,
+                    entity_type="alert", entity_id=aid, entity_version=version,
+                    session_ref=session_ref, incident_id=incident_id, alert_id=aid,
                     data={"evidence_id":result} if success else {"reason":result})
             from app.db.database import session_scope
             from app.db.models import VaultRoomAlert
             with session_scope() as db:
-                row = db.get(VaultRoomAlert, alert_id)
+                row = db.get(VaultRoomAlert, alert_id, with_for_update=True)
                 if row is not None:
                     row.evidence_status = "PENDING"
                     row.row_version += 1
+                    from app.services.vault_alert_lifecycle import stage_lifecycle
+                    stage_lifecycle(db, row)
                     db.commit()
                     alert_session = row.session_id
                     alert_incident = row.incident_id
@@ -251,10 +256,12 @@ class PersistentAlertWorker:
         if cond.last_touch_at and (_as_utc(now) - _as_utc(cond.last_touch_at)).total_seconds() < interval: return
         cond.last_touch_at = now
         if cond.active_alert_id:
-            alert = db.get(VaultRoomAlert, cond.active_alert_id)
-            if alert and alert.status in {"OPEN", "ACKNOWLEDGED"} and alert.observed_count != job.snapshot.observed_count:
+            alert = db.get(VaultRoomAlert, cond.active_alert_id, with_for_update=True)
+            if alert and alert.status in {"OPEN", "ACKNOWLEDGED"}:
                 alert.last_seen_at = now; alert.observed_count = job.snapshot.observed_count
                 alert.updated_at = now; alert.row_version += 1
+                from app.services.vault_alert_lifecycle import stage_lifecycle
+                stage_lifecycle(db, alert)
 
     @staticmethod
     def _event(kind, entity, job, data):

@@ -5,16 +5,29 @@ import csv
 import io
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from app.api.deps import get_repos
+from app.api.deps import get_repos, require_api_key
 from app.db.repositories.interfaces import Repositories
 from app.schemas.event import Event, EventFilter, EventReview
 from app.services.incident_report import build_incident_report
 from app.services.storage_manager import delete_media
 
 router = APIRouter(prefix="/events", tags=["events"])
+
+
+@router.post('/publications/reconcile', dependencies=[Depends(require_api_key)])
+async def reconcile_alerts(dry_run: bool = True, limit: int = Query(25, ge=1, le=100),
+                           offset: int = Query(0, ge=0), repos: Repositories = Depends(get_repos)):
+    from app.services.alert_publisher import get_alert_publisher
+    events = await repos.events.list(EventFilter(limit=limit+1, offset=offset))
+    more = len(events) > limit
+    try:
+        result = await get_alert_publisher().reconcile(events[:limit], dry_run=dry_run)
+    except Exception as exc:
+        raise HTTPException(503, 'Common Alerts reconciliation is unavailable; check producer configuration') from exc
+    return {**result, 'next_offset':offset+limit if more else None}
 
 
 @router.get("", response_model=list[Event])

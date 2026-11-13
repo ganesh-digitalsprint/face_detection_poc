@@ -1,36 +1,38 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera } from 'lucide-react';
-import { grillSnapshotRefs } from '../../api/alertServiceModel.js';
+import { grillSnapshotRefs, snapshotRefs } from '../../api/alertServiceModel.js';
 import { getGrillGateSnapshot } from '../../use-cases/grill-gate/api/grillGate.js';
 import { fetchSourceThumbnail } from '../../api/sourceThumbnail.js';
 import { loadSnapshot } from './snapshotResource.js';
 
 export default function AlertSnapshot({ alert, large = false, evidenceIndex = 0, compact = false, thumbnailUrl }) {
-  const ref = grillSnapshotRefs(alert)[evidenceIndex];
+  const ref = (alert.evidenceManaged ? snapshotRefs(alert) : grillSnapshotRefs(alert))[evidenceIndex];
   const [retry, setRetry] = useState(0);
   const key = JSON.stringify([alert.sourceEventId || alert.id, ref?.retrieval_path, alert.evidenceStatus, retry]);
   const [image, setImage] = useState({ key: '', loading: false, url: '', error: '' });
   const dialog = useRef(null);
   const [sourceImage, setSourceImage] = useState({ key: '', url: '' });
   const [failedUrl,setFailedUrl]=useState('');
-  const sourceKey=`${alert.useCase}:${alert.sourceEventId || alert.id}:${alert.primaryEvidenceId || ''}`;
+  const sourceKey=JSON.stringify([alert.useCase,alert.sourceEventId || alert.id,ref?.id,alert.primaryEvidenceId,alert.sourceEventVersion,alert.rowVersion]);
   useEffect(() => {
     let active = true;
-    if (!['vault_monitoring','branch_exterior','face_mask'].includes(alert.useCase) || thumbnailUrl) return undefined;
-    fetchSourceThumbnail(alert,large ? 'full' : 'thumb').then((url)=>{if(active)setSourceImage({key:sourceKey,url});})
+    if (!['vault_monitoring','branch_exterior','face_mask'].includes(alert.useCase) || (alert.evidenceManaged && !large) || (!large && thumbnailUrl)) return undefined;
+    fetchSourceThumbnail({...alert,primaryEvidenceId:ref?.provider==='vault_monitoring' ? ref.id : alert.primaryEvidenceId},large ? 'full' : 'thumb').then((url)=>{if(active)setSourceImage({key:sourceKey,url});})
       .catch(()=>{if(active)setSourceImage({key:sourceKey,url:''});});
     return () => { active = false; };
   }, [sourceKey, thumbnailUrl, large, retry]);
   useEffect(() => {
-    if (alert.useCase !== 'grill_gate' || !ref) return undefined;
+    if (alert.evidenceManaged || alert.useCase !== 'grill_gate' || !ref) return undefined;
     return loadSnapshot({ ref, fetchBlob: getGrillGateSnapshot, onChange: (next) => setImage({ ...next, key }) });
   }, [key]); // The key includes source, evidence, and capture state.
-  const externalUrl=thumbnailUrl || (sourceImage.key===sourceKey ? sourceImage.url : '');
+  const managedUrl=alert.evidenceSnapshots?.[evidenceIndex]?.url || '';
+  const fullUrl=large && sourceImage.key===sourceKey && sourceImage.url!==failedUrl ? sourceImage.url : '';
+  const externalUrl=alert.evidenceManaged ? (managedUrl ? fullUrl || managedUrl : '') : thumbnailUrl || (sourceImage.key===sourceKey ? sourceImage.url : '');
   const current = externalUrl && externalUrl!==failedUrl ? {url:externalUrl,loading:false,error:''}
     : externalUrl && externalUrl===failedUrl ? {url:'',loading:false,error:'Snapshot could not be displayed.'}
     : image.key === key ? image : { loading: alert.useCase === 'grill_gate' && Boolean(ref), url: '', error: '' };
-  const imageFailed=()=>{if(externalUrl)setFailedUrl(externalUrl);else setImage((old)=>({...old,url:'',error:'Snapshot could not be displayed.'}));};
-  const fallback = current.loading ? 'Loading snapshot\u2026' : current.error || (alert.evidenceStatus === 'PENDING' ? 'Snapshot capture pending' : alert.evidenceStatus === 'CAPTURED' ? 'Captured snapshot reference is missing.' : 'No captured snapshot is attached to this incident.');
+  const imageFailed=()=>{if(externalUrl){setFailedUrl(externalUrl);alert.onEvidenceError?.(externalUrl);}else setImage((old)=>({...old,url:'',error:'Snapshot could not be displayed.'}));};
+  const fallback = current.loading ? 'Loading snapshot\u2026' : current.error || (alert.clipCount>0 ? 'Video evidence is available on the source page.' : alert.evidenceStatus === 'PENDING' ? 'Snapshot capture pending' : alert.evidenceStatus === 'CAPTURED' ? 'Captured snapshot reference is missing.' : 'No captured snapshot is attached to this incident.');
   // The right-side card owns the single details button; no nested image button.
   if (compact) return <span className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl bg-[#202530] text-[#B7BED0]">
     {current.url ? <img src={current.url} alt="Captured alert snapshot" className="h-full w-full object-cover" onError={imageFailed} />

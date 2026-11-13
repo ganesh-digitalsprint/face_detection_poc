@@ -210,6 +210,8 @@ class GrillGateAlertWriter:
                         "evidence_status": domain["evidence_status"],
                         **({"evidence_unavailable_reason": domain["evidence_unavailable_reason"]}
                            if "evidence_unavailable_reason" in domain else {})}
+                    from fedbank_core.events.evidence import evidence_metadata
+                    payload['domain_data'].update(evidence_metadata(payload['evidence_refs']))
                     state["payload"] = payload
                     delivery.details = state
                 db.commit()

@@ -4,15 +4,14 @@ from datetime import datetime, timezone, timedelta
 from uuid import uuid5, NAMESPACE_URL
 from sqlalchemy import select
 from app.db.models.vault_room import VaultAuditEvent, VaultEvidence
+from fedbank_core.events.evidence import evidence_metadata
 
 logger=logging.getLogger(__name__)
 ENTITY = 'vault_alert_lifecycle'
 PENDING, DELIVERED = 'VAULT_LIFECYCLE_PENDING', 'VAULT_LIFECYCLE_DELIVERED'
 
-def stage_lifecycle(db, row):
+def current_payload(db, row):
     from app.services.vault_alert_service_adapter import build_payload
-    identity = str(uuid5(NAMESPACE_URL, f'vault-lifecycle:{row.id}:{row.row_version}'))
-    if db.get(VaultAuditEvent, identity): return
     payload = build_payload(row)
     evidence = db.scalars(select(VaultEvidence).where(VaultEvidence.alert_id == row.id, VaultEvidence.available.is_(True))).all()
     payload.update(source_event_version=row.row_version, source_status=row.status,
@@ -21,6 +20,21 @@ def stage_lifecycle(db, row):
         source_status_changed_at=row.updated_at.replace(tzinfo=timezone.utc).isoformat() if row.updated_at.tzinfo is None else row.updated_at.isoformat(),
         resolution_note=row.resolution_note, evidence_status=row.evidence_status,
         lifecycle_actor_id=row.acknowledged_by if row.status=='ACKNOWLEDGED' else row.resolved_by if row.status=='RESOLVED' else row.dismissed_by)
+    payload['domain_data'].update(evidence_metadata(payload['evidence_refs'], row.evidence_status == 'PENDING'))
+    return payload
+
+
+def stage_lifecycle(db, row, *, requeue=False):
+    db.flush()  # Include database-managed updated_at in the immutable publication snapshot.
+    identity = str(uuid5(NAMESPACE_URL, f'vault-lifecycle:{row.id}:{row.row_version}'))
+    existing = db.get(VaultAuditEvent, identity)
+    if existing:
+        if requeue:
+            existing.action = PENDING
+            existing.details = {'payload':current_payload(db,row), 'attempt':0,
+                'due_at':datetime.now(timezone.utc).isoformat()}
+        return
+    payload = current_payload(db, row)
     db.add(VaultAuditEvent(id=identity,entity_type=ENTITY,entity_id=row.id,action=PENDING,
         details={'payload':payload,'attempt':0,'due_at':datetime.now(timezone.utc).isoformat()}))
 
@@ -41,8 +55,15 @@ def dispatch_lifecycle(adapter, limit=25):
                 payload=state['payload']; headers={'Authorization':f'Bearer {adapter.token}'}
                 url=f"{adapter.base_url}/api/v1/alerts/source-events/{payload['source_event_id']}"
                 response=client.get(url,headers=headers)
-                response.raise_for_status()
-                current=response.json()['source_event_version']
+                if response.status_code == 404:
+                    response=client.post(f'{adapter.base_url}/api/v1/alerts',
+                        headers={**headers,'Idempotency-Key':f"vault-lifecycle:{payload['source_event_id']}:{payload['source_event_version']}"},json=payload)
+                    response.raise_for_status()
+                    delivered=True
+                    current=payload['source_event_version']
+                else:
+                    response.raise_for_status()
+                    current=response.json()['source_event_version']
                 if current >= payload['source_event_version']: delivered=True
                 else:
                     response=client.put(url,headers={**headers,'If-Match':str(current)},json=payload)

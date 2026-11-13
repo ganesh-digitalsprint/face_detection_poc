@@ -96,6 +96,33 @@ def test_vault_contract_mapping_is_stable_and_excludes_unapproved_metadata():
     assert "camera_id" not in unsafe_reference["resource_refs"]
 
 
+def test_vault_public_references_keep_session_source_and_registry_identity(tmp_path, monkeypatch):
+    from uuid import uuid4
+    from app.db.models.camera_registry import RegistryLocation, RegistryCamera, CameraUseCaseAssignment
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    engine, factory = _database()
+    location_id, camera_id, assignment_id, source_id = [str(uuid4()) for _ in range(4)]
+    with factory() as db:
+        db.add(RegistryLocation(id=location_id, code='BR-1', name='Registry location'))
+        db.add(RegistryCamera(id=camera_id, location_id=location_id, code='CAM-1', name='Vault camera'))
+        db.add(CameraUseCaseAssignment(id=assignment_id, camera_id=camera_id, use_case='vault-room',
+            configuration={'source_id':source_id}))
+        db.flush()
+        alert = _alert(camera_id=camera_id, metadata_json={'assignment_id':assignment_id,
+            'branch_id':'known-branch', 'branch_name':'Explicit branch', 'password':'never-copy'})
+        db.add(alert)
+        db.flush()
+        payload = build_payload(alert)
+        refs = payload['resource_refs']
+        assert refs['camera_id'] == camera_id and refs['camera_name'] == 'Vault camera'
+        assert refs['session_ref'] == 'session-ref' and refs['source_id'] == source_id
+        assert refs['assignment_id'] == assignment_id and refs['location_id'] == location_id
+        assert refs['branch_name'] == 'Explicit branch' and 'never-copy' not in json.dumps(payload)
+        alert.row_version += 1
+        assert build_payload(alert)['resource_refs'] == refs
+    engine.dispose()
+
+
 def test_publication_is_authenticated_idempotent_and_durable_across_adapter_restart():
     engine, factory = _database()
     received = []

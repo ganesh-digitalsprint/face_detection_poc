@@ -3,9 +3,12 @@ import { api as branchApi } from '../use-cases/branch-exterior/api/index.js';
 import { api as faceApi } from '../use-cases/face-mask/api/index.js';
 import { BRANCH_BASE_URL, FACE_MASK_BASE_URL } from '../config/services.js';
 
-export function sourceMediaUrl(base,path) {
+export function sourceMediaUrl(base,path,owner) {
   if(typeof path!=='string' || !path || path.includes('://') || path.includes('\\') || path.includes('?') || path.includes('#'))return '';
-  const parts=path.replace(/^\/?storage\//,'').split('/');
+  let relative=path.replace(/^\/?storage\//,'');
+  if(owner && relative.startsWith(`screenshots/${owner}/`)) relative=`snapshots/${relative.slice(`screenshots/${owner}/`.length)}`;
+  if(owner && relative.startsWith(`clips/${owner}/`)) relative=`clips/${relative.slice(`clips/${owner}/`.length)}`;
+  const parts=relative.split('/');
   if(parts.some((part)=>!part || part==='.' || part==='..' || part.includes(':')))return '';
   return `${base}/storage/${parts.map(encodeURIComponent).join('/')}`;
 }
@@ -19,11 +22,11 @@ export async function fetchSourceThumbnail(alert,variant='thumb') {
   }
   if(alert.useCase==='branch_exterior') {
     const row=await branchApi.get(`/events/${encodeURIComponent(alert.sourceEventId)}`);
-    return sourceMediaUrl(BRANCH_BASE_URL,row.snapshot_path);
+    return sourceMediaUrl(BRANCH_BASE_URL,row.snapshot_path,'branch_exterior');
   }
   if(alert.useCase==='face_mask') {
     const row=await faceApi.get(`/events/${encodeURIComponent(alert.sourceEventId)}`);
-    return sourceMediaUrl(FACE_MASK_BASE_URL,row.snapshot_path);
+    return sourceMediaUrl(FACE_MASK_BASE_URL,row.snapshot_path,'face_mask');
   }
   return '';
 }

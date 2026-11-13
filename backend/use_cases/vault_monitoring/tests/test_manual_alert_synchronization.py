@@ -129,3 +129,107 @@ def test_vault_manual_status_and_retry_survive_outbox_restart(common,tmp_path):
         assert final['status']=='RESOLVED' and final['resolved_by']=='reviewer'
         assert len(client.get('/api/v1/alerts',params={'source_event_id':identifier}).json()['items'])==1
     engine.dispose()
+
+
+def test_vault_count_last_seen_and_evidence_completion_are_mirrored(common, tmp_path, monkeypatch):
+    from app.db.models import VaultEvidence
+    from app.services.vault_alert_persistence import PersistentAlertWorker, SnapshotJob
+    from app.services.vault_alert_rules import AlertSnapshot
+    from app.services import cloudinary_evidence
+    from app.db import database
+    from app.core.ml_config import load_ml_config_file
+    import app.services.vault_alert_persistence as persistence
+
+    base, client = common
+    engine = create_engine(f"sqlite:///{(tmp_path/'vault-metadata.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    @contextmanager
+    def factory():
+        with Session(engine) as db:
+            yield db
+            db.commit()
+    adapter = VaultAlertServiceAdapter(base, 'vault-test', session_factory=factory)
+    worker = PersistentAlertWorker(session_factory=factory, alert_service_adapter=adapter)
+    at = datetime.now(timezone.utc)
+    job = SnapshotJob(AlertSnapshot('VAULT_SESSION', 2, 1, 2, stable=True),
+        'session', 'camera', at, event_frame=np.full((24,32,3), 73, np.uint8))
+    events = worker._persist(job)
+    adapter.dispatch_once()
+    identifier = events[0]['entity']['id']
+    first = client.get('/api/v1/alerts', params={'source_event_id': identifier}).json()['items'][0]
+    worker._persist(SnapshotJob(AlertSnapshot('VAULT_SESSION', 1, 2, 2, stable=True),
+        'session', 'camera', at+timedelta(seconds=10)))
+    adapter.dispatch_once()
+    updated = client.get('/api/v1/alerts/'+first['id']).json()
+    assert updated['domain_data']['observed_count'] == 2
+    assert datetime.fromisoformat(updated['last_seen_at']) == at+timedelta(seconds=10)
+    assert updated['status'] == 'OPEN'
+    config = load_ml_config_file().model_copy(deep=True)
+    config.vault_alerts.evidence.enabled = True
+    config.vault_alerts.evidence.capture_count_mismatch = True
+    monkeypatch.setattr(persistence, 'load_ml_config_file', lambda: config)
+    monkeypatch.setattr(database, 'session_scope', factory)
+    callbacks = []
+    monkeypatch.setattr(cloudinary_evidence, 'get_evidence_capture_queue', lambda: SimpleNamespace(
+        submit=lambda **kw: callbacks.append(kw)))
+    worker._capture_new_alerts(events, job)
+    adapter.dispatch_once()
+    assert client.get('/api/v1/alerts/'+first['id']).json()['domain_data']['evidence_status'] == 'PENDING'
+    evidence_id = str(uuid4())
+    with factory() as db:
+        db.add(VaultEvidence(id=evidence_id, alert_id=identifier, evidence_type='snapshot', available=True))
+    callbacks[0]['result_callback'](identifier, True, evidence_id)
+    adapter.dispatch_once()
+    adapter.dispatch_once()
+    final = client.get('/api/v1/alerts/'+first['id']).json()
+    assert final['domain_data']['evidence_status'] == 'CAPTURED'
+    assert final['evidence_refs'][0]['id'] == evidence_id
+    assert final['status'] == 'OPEN'
+    assert len(client.get('/api/v1/alerts', params={'source_event_id':identifier}).json()['items']) == 1
+    engine.dispose()
+
+
+@pytest.mark.parametrize('use_case',['vault_monitoring','grill_gate'])
+def test_persisted_history_reconciliation_preserves_disposition_and_does_not_duplicate(common,tmp_path,use_case):
+    from app.services.alert_reconciliation import reconcile_alerts
+    from grill_gate_monitoring.models.alert import GrillGateAlert
+    engine=create_engine(f"sqlite:///{(tmp_path/'history.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    @contextmanager
+    def factory():
+        with Session(engine,expire_on_commit=False) as db:
+            yield db
+            db.commit()
+    now=datetime.now(timezone.utc)
+    source_id=str(uuid4())
+    with factory() as db:
+        if use_case=='vault_monitoring':
+            db.add(VaultRoomAlert(id=source_id,session_id='public-session',session_ref='public-session',
+                type='COUNT_MISMATCH',severity='WARNING',status='RESOLVED',title='History',message='Stored alert',
+                opened_at=now,created_at=now,updated_at=now,first_seen_at=now,last_seen_at=now,
+                row_version=4,resolution_note='Original source review',evidence_status='NONE'))
+        else:
+            db.add(GrillGateAlert(id=str(uuid4()),source_event_id=source_id,source_event_version=4,row_version=4,
+                source_event_type='GATE_OPEN_WITHOUT_CROSSING',severity='WARNING',status='DISMISSED',
+                title='History',summary='Stored alert',occurred_at=now,triggered_at=now,created_at=now,updated_at=now,
+                resource_refs={'assignment_id':'original-assignment'},domain_data={},evidence_refs=[],
+                resolution_note='Original source review'))
+    base,client=common
+    adapter=VaultAlertServiceAdapter(base,'vault-test',session_factory=factory) if use_case=='vault_monitoring' else GrillGateAlertPublisher(base,'grill-test',session_factory=factory)
+    with factory() as db:
+        preview=reconcile_alerts(db,adapter,use_case=use_case)
+        assert preview['missing']==1 and preview['queued']==0
+        assert db.scalar(select(VaultAuditEvent.id)) is None
+        applied=reconcile_alerts(db,adapter,use_case=use_case,dry_run=False)
+        assert applied['queued']==1
+    if use_case=='vault_monitoring':adapter.dispatch_once()
+    else:adapter.drain_database_once()
+    with factory() as db:
+        repeated=reconcile_alerts(db,adapter,use_case=use_case,dry_run=False)
+        assert repeated['unchanged']==1 and repeated['queued']==0
+    rows=client.get('/api/v1/alerts',params={'source_event_id':source_id}).json()['items']
+    assert len(rows)==1 and rows[0]['source_event_id']==source_id
+    assert rows[0]['status']==('RESOLVED' if use_case=='vault_monitoring' else 'DISMISSED')
+    assert rows[0]['resolution_note']=='Original source review'
+    assert rows[0]['source_event_version']==4
+    engine.dispose()

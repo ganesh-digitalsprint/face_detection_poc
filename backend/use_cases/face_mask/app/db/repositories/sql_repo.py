@@ -185,7 +185,8 @@ class EventRepository:
             self._filtered(select(func.count()).select_from(ConcealmentEventORM), date_from, date_to, camera_id,
                            status, covering_type, statuses))).scalar_one()
         order = ConcealmentEventORM.first_seen.asc() if ascending else ConcealmentEventORM.first_seen.desc()
-        rows = (await self._s.execute(base.order_by(order).limit(limit).offset(offset))).scalars().all()
+        tie = ConcealmentEventORM.id.asc() if ascending else ConcealmentEventORM.id.desc()
+        rows = (await self._s.execute(base.order_by(order, tie).limit(limit).offset(offset))).scalars().all()
         return [ConcealmentEvent.model_validate(r) for r in rows], total
 
     async def update_fields(self, event_id: str, **fields) -> None:
@@ -196,6 +197,7 @@ class EventRepository:
         for key, value in fields.items():
             setattr(row, key, value)
         await self._s.flush()
+        self._s.info.setdefault("alert_sync_ids", set()).add(event_id)
 
     async def touch(self, event_id: str, last_seen: datetime, frame_count: int, best_score: float,
                     covering_type: str) -> None:
@@ -207,6 +209,7 @@ class EventRepository:
         row.score = max(row.score, best_score)
         if covering_type:
             row.covering_type = covering_type
+        self._s.info.setdefault("alert_sync_ids", set()).add(event_id)
 
     async def count_since(self, since: datetime) -> int:
         stmt = select(func.count()).select_from(ConcealmentEventORM).where(

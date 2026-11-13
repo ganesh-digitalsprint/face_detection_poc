@@ -1,5 +1,6 @@
 // Pure helpers for the Alert Service (Contract v1, docs/alert-service-contract.md).
 // No browser or network access here so the logic can be unit tested with `node --test`.
+import { faceMaskEventLink } from '../layouts/routes.js';
 
 export const STATUSES = ['OPEN', 'ACKNOWLEDGED', 'RESOLVED', 'DISMISSED'];
 export const SEVERITIES = ['CRITICAL', 'HIGH', 'WARNING', 'INFO'];
@@ -24,14 +25,25 @@ export const useCaseLabel = (useCase) => USE_CASE_LABELS[useCase] || useCase || 
 /** Convert an Alert Service alert record into the view model used by the UI. */
 export function normalizeServiceAlert(item) {
   const refs = item.resource_refs || {};
+  const cameraName = item.camera_name || refs.camera_name || item.domain_data?.camera_name || null;
+  const subtype = item.source_event_subtype || item.domain_data?.source_event_subtype
+    || (item.use_case === 'branch_exterior' ? item.domain_data?.kind : null) || null;
+  const broad = String(item.source_event_type || '').replaceAll('_', ' ');
+  const broadTitle = broad.charAt(0).toUpperCase() + broad.slice(1);
+  const useSubtypeTitle = item.use_case === 'branch_exterior' && typeof subtype === 'string'
+    && (!item.title || item.title === broadTitle || item.title === `${broadTitle} at ${cameraName}`);
+  const typeTitle = typeof subtype === 'string' ? subtype.replaceAll('_', ' ') : '';
+  const evidenceRefs=Array.isArray(item.evidence_refs) ? item.evidence_refs.filter((ref)=>ref && typeof ref==='object' && ref.available!==false) : [];
+  const snapshotCount=snapshotRefs({evidenceRefs}).length;
+  const clipCount=evidenceRefs.filter((ref)=>ref.type==='clip').length;
   return {
     id: item.id,
     useCase: item.use_case,
     producer: item.producer,
     lifecycleOwner: item.lifecycle_owner || item.domain_data?.lifecycle_owner,
-    evidenceRefs: Array.isArray(item.evidence_refs) ? item.evidence_refs.filter((ref) => ref && typeof ref === 'object') : [],
-    evidenceStatus: item.evidence_status || item.domain_data?.evidence_status
-      || (Array.isArray(item.evidence_refs) && item.evidence_refs.some((ref) => grillEvidenceRequest(ref)) ? 'CAPTURED' : 'UNAVAILABLE'),
+    evidenceRefs,
+    evidenceCount:evidenceRefs.length,snapshotCount,clipCount,
+    evidenceStatus:evidenceRefs.length ? 'CAPTURED' : (item.evidence_status || item.domain_data?.evidence_status)==='PENDING' ? 'PENDING' : 'UNAVAILABLE',
     evidenceUnavailableReason: item.domain_data?.evidence_unavailable_reason || null,
     assignmentId: item.assignment_id || refs.assignment_id || null,
     videoJobId: item.video_job_id || refs.video_job_id || item.domain_data?.video_job_id || null,
@@ -39,12 +51,15 @@ export function normalizeServiceAlert(item) {
     sourceEventId: item.source_event_id,
     sourceEventVersion: item.source_event_version,
     sourceEventType: item.source_event_type,
+    sourceEventSubtype: subtype,
+    displayEventType: item.display_event_type || subtype || item.source_event_type,
+    resourceRefs: refs,
     category: item.category,
     severity: item.severity,
     sourceSeverity: item.source_severity,
     status: item.status,
     sourceStatus: item.source_status,
-    title: item.title,
+    title: useSubtypeTitle ? `${typeTitle.charAt(0).toUpperCase() + typeTitle.slice(1)}${cameraName ? ` at ${cameraName}` : ''}` : item.title,
     summary: item.summary,
     occurredAt: item.occurred_at,
     firstSeenAt: item.first_seen_at,
@@ -52,9 +67,18 @@ export function normalizeServiceAlert(item) {
     receivedAt: item.received_at,
     updatedAt: item.updated_at,
     cameraId: item.camera_id || refs.camera_id || null,
-    cameraName: item.camera_name || refs.camera_name || item.domain_data?.camera_name || null,
+    cameraName,
+    branchId: item.branch_id || refs.branch_id || null,
+    branchName: item.branch_name || refs.branch_name || null,
+    registryCameraId: item.registry_camera_id || refs.registry_camera_id || null,
+    sourceId: item.source_id || refs.source_id || null,
+    sourceType: item.source_type || refs.source_type || null,
+    templateAssignmentId: item.template_assignment_id || refs.template_assignment_id || null,
+    locationId: item.location_id || refs.location_id || null,
+    locationName: item.location_name || refs.location_name || null,
+    zoneId: item.zone_id || refs.zone_id || null,
     zoneName: refs.zone_name || null,
-    sessionRef: refs.session_ref || null,
+    sessionRef: item.session_ref || refs.session_ref || null,
     domainData: item.domain_data || {},
     occurrenceCount: item.occurrence_count ?? 1,
     rowVersion: item.row_version,
@@ -78,7 +102,8 @@ const toIso = (value) => {
 };
 
 /** Build GET /alerts (and /alerts/summary) query params from UI filters; empty filters are omitted. */
-export function buildAlertParams({ status, useCase, severity, sourceType, from, to, sort, limit, cursor } = {}) {
+export function buildAlertParams({ status, useCase, severity, sourceType, from, to, sort, limit, cursor,
+  branchId, cameraId, assignmentId, videoJobId, sessionRef, sourceId, registryCameraId, sourceSubtype } = {}) {
   const params = {};
   if (STATUSES.includes(status)) params.status = status;
   if (useCase) params.use_case = useCase;
@@ -91,6 +116,11 @@ export function buildAlertParams({ status, useCase, severity, sourceType, from, 
   if (sort === 'oldest') params.sort = 'oldest';
   if (limit) params.limit = limit;
   if (cursor) params.cursor = cursor;
+  for (const [key, value] of Object.entries({ branch_id: branchId, camera_id: cameraId, assignment_id: assignmentId,
+    video_job_id: videoJobId, session_ref: sessionRef, source_id: sourceId,
+    registry_camera_id: registryCameraId, source_event_subtype: sourceSubtype })) {
+    if (value) params[key] = value;
+  }
   return params;
 }
 
@@ -161,6 +191,7 @@ export function normalizeGrillGateAlert(item) {
 }
 
 export function alertSourceLink(alert) {
+  if(alert.useCase==='face_mask')return alert.sourceEventId ? faceMaskEventLink(alert.sourceEventId) : '/alerts/face-mask';
   if (alert.useCase !== 'grill_gate') return { vault_monitoring: '/alerts/vault', branch_exterior: '/alerts/branch' }[alert.useCase];
   const query = new URLSearchParams({ view: alert.videoJobId ? 'video' : 'live' });
   if (alert.videoJobId) query.set('job', alert.videoJobId);
@@ -200,13 +231,19 @@ export function grillSnapshotRefs(alert) {
     && (ref.type === 'snapshot' || ref.content_type?.startsWith('image/') || !ref.type));
 }
 
+export function snapshotRefs(alert) {
+  return (alert.evidenceRefs || []).filter((ref)=>ref.available!==false && (ref.type==='snapshot'
+    || ref.content_type?.startsWith('image/') || (!ref.type && grillEvidenceRequest(ref))));
+}
+
 export function alertSourceLabel(alert) {
   return alert.cameraName || alert.domainData?.video_filename || alert.domainData?.filename
     || (alert.videoJobId ? `Uploaded video - ${alert.videoJobId}` : alert.cameraId) || 'Monitoring source';
 }
 
 export function evidenceLabel(alert) {
-  if (grillSnapshotRefs(alert).length) return 'Snapshot captured';
+  if ((alert.snapshotCount ?? snapshotRefs(alert).length)>0) return 'Snapshot captured';
+  if (alert.clipCount>0) return 'Clip available';
   if (alert.evidenceStatus === 'PENDING') return 'Snapshot pending';
   if (alert.evidenceStatus === 'CAPTURED') return 'Snapshot reference unavailable';
   return 'No snapshot attached';

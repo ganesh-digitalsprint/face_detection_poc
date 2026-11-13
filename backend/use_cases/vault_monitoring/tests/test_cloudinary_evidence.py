@@ -27,6 +27,27 @@ def png_bytes():
     return stream.getvalue()
 
 
+def test_manual_alert_evidence_upload_and_deletion_stage_current_availability(db):
+    from app.services.vault_alert_lifecycle import ENTITY,PENDING
+    session,_=db
+    identifier=str(uuid4())
+    session.add(VaultRoomAlert(id=identifier,session_id='public-session',type='COUNT_MISMATCH',
+        severity='WARNING',status='RESOLVED',title='Stored alert',message='Reviewed',row_version=1,
+        opened_at=datetime.now(timezone.utc),evidence_status='NONE'))
+    session.commit()
+    service=CloudinaryEvidenceService(session,gateway=FakeCloudinary())
+    evidence,_=service.upload_manual_result(alert_id=identifier,data=png_bytes(),declared_mime='image/png')
+    pending=session.scalars(select(VaultAuditEvent).where(VaultAuditEvent.entity_type==ENTITY,VaultAuditEvent.action==PENDING)).all()
+    assert len(pending)==1 and pending[0].details['payload']['evidence_refs'][0]['id']==evidence.id
+    assert pending[0].details['payload']['domain_data']['snapshot_count']==1
+    service.delete(evidence.id,reason='Removed by source reviewer')
+    pending=session.scalars(select(VaultAuditEvent).where(VaultAuditEvent.entity_type==ENTITY,VaultAuditEvent.action==PENDING)).all()
+    latest=max(pending,key=lambda item:item.details['payload']['source_event_version']).details['payload']
+    assert latest['evidence_refs']==[] and latest['domain_data']['evidence_count']==0
+    assert latest['domain_data']['evidence_status']=='UNAVAILABLE'
+    assert session.get(VaultRoomAlert,identifier).status=='RESOLVED'
+
+
 class FakeCloudinary:
     def __init__(self):
         self.assets = {}

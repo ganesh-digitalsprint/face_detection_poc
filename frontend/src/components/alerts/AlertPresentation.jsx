@@ -3,7 +3,7 @@ import AlertSnapshot from './AlertSnapshot.jsx';
 export { default as AlertSnapshot } from './AlertSnapshot.jsx';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { alertSourceLink, alertSourceLabel, evidenceLabel, grillAlertMetadata, grillSnapshotRefs, useCaseLabel } from '../../api/alertServiceModel.js';
+import { alertSourceLink, alertSourceLabel, evidenceLabel, grillAlertMetadata, snapshotRefs, useCaseLabel } from '../../api/alertServiceModel.js';
 
 export const alertDate = (value) => value ? new Date(value).toLocaleString() : 'Time unavailable';
 const tone = { CRITICAL: 'bg-red-100 text-red-800', HIGH: 'bg-red-100 text-red-800', WARNING: 'bg-amber-100 text-amber-800', INFO: 'bg-sky-100 text-sky-800' };
@@ -19,7 +19,7 @@ export function AlertEvidenceDetails({ alert }) {
   const [index, setIndex] = useState(0);
   useEffect(() => setIndex(0), [alert.id, alert.evidenceRefs?.length]);
   const metadata = grillAlertMetadata(alert);
-  const snapshots = grillSnapshotRefs(alert);
+  const snapshots = snapshotRefs(alert);
   return <>
     <AlertSnapshot alert={alert} large evidenceIndex={index} />
     {snapshots.length > 1 && <div className="flex flex-wrap gap-2">{snapshots.map((ref, i) => <button type="button" key={ref.id || i} onClick={() => setIndex(i)} aria-pressed={index === i} className="rounded border px-3 py-2 text-xs">Snapshot {i + 1}</button>)}</div>}

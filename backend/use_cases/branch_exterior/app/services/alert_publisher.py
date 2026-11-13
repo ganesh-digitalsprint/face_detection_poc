@@ -1,22 +1,9 @@
-"""Durable, one-way publication of Branch events to Alert Service Contract v1.
+"""Durable Branch publication using the existing file outbox and Contract v1.
 
-Branch stays the source of truth for its events, review status, evidence and WebSocket feed. A newly
-created event is written to a small file outbox (one JSON file per event, written atomically) and a
-background task delivers it with ``POST /api/v1/alerts``.
-
-Delivery is at-least-once and safe to repeat: the ``Idempotency-Key`` is stable per event
-(``branch-event:<event id>``) and the stored request body is never rebuilt, so every retry sends an
-identical body and the service replays the original alert instead of creating a second one.
-
-* 2xx (201 created / 200 replay): delivered, outbox file removed.
-* timeout, transport error, 408, 425, 429, 5xx: kept, retried with capped exponential backoff.
-* 401 / 403: kept in ``failed/`` (bad token), retried once at the next process start with the
-  newly loaded token.
-* any other 4xx (e.g. 409, 422): kept in ``failed/`` for inspection; never retried automatically.
-
-Only events created after the integration is enabled are published; updates to an existing event
-(severity escalation, review) are not propagated in this version. The publisher is disabled unless
-both the base URL and the token are configured, and it never raises into the detection pipeline.
+The runtime refreshes queued jobs from committed source records, compares the
+remote source version, and publishes idempotent creates or optimistic updates.
+Legacy snapshot jobs remain readable. Transport failures and version races retry;
+auth failures recover at startup. Publication never raises into source writes.
 """
 from __future__ import annotations
 
@@ -27,6 +14,7 @@ import logging
 import os
 import re
 import tempfile
+from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -36,6 +24,9 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.paths import ALERT_OUTBOX_DIR
+from fedbank_core.events.source_sync import deliver_current
+from fedbank_core.events.metadata import enrich_resource_refs
+from fedbank_core.events.evidence import media_path, evidence_metadata
 from app.schemas.event import Event
 
 logger = logging.getLogger(__name__)
@@ -57,7 +48,7 @@ def _timestamp(value: datetime) -> str:
 
 def _safe_reference(value: str | None, limit: int) -> str | None:
     """Drop values that could carry credentials or exceed contract bounds."""
-    if not value or len(value) > limit:
+    if not isinstance(value, str) or not value.strip() or len(value) > limit:
         return None
     lowered = value.lower()
     if "://" in lowered or "@" in value or any(term in lowered for term in _SECRET_TERMS):
@@ -67,9 +58,9 @@ def _safe_reference(value: str | None, limit: int) -> str | None:
 
 def build_payload(event: Event) -> dict:
     """Map a Branch event to the Contract v1 producer body (no evidence bytes, no raw meta)."""
-    title_type = event.scenario.replace("_", " ").capitalize()
+    kind = _safe_reference(event.meta.get("kind"), 64)
+    title_type = kind.replace("_", " ").capitalize() if kind else event.scenario.replace("_", " ").capitalize()
     camera_name = _safe_reference(event.camera_name, 128)
-    title = f"{title_type} at {camera_name}" if camera_name else title_type
     occurred_at = _utc(event.created_at)
     last_seen_at = max(occurred_at, _utc(event.updated_at))
     resource_refs = {
@@ -80,6 +71,11 @@ def build_payload(event: Event) -> dict:
             "zone_name": _safe_reference(event.zone_name, 128),
         }.items() if value
     }
+    resource_refs.update({key: value for key in ("branch_id", "branch_name", "source_id")
+        if (value := _safe_reference(event.meta.get(key), 128))})
+    resource_refs = enrich_resource_refs("branch_exterior", resource_refs)
+    camera_name = resource_refs.get("camera_name")
+    title = f"{title_type} at {camera_name}" if camera_name else title_type
     return {
         "schema_version": 1,
         "source_event_id": event.id,
@@ -99,6 +95,7 @@ def build_payload(event: Event) -> dict:
             "schema_version": "branch-event/1",
             "confidence": float(event.confidence),
             "track_ids": [int(t) for t in event.track_ids][:50],
+            **({"kind": kind} if kind else {}),
         },
         "evidence_refs": [],
     }
@@ -109,7 +106,44 @@ def _file_name(event_id: str) -> str:
     return f"{stem}.json"
 
 
+def build_sync_payload(event: Event) -> dict:
+    payload = build_payload(event)
+    payload["domain_data"].update(lifecycle_owner="source", confidence=event.confidence,
+        review_status=event.status, resolution_note=event.reviewer_remarks,
+        source_status_changed_at=_timestamp(event.updated_at),
+        evidence_status="CAPTURED" if event.snapshot_path or event.clip_path else "UNAVAILABLE")
+    payload["evidence_refs"] = [{"provider": "branch_exterior", "id": f"{event.id}:{kind}",
+        "type": kind, "event_path": f"/api/events/{event.id}"}
+        for kind, path in (("snapshot", event.snapshot_path), ("clip", event.clip_path))
+        if media_path(path, 'branch_exterior')]
+    payload['domain_data'].update(evidence_metadata(payload['evidence_refs']))
+    return payload
+
+
+async def load_committed_payload(event_id: str):
+    from app.db.init_db import get_db
+    event = await get_db().events.get(event_id)
+    return build_sync_payload(event) if event else None
+
+
+async def publish_committed(event: Event | None, *, deleted=False):
+    """Publication failure must never undo a committed source operation."""
+    if event is not None:
+        try:
+            await get_alert_publisher().enqueue(event, deleted=deleted)
+        except Exception:
+            logger.exception("Could not queue committed Branch event %s", event.id)
+
+
 class AlertPublisher:
+    async def reconcile(self, events, *, dry_run=True):
+        from fedbank_core.events.reconciliation import reconcile_events
+        if not self.enabled or self._source_loader is None:
+            raise ValueError('Source publication is not configured')
+        async with self._client_factory(timeout=self._timeout, follow_redirects=False) as client:
+            return await reconcile_events(client, self.base_url, self.token, 'branch_exterior', events,
+                self._source_loader, lambda event:self.enqueue(event,historical=True), dry_run=dry_run)
+
     def __init__(
         self,
         base_url: str | None,
@@ -120,6 +154,7 @@ class AlertPublisher:
         poll_seconds: float = 2.0,
         retry_base_seconds: float = 2.0,
         client_factory=None,
+        source_loader=None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ):
         self.base_url = (base_url or "").rstrip("/")
@@ -131,6 +166,8 @@ class AlertPublisher:
         self._poll_seconds = poll_seconds
         self._retry_base_seconds = retry_base_seconds
         self._client_factory = client_factory or httpx.AsyncClient
+        self._source_loader = source_loader
+        self._dispatch_lock = asyncio.Lock()
         self._clock = clock
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
@@ -147,23 +184,32 @@ class AlertPublisher:
             Path(tmp).unlink(missing_ok=True)
             raise
 
-    def _enqueue_sync(self, event: Event) -> bool:
+    def _enqueue_sync(self, event: Event, deleted=False, historical=False) -> bool:
         name = _file_name(event.id)
+        if self._source_loader is not None:
+            name = f"{name[:-5]}-{'reconcile' if historical else uuid4().hex}.json"
         if (self._pending / name).exists() or (self._failed / name).exists():
-            return False  # already queued/handled: re-enqueueing an event never creates a second job
+            return historical and (self._pending / name).exists()
         self._write(self._pending / name, {
             "idempotency_key": f"{IDEMPOTENCY_PREFIX}{event.id}",
-            "payload": build_payload(event),
+            "payload": build_sync_payload(event) if self._source_loader else build_payload(event),
+            "deleted": deleted,
+            "historical_reconciliation": historical,
+            "deleted_at": _timestamp(self._clock()) if deleted else None,
             "attempt": 0,
             "due_at": _timestamp(self._clock()),
         })
         return True
 
-    async def enqueue(self, event: Event) -> bool:
+    async def enqueue(self, event: Event, *, deleted=False, historical=False) -> bool:
         """Persist the delivery job. Returns False when disabled or already queued."""
         if not self.enabled:
             return False
-        return await asyncio.to_thread(self._enqueue_sync, event)
+        try:
+            return await asyncio.to_thread(self._enqueue_sync, event, deleted, historical)
+        except Exception:
+            logger.exception("Could not queue source alert %s", event.id)
+            return False
 
     def pending_count(self) -> int:
         return len(list(self._pending.glob("*.json"))) if self._pending.exists() else 0
@@ -197,6 +243,10 @@ class AlertPublisher:
         return due
 
     async def dispatch_once(self, *, limit: int = 25, recover_auth_failures: bool = False) -> int:
+        async with self._dispatch_lock:
+            return await self._dispatch_once(limit=limit, recover_auth_failures=recover_auth_failures)
+
+    async def _dispatch_once(self, *, limit: int = 25, recover_auth_failures: bool = False) -> int:
         if not self.enabled:
             return 0
         if recover_auth_failures:
@@ -210,11 +260,20 @@ class AlertPublisher:
         attempt = int(state.get("attempt", 0)) + 1
         try:
             async with self._client_factory(timeout=self._timeout, follow_redirects=False) as client:
-                response = await client.post(
-                    f"{self.base_url}/api/v1/alerts",
-                    headers={"Authorization": f"Bearer {self.token}", "Idempotency-Key": state["idempotency_key"]},
-                    json=state["payload"],
-                )
+                if self._source_loader is not None:
+                    try:
+                        await deliver_current(client, self.base_url, self.token, state, self._source_loader)
+                    except httpx.HTTPStatusError as exc:
+                        response = exc.response
+                    else:
+                        await asyncio.to_thread(path.unlink, missing_ok=True)
+                        return
+                else:
+                    response = await client.post(
+                        f"{self.base_url}/api/v1/alerts",
+                        headers={"Authorization": f"Bearer {self.token}", "Idempotency-Key": state["idempotency_key"]},
+                        json=state["payload"],
+                    )
         except Exception as exc:  # transport/timeout/anything unexpected: keep the alert, retry later
             logger.warning("Alert Service publication failed for event %s (%s)",
                            state["payload"]["source_event_id"], type(exc).__name__)
@@ -223,7 +282,7 @@ class AlertPublisher:
         code = response.status_code
         if 200 <= code < 300:
             await asyncio.to_thread(path.unlink, missing_ok=True)
-        elif code in _RETRYABLE_STATUS or code >= 500:
+        elif code in _RETRYABLE_STATUS or code >= 500 or (self._source_loader is not None and code == 409):
             await asyncio.to_thread(self._retry, path, state, attempt, code, None)
         else:
             logger.warning("Alert Service rejected event %s with HTTP %s; moved to failed/",
@@ -279,4 +338,5 @@ def get_alert_publisher() -> AlertPublisher:
         settings.alert_service_token,
         timeout_seconds=settings.alert_service_timeout_seconds,
         poll_seconds=settings.alert_service_poll_seconds,
+        source_loader=load_committed_payload,
     )

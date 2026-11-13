@@ -1,15 +1,8 @@
-"""Durable, one-way publication of Face Mask events to Alert Service Contract v1.
+"""Durable concealment publication using the existing file outbox and Contract v1.
 
-Copy-adapted from branch_exterior's `alert_publisher.py` (same outbox, Idempotency-Key and backoff rules):
-
-* A new event is written to a file outbox (one JSON file per event, written atomically); a background task
-  delivers it with ``POST /api/v1/alerts``. The pipeline never waits for it and never sees its errors.
-* Idempotency-Key is stable per event (``face-mask-event:<id>``) and the stored body is never rebuilt, so a
-  retry cannot create a second alert (FM-03 / FM-11).
-* 2xx: delivered. Timeout / transport / 408 / 425 / 429 / 5xx: retried with capped exponential backoff.
-  401/403: kept in ``failed/`` and retried once at the next start. Other 4xx: kept in ``failed/``.
-* Disabled unless both the base URL and the token are configured.
-* The payload carries no face data and no person identity: only camera/entry references and scores.
+The runtime queues committed concealment changes, reads current source state at
+delivery, and uses optimistic updates. Entry logs are never published. Legacy
+creation snapshots remain readable; retries cannot overwrite newer source state.
 """
 from __future__ import annotations
 
@@ -20,6 +13,7 @@ import logging
 import os
 import re
 import tempfile
+from uuid import uuid4
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +22,8 @@ from typing import Callable
 import httpx
 
 from app.core.paths import ALERT_OUTBOX_DIR
+from fedbank_core.events.source_sync import deliver_current
+from fedbank_core.events.metadata import enrich_resource_refs
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +49,7 @@ class AlertEvent:
     frames_evaluated: int
     status: str = "OPEN"
     severity: str = "high"
+    roi_id: str | None = None
 
 
 def _utc(value: datetime) -> datetime:
@@ -84,8 +81,9 @@ def build_payload(event: AlertEvent) -> dict:
                f"Review at /face-mask/events/{event.id}")
     resource_refs = {k: v for k, v in {
         "camera_id": _safe_reference(event.camera_id, 128), "camera_name": camera_name,
-        "zone_id": None, "zone_name": entry,
+        "zone_id": _safe_reference(event.roi_id, 128), "zone_name": entry,
     }.items() if v}
+    resource_refs = enrich_resource_refs("face_mask", resource_refs)
     return {
         "schema_version": 1,
         "source_event_id": event.id,
@@ -120,9 +118,19 @@ def _file_name(event_id: str) -> str:
 
 
 class AlertClient:
+    async def reconcile(self, events, *, dry_run=True):
+        from fedbank_core.events.reconciliation import reconcile_events
+        if not self.enabled or self._source_loader is None:
+            raise ValueError('Source publication is not configured')
+        async def enqueue(event):
+            return await self.enqueue_committed(event.id,historical=True)
+        async with self._client_factory(timeout=self._timeout, follow_redirects=False) as client:
+            return await reconcile_events(client, self.base_url, self.token, 'face_mask', events,
+                self._source_loader, enqueue, dry_run=dry_run)
+
     def __init__(self, base_url: str | None, token: str | None, *, outbox_dir: Path = ALERT_OUTBOX_DIR,
                  timeout_seconds: float = 3.0, poll_seconds: float = 2.0, retry_base_seconds: float = 2.0,
-                 client_factory=None, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
+                 client_factory=None, source_loader=None, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
         self.base_url = (base_url or "").rstrip("/")
         self.token = token or ""
         self.enabled = bool(self.base_url and self.token)
@@ -132,6 +140,8 @@ class AlertClient:
         self._poll_seconds = poll_seconds
         self._retry_base_seconds = retry_base_seconds
         self._client_factory = client_factory or httpx.AsyncClient
+        self._source_loader = source_loader
+        self._dispatch_lock = asyncio.Lock()
         self._clock = clock
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
@@ -151,6 +161,8 @@ class AlertClient:
 
     def _enqueue_sync(self, event: AlertEvent) -> bool:
         name = _file_name(event.id)
+        if self._source_loader is not None:
+            name = f"{name[:-5]}-{uuid4().hex}.json"
         if (self._pending / name).exists() or (self._failed / name).exists():
             return False   # re-enqueueing the same event never creates a second job
         self._write(self._pending / name, {
@@ -167,6 +179,26 @@ class AlertClient:
             return await asyncio.to_thread(self._enqueue_sync, event)
         except Exception:
             logger.exception("Could not queue alert for event %s", event.id)
+            return False
+
+    async def enqueue_committed(self, event_id: str, *, historical=False) -> bool:
+        if not self.enabled or self._source_loader is None:
+            return False
+        try:
+            payload = await self._source_loader(event_id)
+            if payload is None:
+                return False
+            name=f"{_file_name(event_id)[:-5]}-{'reconcile' if historical else uuid4().hex}.json"
+            path = self._pending / name
+            if historical and path.exists():
+                return True
+            if historical and (self._failed/name).exists():
+                return False
+            await asyncio.to_thread(self._write, path, {"payload": payload,
+                "attempt": 0, "due_at": _timestamp(self._clock()), 'historical_reconciliation':historical})
+            return True
+        except Exception:
+            logger.exception("Could not queue committed concealment event %s", event_id)
             return False
 
     def pending_count(self) -> int:
@@ -201,6 +233,10 @@ class AlertClient:
         return due
 
     async def dispatch_once(self, *, limit: int = 25, recover_auth_failures: bool = False) -> int:
+        async with self._dispatch_lock:
+            return await self._dispatch_once(limit=limit, recover_auth_failures=recover_auth_failures)
+
+    async def _dispatch_once(self, *, limit: int = 25, recover_auth_failures: bool = False) -> int:
         if not self.enabled:
             return 0
         if recover_auth_failures:
@@ -214,11 +250,20 @@ class AlertClient:
         attempt = int(state.get("attempt", 0)) + 1
         try:
             async with self._client_factory(timeout=self._timeout, follow_redirects=False) as client:
-                response = await client.post(
-                    f"{self.base_url}/api/v1/alerts",
-                    headers={"Authorization": f"Bearer {self.token}", "Idempotency-Key": state["idempotency_key"]},
-                    json=state["payload"],
-                )
+                if self._source_loader is not None:
+                    try:
+                        await deliver_current(client, self.base_url, self.token, state, self._source_loader)
+                    except httpx.HTTPStatusError as exc:
+                        response = exc.response
+                    else:
+                        await asyncio.to_thread(path.unlink, missing_ok=True)
+                        return
+                else:
+                    response = await client.post(
+                        f"{self.base_url}/api/v1/alerts",
+                        headers={"Authorization": f"Bearer {self.token}", "Idempotency-Key": state["idempotency_key"]},
+                        json=state["payload"],
+                    )
         except Exception as exc:   # transport/timeout/anything unexpected: keep the alert, retry later
             logger.warning("Alert Service publication failed for event %s (%s)",
                            state["payload"]["source_event_id"], type(exc).__name__)
@@ -227,7 +272,7 @@ class AlertClient:
         code = response.status_code
         if 200 <= code < 300:
             await asyncio.to_thread(path.unlink, missing_ok=True)
-        elif code in _RETRYABLE_STATUS or code >= 500:
+        elif code in _RETRYABLE_STATUS or code >= 500 or (self._source_loader is not None and code == 409):
             await asyncio.to_thread(self._retry, path, state, attempt, code, None)
         else:
             logger.warning("Alert Service rejected event %s with HTTP %s; moved to failed/",

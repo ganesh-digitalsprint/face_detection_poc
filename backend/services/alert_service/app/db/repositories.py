@@ -45,19 +45,36 @@ def source_payload_matches(alert: Alert, payload: dict, severity: str) -> bool:
 
 
 def _source_lifecycle(use_case, payload, current=None):
-    if use_case not in {"grill_gate", "vault_monitoring"}:
+    review_owned = use_case in {"branch_exterior", "face_mask"} and payload.get("domain_data", {}).get("lifecycle_owner") == "source"
+    if use_case not in {"grill_gate", "vault_monitoring"} and not review_owned:
         return {}
     target = str(payload.get("source_status") or "OPEN").upper()
+    if review_owned:
+        # Confirmation is a review disposition, not incident remediation. The
+        # source may subsequently close, reclassify or reopen its own record.
+        mapping = {"OPEN": "OPEN", "UNDER_REVIEW": "ACKNOWLEDGED",
+            "CONFIRMED": "ACKNOWLEDGED", "FALSE_POSITIVE": "DISMISSED", "CLOSED": "RESOLVED"}
+        if target not in mapping:
+            raise ValueError("Invalid source review status")
+        target = mapping[target]
+        if payload.get("domain_data", {}).get("source_deleted"):
+            target = "DISMISSED" if target == "DISMISSED" else "RESOLVED"
     if target not in {"OPEN", "ACKNOWLEDGED", "RESOLVED", "DISMISSED"}:
         raise ValueError("Invalid source-owned lifecycle status")
-    if target != "OPEN" and payload.get("domain_data", {}).get("lifecycle_actor_type") != "operator":
+    if not review_owned and target != "OPEN" and payload.get("domain_data", {}).get("lifecycle_actor_type") != "operator" \
+            and payload.get('domain_data', {}).get('historical_reconciliation') is not True:
         # Old recovery publications may update evidence/metadata but never close incidents.
         return {}
-    if current is not None and target != current.status and target not in TRANSITIONS.get(current.status, set()):
+    if not review_owned and current is not None and target != current.status and target not in TRANSITIONS.get(current.status, set()):
         raise Conflict("INVALID_TRANSITION", "Source lifecycle cannot reopen a terminal alert")
     actor = payload.get("domain_data", {}).get("lifecycle_actor_id") or f"{use_case}/source"
     values = {"status": target}
+    if review_owned and current is not None and target != current.status:
+        values.update(acknowledged_at=None, acknowledged_by=None, resolved_at=None,
+            resolved_by=None, dismissed_at=None, dismissed_by=None, resolution_note=None, resolution_source=None)
     if current is not None and target == current.status:
+        if review_owned and target in {"RESOLVED", "DISMISSED"}:
+            values["resolution_note"] = payload.get("domain_data", {}).get("resolution_note")
         return values
     changed_at = payload.get("domain_data", {}).get("source_status_changed_at")
     now = datetime.fromisoformat(changed_at.replace("Z", "+00:00")) if changed_at else utcnow()
@@ -71,6 +88,11 @@ def _source_lifecycle(use_case, payload, current=None):
     if target == "DISMISSED":
         values.update(dismissed_at=now, dismissed_by=actor, resolution_note=payload.get("domain_data", {}).get("resolution_note"))
     return values
+
+
+def _source_count(payload, default=1):
+    count = payload.get("domain_data", {}).get("occurrence_count")
+    return count if type(count) is int and count > 0 else default
 
 
 def ingest(db: Session, *, use_case: str, producer: str, payload: dict, severity: str,
@@ -115,7 +137,7 @@ def ingest(db: Session, *, use_case: str, producer: str, payload: dict, severity
                   last_seen_at=payload.get("last_seen_at") or occurred, received_at=now, updated_at=now,
                   resource_refs=payload.get("resource_refs", {}), domain_data=payload.get("domain_data", {}),
                   evidence_refs=payload.get("evidence_refs", []), deduplication_key=payload.get("deduplication_key"),
-                  occurrence_count=1, row_version=1)
+                  occurrence_count=_source_count(payload), row_version=1)
     for field, value in _source_lifecycle(use_case, payload).items():
         setattr(alert, field, value)
     db.add(alert)
@@ -151,7 +173,7 @@ def ingest(db: Session, *, use_case: str, producer: str, payload: dict, severity
         raise
     audit(db, alert, "ALERT_INGESTED", "producer", f"{use_case}/{producer}", request_id,
           None, alert.status, {"source_event_id": alert.source_event_id, "source_event_version": alert.source_event_version})
-    if notification_enabled and use_case == "branch_exterior":
+    if notification_enabled and use_case == "branch_exterior" and not payload.get('domain_data', {}).get('historical_reconciliation'):
         db.add(NotificationOutbox(alert_id=alert.id, event_key=f"alert.created:{alert.id}", status="PENDING",
                                   attempts=0, next_attempt_at=now, created_at=now))
     db.add(IdempotencyRecord(use_case=use_case, producer=producer, idempotency_key=idempotency_key,
@@ -208,6 +230,7 @@ def update_source(db: Session, *, use_case: str, producer: str, source_event_id:
         "resource_refs": payload.get("resource_refs", {}), "domain_data": payload.get("domain_data", {}),
         "evidence_refs": payload.get("evidence_refs", []),
         "deduplication_key": payload.get("deduplication_key"), "updated_at": utcnow(),
+        "occurrence_count": _source_count(payload, alert.occurrence_count),
         "row_version": Alert.row_version + 1}
     values.update(_source_lifecycle(use_case, payload, alert))
     result = db.execute(update(Alert).where(Alert.id == alert.id,
@@ -279,7 +302,20 @@ def alert_dict(alert: Alert) -> dict:
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    refs = alert.resource_refs or {}
+    subtype = alert.domain_data.get("source_event_subtype") or (
+        alert.domain_data.get("kind") if alert.use_case == "branch_exterior" else None)
+    evidence = alert.evidence_refs or []
     return {"id": alert.id, "schema_version": alert.schema_version, "use_case": alert.use_case,
+            **{key: refs.get(key) for key in ("branch_id", "branch_name", "camera_id", "camera_name",
+                "assignment_id", "video_job_id", "template_assignment_id", "session_ref", "source_id",
+                "source_type", "registry_camera_id", "location_id", "location_name", "zone_id", "zone_name")},
+            "source_event_subtype": subtype, "display_event_type": subtype or alert.source_event_type,
+            "evidence_count": len(evidence),
+            "snapshot_count": sum(ref.get('type') == 'snapshot' for ref in evidence),
+            "clip_count": sum(ref.get('type') == 'clip' for ref in evidence),
+            "evidence_status": 'CAPTURED' if evidence else
+                'PENDING' if alert.domain_data.get('evidence_status') == 'PENDING' else 'UNAVAILABLE',
             "producer": alert.producer, "source_event_id": alert.source_event_id,
             "source_event_type": alert.source_event_type, "source_event_version": alert.source_event_version,
             "category": alert.category, "severity": alert.severity, "source_severity": alert.source_severity,
@@ -294,8 +330,8 @@ def alert_dict(alert: Alert) -> dict:
             "resolved_at": iso(alert.resolved_at), "resolved_by": alert.resolved_by,
             "resolution_note": alert.resolution_note, "resolution_source": alert.resolution_source,
             "dismissed_at": iso(alert.dismissed_at), "dismissed_by": alert.dismissed_by,
-            "lifecycle_owner": "source" if alert.use_case in {"grill_gate", "vault_monitoring"} else "common",
-            "allowed_actions": [] if alert.use_case in {"grill_gate", "vault_monitoring"} else allowed_actions(alert.status)}
+            "lifecycle_owner": "source" if alert.use_case in {"grill_gate", "vault_monitoring"} or alert.domain_data.get("lifecycle_owner") == "source" else "common",
+            "allowed_actions": [] if alert.use_case in {"grill_gate", "vault_monitoring"} or alert.domain_data.get("lifecycle_owner") == "source" else allowed_actions(alert.status)}
 
 
 def list_alerts(db: Session, *, scopes: list[str], filters: dict, sort: str, limit: int, cursor):
@@ -308,9 +344,12 @@ def list_alerts(db: Session, *, scopes: list[str], filters: dict, sort: str, lim
                      ("category", Alert.category)):
         if filters.get(key) is not None:
             stmt = stmt.where(col == filters[key])
-    for key in ("assignment_id", "camera_id"):
+    for key in ("assignment_id", "camera_id", "branch_id", "video_job_id", "session_ref", "source_id", "registry_camera_id"):
         if filters.get(key) is not None:
             stmt = stmt.where(Alert.resource_refs[key].as_string() == filters[key])
+    if filters.get("source_event_subtype") is not None:
+        stmt = stmt.where(func.coalesce(Alert.domain_data["source_event_subtype"].as_string(),
+            Alert.domain_data["kind"].as_string()) == filters["source_event_subtype"])
     if filters.get("from_at"):
         stmt = stmt.where(Alert.occurred_at >= filters["from_at"])
     if filters.get("to_at"):
@@ -338,9 +377,12 @@ def summary(db: Session, *, scopes: list[str], filters: dict) -> dict:
                      ("category", Alert.category)):
         if filters.get(key) is not None:
             stmt = stmt.where(col == filters[key])
-    for key in ("assignment_id", "camera_id"):
+    for key in ("assignment_id", "camera_id", "branch_id", "video_job_id", "session_ref", "source_id", "registry_camera_id"):
         if filters.get(key) is not None:
             stmt = stmt.where(Alert.resource_refs[key].as_string() == filters[key])
+    if filters.get("source_event_subtype") is not None:
+        stmt = stmt.where(func.coalesce(Alert.domain_data["source_event_subtype"].as_string(),
+            Alert.domain_data["kind"].as_string()) == filters["source_event_subtype"])
     if filters.get("from_at"):
         stmt = stmt.where(Alert.occurred_at >= filters["from_at"])
     if filters.get("to_at"):

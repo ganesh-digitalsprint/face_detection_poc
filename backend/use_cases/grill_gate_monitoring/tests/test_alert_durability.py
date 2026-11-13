@@ -23,6 +23,48 @@ from grill_gate_monitoring.api import grill_gate
 
 T0 = datetime(2026, 11, 11, tzinfo=timezone.utc)
 
+
+@pytest.mark.parametrize('video', [False, True])
+@pytest.mark.parametrize('alert_type', ['GATE_OPEN_WITHOUT_CROSSING', 'GATE_OPEN_TOO_LONG'])
+def test_public_metadata_preserves_typed_source_references(video, alert_type, tmp_path, monkeypatch):
+    from grill_gate_monitoring.services.alert_delivery import public_payload
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    local_id, source_id, camera_id, assignment_id, job_id, template_id = [str(uuid4()) for _ in range(6)]
+    snapshot_id=str(uuid4())
+    store=GrillGateEvidence(tmp_path)
+    store.root.mkdir(parents=True)
+    store.path(snapshot_id).write_bytes(b'test snapshot')
+    monkeypatch.setattr(alert_evidence,'_evidence',store)
+    refs = {'video_job_id':job_id} if video else {'assignment_id':assignment_id}
+    evidence = [{'id':snapshot_id, 'storage_id':snapshot_id, 'provider':'grill_gate', 'type':'snapshot',
+        'retrieval_path':f'/api/v1/grill-gate/alerts/{local_id}/evidence/{snapshot_id}?'
+            + ('video_job_id='+job_id if video else 'assignment_id='+assignment_id)}]
+    domain = {'source_id':'source-reference', 'branch_id':'explicit-branch', 'branch_name':'Explicit branch'}
+    if video:
+        domain.update(template_assignment_id=template_id, camera_id=job_id)
+    row = GrillGateAlert(id=local_id, source_event_id=source_id, source_event_version=1,
+        source_event_type=alert_type, camera_id=None if video else camera_id,
+        camera_name=None if video else 'Gate camera', assignment_id=None if video else assignment_id,
+        video_job_id=job_id if video else None, severity='WARNING', status='OPEN', title='Gate alert',
+        summary='Details', occurred_at=T0, triggered_at=T0, updated_at=T0, resource_refs=refs,
+        domain_data=domain, evidence_refs=evidence)
+    first = public_payload(row)
+    assert first['source_event_id'] == source_id and first['source_event_type'] == alert_type
+    assert first['resource_refs']['source_id'] == 'source-reference'
+    assert first['resource_refs']['branch_id'] == 'explicit-branch'
+    assert first['evidence_refs'] == evidence
+    if video:
+        assert first['resource_refs']['video_job_id'] == job_id
+        assert first['resource_refs']['template_assignment_id'] == template_id
+        assert 'camera_id' not in first['resource_refs']
+    else:
+        assert first['resource_refs']['camera_id'] == camera_id
+        assert first['resource_refs']['assignment_id'] == assignment_id
+    row.source_event_version = 2
+    row.status = 'ACKNOWLEDGED'
+    newer = public_payload(row)
+    assert newer['resource_refs'] == first['resource_refs'] and newer['evidence_refs'] == evidence
+
 @pytest.fixture
 def h(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{(tmp_path / 'incidents.db').as_posix()}", connect_args={"check_same_thread": False})

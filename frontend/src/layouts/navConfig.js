@@ -63,7 +63,7 @@ export const NAV_SECTIONS = [
         children: [{ id: 'branch-live', label: 'Live monitoring', to: '/branch-exterior/live' }],
       },
       {
-        id: 'gate-mesh', label: 'Gate & Mesh', icon: DoorClosed,
+        id: 'gate-mesh', label: 'Gate Monitoring', icon: DoorClosed,
         children: [
           { id: 'gate-mesh-live', label: 'Live Camera', to: '/grill-gate', end: true, searchParam: ['view', null] },
           { id: 'gate-mesh-video', label: 'Uploaded Video Processing', to: '/grill-gate?view=video', searchParam: ['view', 'video'] },

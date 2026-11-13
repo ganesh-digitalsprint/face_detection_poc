@@ -33,6 +33,46 @@ test('normalizing tolerates missing optional fields', () => {
   assert.equal(alert.sessionRef, null);
   assert.deepEqual(alert.allowedActions, []);
   assert.equal(alert.occurrenceCount, 1);
+  assert.equal(alert.branchId, null);
+  assert.equal(alert.cameraName, null);
+  assert.equal(alert.sourceId, null);
+});
+
+test('normalization retains nested references and detailed Branch subtypes for old and new responses', () => {
+  const refs = { branch_id: 'branch', branch_name: 'Known branch', camera_id: 'source-camera',
+    camera_name: 'Original camera', source_id: 'source', assignment_id: 'assignment',
+    session_ref: 'session', registry_camera_id: 'registry-camera', location_id: 'location' };
+  const alert = normalizeServiceAlert(raw({ source_event_type: 'anomaly', title: 'Anomaly at Original camera',
+    resource_refs: refs, domain_data: { kind: 'unattended_bag' } }));
+  assert.equal(alert.sourceEventType, 'anomaly');
+  assert.equal(alert.sourceEventSubtype, 'unattended_bag');
+  assert.equal(alert.displayEventType, 'unattended_bag');
+  assert.equal(alert.title, 'Unattended bag at Original camera');
+  assert.equal(alert.branchId, 'branch');
+  assert.equal(alert.branchName, 'Known branch');
+  assert.equal(alert.cameraId, 'source-camera');
+  assert.equal(alert.registryCameraId, 'registry-camera');
+  assert.equal(alert.sessionRef, 'session');
+  assert.equal(alert.sourceId, 'source');
+  assert.deepEqual(alert.resourceRefs, refs);
+  assert.equal(alert.sourceSeverity, 'medium');
+  assert.equal(alert.sourceStatus, 'open');
+});
+
+test('uploaded Gate references never become fabricated camera IDs', () => {
+  const alert = normalizeServiceAlert(raw({ use_case: 'grill_gate', resource_refs: {
+    video_job_id: 'job', template_assignment_id: 'template' }, domain_data: { camera_id: 'job' } }));
+  assert.equal(alert.videoJobId, 'job');
+  assert.equal(alert.templateAssignmentId, 'template');
+  assert.equal(alert.cameraId, null);
+  assert.equal(alert.branchId, null);
+});
+
+test('identifier filters use the same API names as preserved references', () => {
+  assert.deepEqual(buildAlertParams({ branchId: 'branch', cameraId: 'camera', assignmentId: 'assignment',
+    videoJobId: 'job', sessionRef: 'session', sourceId: 'source', registryCameraId: 'registry', sourceSubtype: 'weapon' }), {
+    branch_id: 'branch', camera_id: 'camera', assignment_id: 'assignment', video_job_id: 'job',
+    session_ref: 'session', source_id: 'source', registry_camera_id: 'registry', source_event_subtype: 'weapon' });
 });
 
 test('useCaseLabel names known sources and falls back to the raw id', () => {

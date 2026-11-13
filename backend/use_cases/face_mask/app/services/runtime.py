@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 
 from app.core.config import FaceMaskConfig, Settings
+from app.db import init_db
 from app.db.repositories.sql_repo import EntryLogRepository, EventRepository
 from app.db.writer import DbWriter
 from app.ml.models import ModelsUnavailable, load_models
@@ -73,15 +74,9 @@ class RuntimeSink:
         self._rt.evidence.start_clip(event.camera_id, event_id, event.ts, self._clip_done, event.track_id)
         self._rt.evidence_submit(self._store_snapshot, event_id, event, now)
 
-        alert = AlertEvent(
-            id=event_id, camera_id=event.camera_id, camera_name=self._rt.camera_names.get(event.camera_id, ""),
-            roi_name=event.roi_name, track_id=event.track_id, score=event.score, covering_type=event.covering_type,
-            occurred_at=now, last_seen_at=now, frames_evaluated=event.frames_evaluated,
-            severity=self._rt.cfg.alerts.severity)
-
         async def send_alert(session) -> None:
             # Runs after `create` (the writer is strictly ordered). Never raises into the pipeline.
-            if self._rt.cfg.alerts.channels.dashboard and await self._rt.alerts.enqueue(alert):
+            if self._rt.cfg.alerts.channels.dashboard and self._rt.alerts.enabled:
                 await EventRepository(session).update_fields(event_id, alert_id=f"face-mask-event:{event_id}")
 
         self._rt.writer.submit(send_alert)
@@ -300,7 +295,8 @@ class Runtime:
         self.writer = DbWriter()
         self.evidence = EvidenceRecorder(cfg.evidence)
         self.alerts = AlertClient(settings.alert_service_base_url, settings.alert_service_token,
-                                  timeout_seconds=settings.alert_service_timeout_seconds)
+                                  timeout_seconds=settings.alert_service_timeout_seconds,
+                                  source_loader=self._alert_payload)
         self.sink = RuntimeSink(self)
         self.camera_names: dict[str, str] = {}
         self._rois: dict[str, list[RoiSpec]] = {}
@@ -311,6 +307,7 @@ class Runtime:
 
     # -- lifecycle -------------------------------------------------------------------------------------
     async def start(self) -> None:
+        init_db.event_publisher = self.alerts
         await self.writer.start()
         self.alerts.start()
 
@@ -319,6 +316,38 @@ class Runtime:
         await asyncio.to_thread(self.evidence.shutdown)   # finishes queued clips
         await self.writer.stop()
         await self.alerts.stop()
+        init_db.event_publisher = None
+
+    async def _alert_payload(self, event_id):
+        from fedbank_core.events.evidence import media_path, evidence_metadata
+        from app.services.alert_client import build_payload, _timestamp
+        from app.db.repositories.sql_repo import EntryRoiRepository, CameraRepository
+        async with init_db.session_scope() as session:
+            event = await EventRepository(session).get(event_id)
+            if event is None or not self.cfg.alerts.channels.dashboard:
+                return None
+            roi = await EntryRoiRepository(session).get(event.roi_id) if event.roi_id else None
+            camera = await CameraRepository(session).get(event.camera_id)
+        payload = build_payload(AlertEvent(id=event.id, camera_id=event.camera_id,
+            camera_name=camera.name if camera else self.camera_names.get(event.camera_id, ""), roi_name=roi.name if roi else "",
+            track_id=event.track_id, score=event.score, covering_type=event.covering_type,
+            occurred_at=event.first_seen, last_seen_at=event.last_seen,
+            frames_evaluated=event.frame_count, status=event.status, severity=self.cfg.alerts.severity,
+            roi_id=event.roi_id))
+        if camera:
+            payload["resource_refs"]["source_type"] = camera.cam_type
+        payload["domain_data"].update(lifecycle_owner="source", review_status=event.status,
+            lifecycle_actor_id=event.reviewer or "face_mask/source", resolution_note=event.remarks,
+            source_status_changed_at=_timestamp(event.reviewed_at or event.first_seen),
+            clip_status=event.clip_status,
+            evidence_status="CAPTURED" if event.snapshot_path or event.clip_path else
+                "PENDING" if event.clip_status == "pending" else "UNAVAILABLE")
+        payload["evidence_refs"] = [{"provider": "face_mask", "id": f"{event.id}:{kind}", "type": kind,
+            "retrieval_path": f"/api/events/{event.id}/evidence/{kind}"}
+            for kind, path in (("snapshot", event.snapshot_path), ("clip", event.clip_path))
+            if (kind != 'clip' or event.clip_status == 'ready') and media_path(path, 'face_mask')]
+        payload['domain_data'].update(evidence_metadata(payload['evidence_refs'], event.clip_status == 'pending'))
+        return payload
 
     # -- models / pipelines ----------------------------------------------------------------------------
     def models(self):

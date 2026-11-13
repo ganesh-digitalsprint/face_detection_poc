@@ -11,6 +11,8 @@ import {
 } from '../api/alertServiceModel.js';
 import { ALERT_POLL_MS } from '../config/services.js';
 import useServiceAlerts from '../hooks/useServiceAlerts.js';
+import useAlertEvidence from '../hooks/useAlertEvidence.js';
+import { evidenceFields, matchesEvidence } from '../api/alertEvidence.js';
 import { faceMaskEventLink } from '../layouts/routes.js';
 
 const SEVERITY_STYLE = {
@@ -119,8 +121,9 @@ export default function AlertCenter() {
   const params = useMemo(() => ({ ...buildAlertParams({ status, useCase, severity, sourceType, from, to, sort, limit: 25 }), ...(group && !status ? { group } : {}), ...(cameraId ? { camera_id: cameraId } : {}), ...(sourceEventId ? { source_event_id: sourceEventId } : {}) }),
     [status, useCase, severity, sourceType, from, to, sort, group, cameraId, sourceEventId]);
   const feed = useServiceAlerts({ params, status: status || group, pollMs: ALERT_POLL_MS });
-  const visibleItems = feed.items.filter((item) => !evidence || item.evidenceStatus === evidence);
-  const selected = feed.items.find((item) => item.id === selectedId || (selectedId === null && sourceEventId && item.sourceEventId === sourceEventId)) || null;
+  const evidenceItems=useAlertEvidence(feed.items);
+  const visibleItems = evidenceItems.filter((item) => matchesEvidence(item,evidence));
+  const selected = evidenceItems.find((item) => item.id === selectedId || (selectedId === null && sourceEventId && item.sourceEventId === sourceEventId)) || null;
   const [sourceDetail, setSourceDetail] = useState(null);
   const [sourceError, setSourceError] = useState('');
   const [sourceRetry, setSourceRetry] = useState(0);
@@ -134,7 +137,7 @@ export default function AlertCenter() {
       .finally(()=>{if(!ctl.signal.aborted)setSourceLoading(false);});
     return ()=>ctl.abort();
   },[selected?.id,selected?.sourceEventVersion,sourceRetry]);
-  const detailed = sourceDetail?.id === selected?.id ? sourceDetail : selected;
+  const detailed = sourceDetail?.id === selected?.id && selected ? {...sourceDetail,...evidenceFields(selected)} : selected;
 
 
   const setFilter = (key, value) => {
@@ -209,8 +212,8 @@ export default function AlertCenter() {
       <SummaryTile label="Open alerts" value={byStatus ? (byStatus.OPEN || 0) + (byStatus.ACKNOWLEDGED || 0) : undefined} />
       <SummaryTile label="Unacknowledged" value={byStatus?.OPEN} />
       <SummaryTile label="High / Critical" value={bySeverity ? bySeverity.HIGH + bySeverity.CRITICAL : undefined} critical />
-      <SummaryTile label="With snapshot (loaded)" value={feed.items.filter((a) => a.evidenceStatus === 'CAPTURED').length} />
-      <SummaryTile label="Evidence unavailable (loaded)" value={feed.items.filter((a) => a.evidenceStatus === 'UNAVAILABLE').length} critical />
+      <SummaryTile label="With snapshot (loaded)" value={evidenceItems.filter((a) => a.snapshotCount>0).length} />
+      <SummaryTile label="Evidence unavailable (loaded)" value={evidenceItems.filter((a) => a.evidenceStatus === 'UNAVAILABLE').length} critical />
     </section>
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2">
           <div className="flex flex-wrap gap-1" role="tablist" aria-label="Alert status">

@@ -68,6 +68,70 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def test_committed_repository_updates_retry_and_deletion(tmp_path, monkeypatch):
+    monkeypatch.setenv('FEDBANK_STORAGE_ROOT', str(tmp_path/'media'))
+    for relative in ('snapshots/test.jpg','clips/test.mp4'):
+        path=tmp_path/'media'/relative
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_bytes(b'test evidence')
+    from copy import deepcopy
+    from app.db import init_db
+    from app.db.repositories.sql_repo import SqlRepositories
+    from app.schemas.event import EventCreate
+    from app.schemas.settings import DatabaseConfig
+    from app.services import alert_publisher as module
+
+    remote = {}
+    fail_update = [False]
+    writes = []
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(200, json=remote) if remote else httpx.Response(404)
+        payload = json.loads(request.content)
+        if request.method == "PUT":
+            assert int(request.headers['If-Match']) == remote['source_event_version']
+        writes.append(deepcopy(payload))
+        remote.update(payload, source_severity=payload['severity'])
+        if fail_update[0]:
+            fail_update[0] = False
+            raise httpx.ReadTimeout("response lost", request=request)
+        return httpx.Response(201 if request.method == "POST" else 200, json=remote)
+
+    async def scenario():
+        repos = SqlRepositories(DatabaseConfig(sqlite_path=str(tmp_path/'branch.db')))
+        await repos.connect()
+        monkeypatch.setattr(init_db, '_current', repos)
+        clock = Clock()
+        publisher = AlertPublisher('http://common', 'producer', outbox_dir=tmp_path/'outbox', clock=clock,
+            source_loader=module.load_committed_payload,
+            client_factory=lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(handler), **kw))
+        monkeypatch.setattr(module, 'get_alert_publisher', lambda: publisher)
+        try:
+            event = await repos.events.create(EventCreate(camera_id='cam', scenario='anomaly', severity='medium'))
+            await publisher.dispatch_once()
+            assert remote['source_event_id'] == event.id and len(writes) == 1
+            fail_update[0] = True
+            await repos.events.touch(event.id, severity='critical', confidence=.99, snapshot_path='snapshots/test.jpg',
+                clip_path='clips/test.mp4', meta={'kind':'weapon'})
+            await publisher.dispatch_once()
+            assert publisher.pending_count() == 1  # update committed remotely; response was lost
+            await repos.events.review(event.id, 'under_review', 'Inspecting')
+            clock.now += timedelta(seconds=10)
+            await publisher.dispatch_once()
+            assert remote['source_status'] == 'under_review'
+            assert remote['severity'] == 'critical' and remote['domain_data']['confidence'] == .99
+            assert remote['domain_data']['kind'] == 'weapon' and len(remote['evidence_refs']) == 2
+            assert len([p for p in writes if p['source_event_version'] == 1]) == 1
+            await repos.events.clear()
+            await publisher.dispatch_once()
+            assert remote['domain_data']['source_deleted'] is True
+            assert remote['evidence_refs'] == []
+            assert publisher.pending_count() == 0
+        finally:
+            await repos.disconnect()
+    run(scenario())
+
+
 def test_payload_follows_contract_and_excludes_sensitive_event_fields():
     payload = build_payload(make_event())
     assert set(payload) == CONTRACT_KEYS
@@ -92,6 +156,66 @@ def test_payload_drops_credential_bearing_names_and_handles_naive_timestamps():
     assert "camera_name" not in payload["resource_refs"] and "zone_name" not in payload["resource_refs"]
     assert "rtsp" not in json.dumps(payload)
     assert payload["occurred_at"].endswith("Z")
+
+
+def test_detailed_subtypes_and_known_identifiers_are_preserved(monkeypatch, tmp_path):
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    event = make_event(scenario='anomaly', meta={'kind':'unattended_bag', 'branch_id':'branch-7',
+        'branch_name':'Known branch', 'source_id':'source-7', 'password':'not-public'})
+    payload = build_payload(event)
+    assert payload['source_event_type'] == 'anomaly'  # Existing broad filters stay compatible.
+    assert payload['domain_data']['kind'] == 'unattended_bag'
+    assert payload['title'] == 'Unattended bag at Front Door'
+    assert payload['source_event_id'] == event.id
+    assert payload['resource_refs']['camera_id'] == event.camera_id
+    assert payload['resource_refs']['branch_id'] == 'branch-7'
+    assert payload['resource_refs']['branch_name'] == 'Known branch'
+    assert payload['resource_refs']['source_id'] == 'source-7'
+    assert 'not-public' not in json.dumps(payload)
+    missing = build_payload(make_event(camera_name='', meta={}))
+    assert 'branch_id' not in missing['resource_refs'] and 'camera_name' not in missing['resource_refs']
+
+
+def test_branch_historical_reconciliation_reuses_current_database_and_publisher(tmp_path,monkeypatch):
+    from app.db import init_db
+    from app.db.repositories.sql_repo import SqlRepositories
+    from app.schemas.settings import DatabaseConfig
+    from app.schemas.event import EventCreate
+    from app.services import alert_publisher as module
+    remote={}
+    creates=[]
+    def handler(request):
+        if request.url.path.endswith('/producer'):
+            return httpx.Response(200,json={'use_case':'branch_exterior'})
+        if request.method=='GET':return httpx.Response(200,json=remote) if remote else httpx.Response(404)
+        payload=json.loads(request.content)
+        if request.method=='POST':creates.append(payload['source_event_id'])
+        remote.update(payload,source_severity=payload['severity'])
+        return httpx.Response(200,json=remote)
+    async def scenario():
+        repos=SqlRepositories(DatabaseConfig(sqlite_path=str(tmp_path/'history.db')))
+        await repos.connect()
+        monkeypatch.setattr(init_db,'_current',repos)
+        publisher=AlertPublisher('http://common','producer',outbox_dir=tmp_path/'outbox',
+            source_loader=module.load_committed_payload,client_factory=lambda **kw:httpx.AsyncClient(transport=httpx.MockTransport(handler),**kw))
+        monkeypatch.setattr(module,'get_alert_publisher',lambda:publisher)
+        publisher.enabled=False
+        try:
+            row=await repos.events.create(EventCreate(camera_id='historic-camera',scenario='anomaly',severity='high'))
+            row=await repos.events.review(row.id,'closed','Original review')
+            publisher.enabled=True
+            assert publisher.pending_count()==0
+            preview=await publisher.reconcile([row])
+            assert preview['missing']==1 and preview['queued']==0 and publisher.pending_count()==0
+            assert (await publisher.reconcile([row],dry_run=False))['queued']==1
+            assert (await publisher.reconcile([row],dry_run=False))['queued']==1
+            assert publisher.pending_count()==1
+            await publisher.dispatch_once()
+            assert remote['source_status']=='closed' and remote['source_event_id']==row.id
+            assert (await publisher.reconcile([row],dry_run=False))['unchanged']==1
+            assert creates==[row.id]
+        finally:await repos.disconnect()
+    run(scenario())
 
 
 def test_disabled_publisher_writes_nothing_and_never_calls_the_service(tmp_path):

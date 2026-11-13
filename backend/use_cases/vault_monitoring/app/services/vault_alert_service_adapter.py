@@ -14,10 +14,12 @@ from uuid import uuid4
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
+from uuid import UUID
 
 from app.db.database import session_scope
 from app.db.models.vault_room import VaultAuditEvent, VaultRoomAlert
+from fedbank_core.events.metadata import enrich_resource_refs
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ def _timestamp(value: datetime) -> str:
 
 
 def _safe_reference(value: str | None, limit: int) -> str | None:
-    if not value or len(value) > limit:
+    if not isinstance(value, str) or not value.strip() or len(value) > limit:
         return None
     lowered = value.lower()
     if "://" in lowered or "@" in value or any(term in lowered for term in (
@@ -69,12 +71,7 @@ def build_payload(alert: VaultRoomAlert) -> dict:
         "summary": (alert.message or alert.type.replace("_", " ").title())[:4000],
         "deduplication_key": _safe_reference(alert.dedup_key, 512),
         "source_status": "OPEN",
-        "resource_refs": {
-            key: value for key, value in {
-                "camera_id": _safe_reference(alert.camera_id, 128),
-                "session_ref": _safe_reference(alert.session_ref, 36),
-            }.items() if value
-        },
+        "resource_refs": _resource_refs(alert),
         "domain_data": {
             "schema_version": "vault-alert/1",
             "alert_type": alert.type,
@@ -87,6 +84,52 @@ def build_payload(alert: VaultRoomAlert) -> dict:
         },
         "evidence_refs": [],
     }
+
+
+def _resource_refs(alert):
+    refs = {key: value for key, value in {"camera_id": _safe_reference(alert.camera_id, 128),
+        "session_ref": _safe_reference(alert.session_ref, 36)}.items() if value}
+    for key in ("branch_id", "branch_name", "camera_name", "registry_camera_id", "assignment_id",
+                "source_id", "source_type", "location_id", "location_name"):
+        value = (alert.metadata_json or {}).get(key)
+        if isinstance(value, str) and (value := _safe_reference(value, 128)):
+            refs[key] = value
+    db = object_session(alert)
+    if db is not None:
+        from app.db.models.camera_registry import RegistryCamera, RegistryLocation, CameraUseCaseAssignment
+        from app.db.models.vault_room import VaultRoomSession
+        def by_uuid(model, identifier):
+            try:
+                identifier = str(UUID(identifier))
+            except (ValueError, TypeError, AttributeError):
+                return None
+            return db.get(model, identifier)
+        # Archived sessions contain explicit registry identities. A location is
+        # deliberately not treated as a platform branch.
+        sessions = db.scalars(select(VaultRoomSession).where(
+            VaultRoomSession.session_ref == alert.session_ref).limit(2)).all() if alert.session_ref else []
+        if len(sessions) == 1:
+            summary = sessions[0]
+            for key in ("assignment_id", "location_id"):
+                if getattr(summary, key):
+                    refs.setdefault(key, str(getattr(summary, key)))
+            if summary.camera_id:
+                refs.setdefault("registry_camera_id", str(summary.camera_id))
+        camera = by_uuid(RegistryCamera, refs.get("registry_camera_id") or refs.get("camera_id"))
+        if camera:
+            if name := _safe_reference(camera.name, 128):
+                refs.setdefault("camera_name", name)
+            refs.setdefault("location_id", str(camera.location_id))
+        location = by_uuid(RegistryLocation, refs.get("location_id"))
+        if location:
+            if name := _safe_reference(location.name, 128):
+                refs.setdefault("location_name", name)
+        assignment = by_uuid(CameraUseCaseAssignment, refs.get("assignment_id"))
+        if assignment:
+            source_id = _safe_reference((assignment.configuration or {}).get("source_id"), 128)
+            if source_id:
+                refs.setdefault("source_id", source_id)
+    return enrich_resource_refs("vault_monitoring", refs)
 
 
 def _category(alert_type: str) -> str:

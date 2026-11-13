@@ -71,3 +71,4 @@ class EventFilter(BaseModel):
     status: EventStatus | None = None
     since: datetime | None = None
     limit: int = 200
+    offset: int = 0
