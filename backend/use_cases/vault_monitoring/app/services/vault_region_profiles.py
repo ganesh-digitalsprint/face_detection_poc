@@ -11,6 +11,7 @@ from app.core.zones.vault_room_zone import load_zones, save_zones, zone_from_dic
 REGIONS = {
     "person_monitoring_roi": "Person Monitoring Area", "vault_area_roi": "Vault Area",
     "vault_door_roi": "Vault Door", "tray_area_roi": "Tray Area", "ornament_area_roi": "Ornament Area",
+    "vault_door_handle_roi": "Vault Door Handle",
 }
 DEFAULTS = {"webcam": "Webcam", "cctv": "CCTV", "upload": "Uploaded video"}
 

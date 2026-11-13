@@ -9,6 +9,7 @@ REGION_COLORS = {
     'person_monitoring_roi': (55,210,70), 'vault_area_roi': (0,220,255),
     'vault_door_roi': (255,130,50), 'tray_area_roi': (220,100,190),
     'ornament_area_roi': (0,145,255),
+    'vault_door_handle_roi': (180,110,245),
 }
 
 
@@ -58,7 +59,7 @@ def render_pose_debug(jpeg, data, *, session_id, sequence, source_time):
             if label_x < round(405*scale) and label_y < round((95+150*len(data.get('track_ids', [])))*scale):
                 label_x=min(round(405*scale),max(5,width-round(230*scale)))
             text(region['name'],(label_x,label_y),color,size=.43)
-        legend_x,legend_y=round(16*scale),max(0,height-round(160*scale))
+        legend_x,legend_y=round(16*scale),max(0,height-round((40+24*len(regions))*scale))
         panel=image.copy();cv2.rectangle(panel,(legend_x-5,legend_y-20),(legend_x+round(480*scale),height-round(14*scale)),(18,18,30),-1);cv2.addWeighted(panel,.8,image,.2,0,dst=image)
         text('Regions - profile '+str(data.get('profile_id','unavailable')),(legend_x,legend_y),size=.46)
         for index,region in enumerate(regions):

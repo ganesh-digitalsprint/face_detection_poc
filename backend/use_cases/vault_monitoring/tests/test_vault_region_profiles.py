@@ -58,7 +58,7 @@ def test_profiles_persist_version_and_keep_source_profiles_and_global_zones_sepa
     assert {item["id"] for item in store.list()} == {"webcam", "cctv", "upload"}
     saved = store.save("upload", [zone(key) for key in REGIONS], 0)
     assert saved["version"] == 1
-    assert len(VaultRegionProfiles(tmp_path / "vault").load("upload")["zones"]) == 5
+    assert len(VaultRegionProfiles(tmp_path / "vault").load("upload")["zones"]) == len(REGIONS)
     assert store.load("webcam")["zones"] == []
     with pytest.raises(RuntimeError):
         store.save("upload", [], 0)
@@ -164,7 +164,7 @@ def test_all_five_regions_round_trip_edit_delete_restart_and_profile_isolation(p
     assert client.put(f"{BASE}/upload", json={"version": saved["version"], "zones": edited}).status_code == 200
     assert client.put(f"{BASE}/upload", json={"version": 2, "zones": edited[:-1]}).status_code == 200
     assert client.get(f"{BASE}/upload").json()["zones"][0]["polygon"] == edited[0]["polygon"]
-    assert len(VaultRegionProfiles(root).load("upload")["zones"]) == 4
+    assert len(VaultRegionProfiles(root).load("upload")["zones"]) == len(REGIONS)-1
     assert client.get(f"{BASE}/{custom['id']}").json()["zones"][0]["polygon"] == rows[0]["polygon"]
     assert client.get(f"{BASE}/webcam").json()["zones"] == []
     assert client.get(f"{BASE}/cctv").json()["zones"] == []

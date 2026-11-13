@@ -36,7 +36,7 @@ def test_all_five_region_diagnostics_use_real_profile_and_preserve_coordinates()
     data=dict(regions=regions,profile_id='test',poses=[],matches={},wrists=[],states={},confidence=.5,confirmation_seconds=1)
     before=deepcopy(data)
     rows=region_diagnostics(data)
-    assert len(rows)==5 and all(r['loaded'] and r['point_count']==4 for r in rows)
+    assert len(rows)==len(REGION_COLORS) and all(r['loaded'] and r['point_count']==4 for r in rows)
     assert [r['polygon'] for r in rows]==[r['polygon'] for r in regions]
     clean=cv2.imencode('.jpg',np.zeros((720,1280,3),dtype=np.uint8))[1].tobytes()
     assert render_pose_debug(clean,data,session_id='test',sequence=1,source_time=0)!=clean
@@ -56,7 +56,7 @@ def test_replay_snapshot_contains_all_regions_even_without_pose_inference(tmp_pa
     from app.services.vault_room_manager import VaultRoomManager
     from app.services.vault_room_replay import ReplayAlertSink
     configured=profile()
-    for identifier in ('vault_door_roi','tray_area_roi','ornament_area_roi'):
+    for identifier in ('vault_door_roi','tray_area_roi','ornament_area_roi','vault_door_handle_roi'):
         configured['zones'].append({**deepcopy(configured['zones'][1]),'id':identifier,'name':identifier})
     before=deepcopy(configured)
     live=VaultRoomManager(config=config(),detector=TwoPeople(),writer=lambda _job:None)

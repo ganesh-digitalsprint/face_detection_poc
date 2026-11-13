@@ -9,6 +9,7 @@ export const VAULT_REGIONS = [
   { key: 'vault_door_roi', label: 'Vault Door', color: '#34d399' },
   { key: 'tray_area_roi', label: 'Tray Area', color: '#a78bfa' },
   { key: 'ornament_area_roi', label: 'Ornament Area', color: '#f59e0b' },
+  { key: 'vault_door_handle_roi', label: 'Vault Door Handle', color: '#f472b6' },
 ];
 export const vaultRegionColor = (key) => VAULT_REGIONS.find((entry) => entry.key === key)?.color || '#94a3b8';
 const keyFor = (source) => `vault-room-region-profile:${source}`;

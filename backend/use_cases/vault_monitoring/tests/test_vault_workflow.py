@@ -103,3 +103,72 @@ def test_missing_region_is_reported_not_fabricated():
     m=engine();m.regions.zones.pop('tray_area_roi')
     for t in (0,.25,.5,1):assert run(m,t,.75,.3)==[]
     assert m.debug['tracks']['1']['regions']['tray_area_roi']['right']['reason']=='TARGET_REGION_NOT_CONFIGURED'
+
+
+def handle_engine():
+    # Synthetic test geometry only; never written to a camera profile.
+    m=engine(True)
+    m.regions.zones['vault_door_handle_roi']=dict(name='Vault Door Handle',polygon=rectangle(.2,.2,.28,.4))
+    return m
+
+
+def test_handle_overlap_suppresses_only_ornament_and_never_counts_suppressed_samples():
+    m=handle_engine();events=[]
+    for t in (0,.25,.5,1,1.5):events+=run(m,t,.25,.3)
+    assert [e[0] for e in events]==['VAULT_DOOR_INTERACTION']
+    state=m.debug['tracks']['1']['regions']['ornament_area_roi']['right']
+    assert state['reason']=='DOOR_HANDLE_PRIORITY' and state['pending'] is None
+    assert m.debug['tracks']['1']['memberships']['right']['vault_door_handle_roi'] is True
+    # Outside the handle but still in both broad Door and Ornament polygons.
+    assert run(m,1.75,.32,.3)==[]
+    assert run(m,2,.32,.3)==[]
+    events=run(m,2.25,.32,.3)
+    assert [e[0] for e in events]==['ORNAMENT_AREA_INTERACTION']
+    assert events[0][2]['interaction_duration_seconds']==.5
+    assert events[0][2]['valid_observations']==3
+
+
+def test_handle_invalidates_existing_pending_ornament_confirmation():
+    m=handle_engine()
+    run(m,0,.32,.3);run(m,.25,.32,.3)
+    events=run(m,.5,.25,.3)
+    assert all(e[0]!='ORNAMENT_AREA_INTERACTION' for e in events)
+    assert m.debug['tracks']['1']['regions']['ornament_area_roi']['right']['pending'] is None
+    for t in (.75,1):assert run(m,t,.32,.3)==[]
+    assert [e[0] for e in run(m,1.25,.32,.3)]==['ORNAMENT_AREA_INTERACTION']
+
+
+def test_handle_is_not_an_exit_from_ornament_and_repeat_requires_genuine_exit():
+    m=handle_engine();events=[]
+    for t in (0,.25,.5):events+=run(m,t,.32,.3)
+    assert sum(e[0]=='ORNAMENT_AREA_INTERACTION' for e in events)==1
+    for t in (.75,1,1.25):assert run(m,t,.25,.3)==[]
+    for t in (1.5,1.75,2):assert run(m,t,.32,.3)==[]
+    for t in (2.25,2.5,2.75):assert run(m,t)==[]
+    for t in (3,3.25):assert run(m,t,.32,.3)==[]
+    assert [e[0] for e in run(m,3.5,.32,.3)]==['VAULT_DOOR_INTERACTION','ORNAMENT_AREA_INTERACTION']
+
+
+def test_handle_priority_is_local_to_track_and_hand_and_unreliable_wrists_cannot_confirm():
+    m=handle_engine();events=[]
+    for t in (0,.25,.5):
+        events+=m.update(t,[wrist(.25,.3),wrist(.32,.3,hand='left'),wrist(.32,.3,track=2)],
+            [dict(track_id=1),dict(track_id=2)],[],presence_confirmed=True,authorized=True)
+    ornaments=[e[2] for e in events if e[0]=='ORNAMENT_AREA_INTERACTION']
+    assert [(e['track_id'],e['hand']) for e in ornaments]==[(1,'left'),(2,'right')]
+    other=handle_engine()
+    for t in (0,.25,.5,1):assert run(other,t,.32,.3,valid=False)==[]
+
+
+def test_missing_or_disabled_handle_preserves_existing_independent_behavior():
+    m=engine(True);events=[]
+    for t in (0,.25,.5):events+=run(m,t,.25,.3)
+    assert {e[0] for e in events}=={'VAULT_DOOR_INTERACTION','ORNAMENT_AREA_INTERACTION'}
+    assert m.debug['door_handle_exclusion']=='HANDLE_EXCLUSION_NOT_CONFIGURED'
+    configured=profile(True)
+    configured['zones'].append(dict(id='vault_door_handle_roi',name='Handle',enabled=False,polygon=rectangle(.2,.2,.28,.4)))
+    disabled=VaultWorkflowMonitor(VaultRegionMonitor(configured),VaultWorkflowSettings(),.5)
+    events=[]
+    for t in (0,.25,.5):events+=run(disabled,t,.25,.3)
+    assert {e[0] for e in events}=={'VAULT_DOOR_INTERACTION','ORNAMENT_AREA_INTERACTION'}
+    assert disabled.debug['door_handle_exclusion']=='HANDLE_EXCLUSION_NOT_CONFIGURED'

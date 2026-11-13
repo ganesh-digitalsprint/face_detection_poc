@@ -24,6 +24,7 @@ class VaultWorkflowMonitor:
             return []
         self.last_time = now
         active = {track['track_id'] for track in tracks}
+        handle_zone = self.regions.zones.get('vault_door_handle_roi')
         observations = {(w['track_id'], w['hand']): w.get('wrist') for w in wrists
                         if w['track_id'] in active and reliable(w.get('wrist'), self.confidence)}
         # Retain confirmed tombstones: pose/track loss is never proof of exit.
@@ -34,6 +35,8 @@ class VaultWorkflowMonitor:
             for hand in ('left', 'right'):
                 point = observations.get((identifier, hand))
                 track_debug['memberships'][hand] = {}
+                handle_inside = self.regions.contains(point['x'], point['y'], handle_zone['polygon']) if point and handle_zone else None
+                track_debug['memberships'][hand]['vault_door_handle_roi'] = handle_inside
                 for region, event_type in INTERACTIONS.items():
                     zone = self.regions.zones.get(region)
                     inside = self.regions.contains(point['x'], point['y'], zone['polygon']) if point and zone else None
@@ -41,7 +44,12 @@ class VaultWorkflowMonitor:
                     state = self.states.setdefault((identifier, hand, region),
                         dict(fired=False, pending=None, exit=None, last_emitted=None))
                     reason = 'TARGET_REGION_NOT_CONFIGURED' if not zone else 'TRACK_MISSING' if identifier not in active else 'NO_RELIABLE_CURRENT_WRIST'
-                    if inside is None:
+                    if region == 'ornament_area_roi' and inside is True and handle_inside is True:
+                        # Handle samples are neither Ornament positives nor proof of
+                        # leaving its polygon. Preserve fired latches, clear all pending evidence.
+                        state.update(pending=None, exit=None)
+                        reason = 'DOOR_HANDLE_PRIORITY'
+                    elif inside is None:
                         state['exit'] = None
                         if state['pending'] and now-state['pending']['last'] > self.cfg.dropout_tolerance_seconds:
                             state['pending'] = None
@@ -75,6 +83,8 @@ class VaultWorkflowMonitor:
                                     simulated_authorization=authorized, interaction_duration_seconds=pending['duration_seconds'],
                                     valid_observations=pending['samples'], visibility=point['visibility'], presence=point['presence'],
                                     wrist_coordinates=[point['x'], point['y']],
+                                    door_handle_exclusion_configured=handle_zone is not None,
+                                    inside_door_handle=handle_inside,
                                     candidate_regions=[key for key, candidate in self.regions.zones.items()
                                         if key in (*INTERACTIONS, 'vault_area_roi') and self.regions.contains(point['x'], point['y'], candidate['polygon'])])
                                 emitted.append((event_type, 'Reliable tracked wrist interaction observed in '+zone['name']+'; physical operation unverified.', metadata))
@@ -87,6 +97,7 @@ class VaultWorkflowMonitor:
                         pending=deepcopy(state['pending']), exit=deepcopy(state['exit']), last_emitted=deepcopy(state['last_emitted']))
             diagnostics[str(identifier)] = track_debug
         self.debug = dict(mode='INDEPENDENT_ROI_MONITORING', tracks=diagnostics,
+            door_handle_exclusion='CONFIGURED' if handle_zone else 'HANDLE_EXCLUSION_NOT_CONFIGURED',
             confirmation_seconds=self.cfg.confirmation_seconds, min_observations=self.cfg.min_observations,
             last_emitted=deepcopy(self.last_confirmed), physical_operations_verified=False)
         return emitted

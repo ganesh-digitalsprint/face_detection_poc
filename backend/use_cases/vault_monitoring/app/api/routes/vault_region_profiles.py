@@ -16,7 +16,7 @@ Coordinate = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False
 
 
 class Region(BaseModel):
-    id: Literal["person_monitoring_roi", "vault_area_roi", "vault_door_roi", "tray_area_roi", "ornament_area_roi"]
+    id: Literal["person_monitoring_roi", "vault_area_roi", "vault_door_roi", "tray_area_roi", "ornament_area_roi", "vault_door_handle_roi"]
     name: str = Field(default="", max_length=60)
     polygon: list[tuple[Coordinate, Coordinate]] = Field(min_length=3, max_length=100)
     reference: Literal["bottom_center", "center"] = "bottom_center"
@@ -25,7 +25,7 @@ class Region(BaseModel):
 
 
 class Configuration(BaseModel):
-    zones: list[Region] = Field(max_length=5)
+    zones: list[Region] = Field(max_length=6)
     version: int = Field(ge=0)
 
 
