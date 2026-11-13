@@ -18,13 +18,12 @@ test('isNear measures in pixels, not in normalised units', () => {
 });
 
 test('arrowToVector straight up is (0,-1) whatever the aspect ratio', () => {
-  assert.deepEqual(arrowToVector({ x1: 0.5, y1: 0.8, x2: 0.5, y2: 0.4 }, 4 / 3), { x: 0, y: -1 });
+  assert.deepEqual(arrowToVector({ x1: 0.5, y1: 0.8, x2: 0.5, y2: 0.4 }, 4 / 3), { x: 0, y: -1, space: 'normalized' });
 });
 
-test('arrowToVector keeps the pixel-space angle on a non-square picture', () => {
-  // Equal normalised dx and dy on a 2:1 picture is NOT 45 degrees in pixels: dx covers twice the pixels.
+test('arrowToVector keeps the normalized angle on a non-square picture', () => {
   const v = arrowToVector({ x1: 0.2, y1: 0.2, x2: 0.4, y2: 0.4 }, 2);
-  assert.ok(Math.abs(v.x - 0.8944) < 1e-3 && Math.abs(v.y - 0.4472) < 1e-3);
+  assert.ok(Math.abs(v.x - 0.7071) < 1e-3 && Math.abs(v.y - 0.7071) < 1e-3);
 });
 
 test('arrowToVector rejects a zero-length arrow and a missing one', () => {
@@ -36,7 +35,7 @@ test('vectorToArrow is the inverse of arrowToVector', () => {
   const aspect = 16 / 9;
   const original = { x1: 0.5, y1: 0.7, x2: 0.62, y2: 0.45 };
   const vector = arrowToVector(original, aspect);
-  const back = vectorToArrow({ x: 0.5, y: 0.7 }, vector, aspect, Math.hypot((original.x2 - original.x1) * aspect, original.y2 - original.y1));
+  const back = vectorToArrow({ x: 0.5, y: 0.7 }, vector, aspect, Math.hypot(original.x2 - original.x1, original.y2 - original.y1));
   assert.ok(Math.abs(back.x2 - original.x2) < 1e-3 && Math.abs(back.y2 - original.y2) < 1e-3);
 });
 

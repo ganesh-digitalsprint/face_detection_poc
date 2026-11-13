@@ -45,7 +45,7 @@ function Get-LauncherEnvValue {
 
 function Get-LauncherUrlParts {
     param(
-        [Parameter(Mandatory = $true)][string]$Value,
+        [AllowEmptyString()][string]$Value,
         [Parameter(Mandatory = $true)][string[]]$AllowedSchemes
     )
 

@@ -39,6 +39,7 @@ def _light(obs: TrackObservation) -> TrackObservation:
     return TrackObservation(ts=obs.ts, camera_id=obs.camera_id, track_id=obs.track_id, box=obs.box, foot=obs.foot,
                             in_roi=obs.in_roi, entering=obs.entering, roi_id=obs.roi_id, roi_name=obs.roi_name,
                             head_box=obs.head_box, quality_passed=obs.quality_passed, quality_reason=obs.quality_reason,
+                            quality_tier=obs.quality_tier, analysis_ran=obs.analysis_ran, direction=obs.direction,
                             visibility=obs.visibility, display=obs.display, display_score=obs.display_score)
 
 
@@ -54,7 +55,7 @@ def run_video(video: str, cfg: FaceMaskConfig, models: Models, rois: list[RoiSpe
 
     pipeline = DetectionPipeline(cfg, "cli", models.person, models.pose, models.analyzer)
     sink = PrintSink(verbose=verbose)
-    events = EventService(cfg.confirmation, cfg.cooldown, sink)
+    events = EventService(cfg.confirmation, cfg.cooldown, sink, cfg.analysis)
     report = RunReport()
     writer: cv2.VideoWriter | None = None
     started = time.perf_counter()
@@ -108,7 +109,7 @@ def replay(observations: list[TrackObservation], cfg: FaceMaskConfig, threshold:
     CONCEALED/VISIBLE are re-derived from the recorded concealment score; UNABLE stays UNABLE. Returns
     (events opened, entries)."""
     sink = PrintSink(verbose=False)
-    service = EventService(cfg.confirmation, cfg.cooldown, sink)
+    service = EventService(cfg.confirmation, cfg.cooldown, sink, cfg.analysis)
     last: dict[int, float] = {}
     for obs in observations:
         vis = obs.visibility

@@ -1,6 +1,6 @@
 import {
   Activity, Bell, DoorClosed, EyeOff, FileText, Film, LayoutDashboard, LockKeyhole, Map as MapIcon,
-  Radio, ScanFace, Settings as SettingsIcon, ShieldCheck, Users, Video, Webcam, Cctv,
+  Radio, ScanFace, Settings as SettingsIcon, ShieldCheck, Users, Video, Webcam, Cctv, HardDrive, House,
 } from 'lucide-react';
 import { vaultUiFromSearch } from '../use-cases/vault-monitoring/utils/replayStorage.js';
 
@@ -36,6 +36,11 @@ export const NAV_SECTIONS = [
         badge: 'alerts',
       },
       { id: 'brief', label: 'Security Brief', icon: FileText, to: '/branch-exterior/brief' },
+      { id: 'video-uploads', label: 'Video Uploads', icon: Film, to: '/video-uploads' },
+      { id: 'branches', label: 'Branches', icon: House, children: [
+        { id: 'branch-hierarchy', label: 'Branch Hierarchy', to: '/branches/hierarchy' },
+        { id: 'branch-new', label: 'Add New Branch', to: '/branches/new' },
+      ] },
     ],
   },
   {
@@ -79,6 +84,7 @@ export const NAV_SECTIONS = [
       { id: 'employees', label: 'Employees', icon: Users, to: '/registration/employees', match: ['/registration/authorized'] },
       { id: 'regions', label: 'Regions & Zones', icon: MapIcon, to: '/regions' },
       { id: 'guards', label: 'Guard Roster', icon: ShieldCheck, to: '/guards' },
+      { id: 'storage', label: 'Storage', icon: HardDrive, to: '/storage' },
       { id: 'settings', label: 'Settings', icon: SettingsIcon, to: '/settings' },
       { id: 'system-check', label: 'System Check', icon: Activity, to: '/branch-exterior/system-check' },
     ],

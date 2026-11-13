@@ -7,13 +7,18 @@ import ServiceDots from '../components/common/ServiceDots.jsx';
 import useServicesHealth from '../hooks/useServicesHealth.js';
 import useSidebar from '../hooks/useSidebar.js';
 import Sidebar from './Sidebar.jsx';
+import FaceMaskPopups from '../use-cases/face-mask/components/FaceMaskPopups.jsx';
 import { showsBranchChrome } from './routes.js';
 
 const TITLES = [
+  ['/video-uploads', 'Video Uploads'],
+  ['/branches/new', 'Add New Branch'],
+  ['/branches/hierarchy', 'Branch Hierarchy'],
   ['/branch-exterior/live', 'Live Monitoring'],
   ['/regions', 'Regions & Zones'],
   ['/guards', 'Guard Roster'],
   ['/settings', 'Settings'],
+  ['/storage', 'Storage'],
   ['/branch-exterior/brief', 'Security Brief'],
   ['/branch-exterior/system-check', 'System Check'],
   ['/branch-exterior', 'Branch Exterior Monitoring'],
@@ -102,6 +107,7 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen lg:flex">
+      <FaceMaskPopups />
       <aside
         id={SIDEBAR_ID}
         className={`app-aside hidden shrink-0 transition-[width] duration-200 motion-reduce:transition-none lg:block ${

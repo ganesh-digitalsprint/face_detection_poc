@@ -4,6 +4,7 @@ import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.jsx';
+import { ActiveBranchProvider } from './features/branches/ActiveBranch.jsx';
 import './index.css';
 import { persistor, store } from './store/index.js';
 
@@ -12,7 +13,7 @@ createRoot(document.getElementById('root')).render(
     <Provider store={store}>
       <PersistGate persistor={persistor}>
         <BrowserRouter>
-          <App />
+          <ActiveBranchProvider><App /></ActiveBranchProvider>
         </BrowserRouter>
       </PersistGate>
     </Provider>

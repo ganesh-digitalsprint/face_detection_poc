@@ -18,13 +18,16 @@ class TrackObservation:
     foot: Point
     in_roi: bool
     entering: bool
+    direction: str = "unknown"
     roi_id: str | None = None
     roi_name: str = ""
     head_box: Box | None = None
     quality_passed: bool | None = None          # None = not evaluated (not entering / no head yet)
     quality_reason: str | None = None
+    quality_tier: str | None = None
+    analysis_ran: bool = False
     visibility: VisibilityResult | None = None  # only set when the quality gate passed
-    display: str = "NOT_ENTERING"               # NOT_ENTERING | EVALUATING | VISIBLE | CONCEALED | UNABLE (for drawing)
+    display: str = "EVALUATING"
     display_score: float = 0.0
     best_crop: np.ndarray | None = field(default=None, repr=False, compare=False)   # best head crop so far
     best_frame: np.ndarray | None = field(default=None, repr=False, compare=False)  # frame it came from

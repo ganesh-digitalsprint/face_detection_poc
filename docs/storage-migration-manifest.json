@@ -1,0 +1,890 @@
+﻿[
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-13886.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-13886.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-13886.mp4",
+        "bytes":  11874690,
+        "sha256":  "8FC344FF6939336C7988D8746D447D9B03C0079D6AF05267F1FB2F496E44F596",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-1630.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-1630.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-1630.mp4",
+        "bytes":  13155310,
+        "sha256":  "9512CDCEF3B33A8FF39AFDD83795812A9999691E4BB07B7623C9E7E099906F14",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-16863.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-16863.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-16863.mp4",
+        "bytes":  1319514,
+        "sha256":  "1CA85CD72091EB2537792A694F2FBC98D1FFBC904AE3DD2F83B6B2439522C732",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-24468.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-24468.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-24468.mp4",
+        "bytes":  3360702,
+        "sha256":  "9C1612AE0B193A782F221A983E4F591059AE4F8541100A774D9146F93B2A96C4",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-37228.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-37228.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-37228.mp4",
+        "bytes":  5445039,
+        "sha256":  "2A6AD27B63A44ED79E13FBBACBCF5A10A321C6B674CC6703F5554E43737FE96D",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-57656.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-57656.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-57656.mp4",
+        "bytes":  6104649,
+        "sha256":  "E0961353E6B8E67313B072097BD4A2659E5A33A4F09CF9B3542247A74D1674C4",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-63608.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-63608.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-63608.mp4",
+        "bytes":  2956204,
+        "sha256":  "58EB14C7E704DC70F933192CDBAE26ED648A6D22C3F5D687C40337F6A85CE85E",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-66924.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-66924.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-66924.mp4",
+        "bytes":  1092201,
+        "sha256":  "881E8894CBCF98D32934BF2702C231E5016DE15A313A5102566636F1B7807944",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-69265.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-69265.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-69265.mp4",
+        "bytes":  3099148,
+        "sha256":  "82980D53B46AA43619E4C81036B84D310D8441230FFE586C6BCC3785BBD175BD",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-98366.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-98366.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-98366.mp4",
+        "bytes":  3228486,
+        "sha256":  "F67F2C0605D6BB92C1C32A7CB7383E7E338211AE152FA88AC5D27C69611B27DF",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\Video-99346.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-99346.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\Video-99346.mp4",
+        "bytes":  7683244,
+        "sha256":  "2289FC7127F381328E53A8F0281AC40CFB53B33AF9A28974C4E781C3706F261F",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 11.31.13 AM.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 11.31.13 AM.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\WhatsApp Video 2026-10-16 at 11.31.13 AM.mp4",
+        "bytes":  16633787,
+        "sha256":  "D23181C4267AAF49943859E0E35F40A30550A32DC018C538842F9A539C6A759B",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 11.33.29 AM.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 11.33.29 AM.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\WhatsApp Video 2026-10-16 at 11.33.29 AM.mp4",
+        "bytes":  12171750,
+        "sha256":  "39549D3B82D63F45BB0A1B87461F441C8F66F64F783BA82B79FF2AAACCEF9CE3",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\branch-exterior-monitoring\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 12.38.11 PM.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 12.38.11 PM.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\legacy_branch\\sample_videos\\WhatsApp Video 2026-10-16 at 12.38.11 PM.mp4",
+        "bytes":  3176765,
+        "sha256":  "383FA88214676BC52CF0B106BB347BDD638A8273B28867583B723D3AC66AC4FA",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\uhd_30fps 1.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\uhd_30fps 1.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\uhd_30fps 1.mp4",
+        "bytes":  26013798,
+        "sha256":  "5B34F1B5979A97B68FD41C0316032183AFF4F034E9B6857EEB0C13EBEC3F8568",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-13886.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-13886.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-13886.mp4",
+        "bytes":  11874690,
+        "sha256":  "8FC344FF6939336C7988D8746D447D9B03C0079D6AF05267F1FB2F496E44F596",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-1630.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-1630.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-1630.mp4",
+        "bytes":  13155310,
+        "sha256":  "9512CDCEF3B33A8FF39AFDD83795812A9999691E4BB07B7623C9E7E099906F14",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-16863.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-16863.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-16863.mp4",
+        "bytes":  1319514,
+        "sha256":  "1CA85CD72091EB2537792A694F2FBC98D1FFBC904AE3DD2F83B6B2439522C732",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-24468.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-24468.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-24468.mp4",
+        "bytes":  3360702,
+        "sha256":  "9C1612AE0B193A782F221A983E4F591059AE4F8541100A774D9146F93B2A96C4",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-46812.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-46812.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-46812.mp4",
+        "bytes":  3236819,
+        "sha256":  "4334887C3EE8FEB5A1443E7CF573C8623FD534B903218FC018BA3FC2FA5A01B5",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-57656.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-57656.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-57656.mp4",
+        "bytes":  6104649,
+        "sha256":  "E0961353E6B8E67313B072097BD4A2659E5A33A4F09CF9B3542247A74D1674C4",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-66924.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-66924.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-66924.mp4",
+        "bytes":  1092201,
+        "sha256":  "881E8894CBCF98D32934BF2702C231E5016DE15A313A5102566636F1B7807944",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-69265.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-69265.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-69265.mp4",
+        "bytes":  3099148,
+        "sha256":  "82980D53B46AA43619E4C81036B84D310D8441230FFE586C6BCC3785BBD175BD",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-80865.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-80865.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-80865.mp4",
+        "bytes":  2368600,
+        "sha256":  "25627AA94337700A459047FD872A3687D8F0BE700C589CD8D0907DEB7070F4CC",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-98366.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-98366.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-98366.mp4",
+        "bytes":  3228486,
+        "sha256":  "F67F2C0605D6BB92C1C32A7CB7383E7E338211AE152FA88AC5D27C69611B27DF",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\Video-99346.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\Video-99346.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\Video-99346.mp4",
+        "bytes":  7683244,
+        "sha256":  "2289FC7127F381328E53A8F0281AC40CFB53B33AF9A28974C4E781C3706F261F",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 11.31.13 AM.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 11.31.13 AM.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\WhatsApp Video 2026-10-16 at 11.31.13 AM.mp4",
+        "bytes":  16633787,
+        "sha256":  "D23181C4267AAF49943859E0E35F40A30550A32DC018C538842F9A539C6A759B",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 11.33.29 AM.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 11.33.29 AM.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\WhatsApp Video 2026-10-16 at 11.33.29 AM.mp4",
+        "bytes":  12171750,
+        "sha256":  "39549D3B82D63F45BB0A1B87461F441C8F66F64F783BA82B79FF2AAACCEF9CE3",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\branch_exterior\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 12.38.11 PM.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\sample_videos\\WhatsApp Video 2026-10-16 at 12.38.11 PM.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\branch_exterior\\sample_videos\\WhatsApp Video 2026-10-16 at 12.38.11 PM.mp4",
+        "bytes":  3176765,
+        "sha256":  "383FA88214676BC52CF0B106BB347BDD638A8273B28867583B723D3AC66AC4FA",
+        "action":  "deduplicated"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\020c9f9bf105465aaf7fa05ed5342089.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\020c9f9bf105465aaf7fa05ed5342089.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\020c9f9bf105465aaf7fa05ed5342089.webm",
+        "bytes":  6888662,
+        "sha256":  "2DD4C9BC02AB760C893A9E92D7D6F77DC1D808378DF560BD0037C01CDF6DF58D",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\05b71b06be7a4351ab18eff9b5e4fb80.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\05b71b06be7a4351ab18eff9b5e4fb80.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\05b71b06be7a4351ab18eff9b5e4fb80.webm",
+        "bytes":  9610757,
+        "sha256":  "C66D698A022A73682E4E8DBD380BF1CECED31D46E86AD7DDC23237576F3BB69B",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\13e5c19a3c6f40288e2c52f216852638.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\13e5c19a3c6f40288e2c52f216852638.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\13e5c19a3c6f40288e2c52f216852638.mp4",
+        "bytes":  303187,
+        "sha256":  "E8D3533C5CCBDF3D7DD80F4F3C97C821832DBAF4ECB4147681D683F3FEC70097",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\196fdd4ebda74cba8b73c89f4fecc1a6.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\196fdd4ebda74cba8b73c89f4fecc1a6.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\196fdd4ebda74cba8b73c89f4fecc1a6.mp4",
+        "bytes":  296383,
+        "sha256":  "796C748F754935C3C9F918895A2094FD621BFCF40C9E43BB9EBD8186EDEC0ED9",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\29d04007653948478495a0bdf1f3415b.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\29d04007653948478495a0bdf1f3415b.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\29d04007653948478495a0bdf1f3415b.webm",
+        "bytes":  6888662,
+        "sha256":  "639398198FC9762ADDD9F971F33960E0A5392A5242DB8AFCD0C3454DD20FCF2F",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\31b36a798f2b4db2b7b9cc8614fb77a8.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\31b36a798f2b4db2b7b9cc8614fb77a8.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\31b36a798f2b4db2b7b9cc8614fb77a8.webm",
+        "bytes":  6888662,
+        "sha256":  "A164252EC3B92427F1E73963577CDF758ECC7B27BCC37298D38EDE3D0835396E",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\3d4f607ebdd34b9d81feacc14775c34a.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\3d4f607ebdd34b9d81feacc14775c34a.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\3d4f607ebdd34b9d81feacc14775c34a.mp4",
+        "bytes":  298662,
+        "sha256":  "888AA76AC4747FBBBBC17B32FE89830F551D70AEBD960077C591F089DE803845",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\4ea9e2fe359e4e07ac549ae9ae8bedc6.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\4ea9e2fe359e4e07ac549ae9ae8bedc6.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\4ea9e2fe359e4e07ac549ae9ae8bedc6.webm",
+        "bytes":  1361198,
+        "sha256":  "5F3D06113EA2930B84AE62F81BBC8556A2D753709DFE4ECF06C478B1C46E99DA",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\4f228b35dbde44209098f6f2b4c82ecc.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\4f228b35dbde44209098f6f2b4c82ecc.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\4f228b35dbde44209098f6f2b4c82ecc.webm",
+        "bytes":  29674355,
+        "sha256":  "2468F5D8FAFF6BAC56D6856D84D92976B45A9CD966ED39FC33DF3CADCFAE5754",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\5e15c92eaf5f446889cddc4f06b6fcb0.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\5e15c92eaf5f446889cddc4f06b6fcb0.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\5e15c92eaf5f446889cddc4f06b6fcb0.webm",
+        "bytes":  6888662,
+        "sha256":  "95D1BA92A2BCF04F66AD226235F81C98835699C29E5FD167BBDD6DC5BC4C9133",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\72cbffb004864dcd8b0da53937d4e3ae.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\72cbffb004864dcd8b0da53937d4e3ae.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\72cbffb004864dcd8b0da53937d4e3ae.webm",
+        "bytes":  9610757,
+        "sha256":  "107D4B185D4EC55F8A6068336B300D9EDD97CB2BDE96AA50C5E3C091F8437A05",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\7a4dff5b8329407fa841b97db9a87f7c.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\7a4dff5b8329407fa841b97db9a87f7c.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\7a4dff5b8329407fa841b97db9a87f7c.webm",
+        "bytes":  2488339,
+        "sha256":  "C1764994E2EDF8110467AC5C5D3E483007181F1F442C361F6CFE79BEEF06989E",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\7fc677118a474fa6908b6e58a58d5fbc.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\7fc677118a474fa6908b6e58a58d5fbc.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\7fc677118a474fa6908b6e58a58d5fbc.webm",
+        "bytes":  5341663,
+        "sha256":  "B0A7302895A2FCD0F8CE55456A725D49C79E21A0C8879B662DF460931617630C",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\84c03afe57054e958336ff6c09a45b77.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\84c03afe57054e958336ff6c09a45b77.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\84c03afe57054e958336ff6c09a45b77.mp4",
+        "bytes":  370503,
+        "sha256":  "B9A5DE484B6C2C9EE517D3C964602192D4CB7E6C3869580C780C48313B958D3D",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\860cc987086748229fba28b0930e4300.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\860cc987086748229fba28b0930e4300.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\860cc987086748229fba28b0930e4300.webm",
+        "bytes":  19752255,
+        "sha256":  "E61118FC1FBB3E7AD712FF354489E3F321A7D0F7BE67558F48E32B8E15C42E88",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\897109c628f3494b8ec2d1c0628f871c.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\897109c628f3494b8ec2d1c0628f871c.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\897109c628f3494b8ec2d1c0628f871c.webm",
+        "bytes":  6888662,
+        "sha256":  "76719E169270A762C6A5AF5A635DC1E38A67AC8A875AC10DFDFABC7E28E59165",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\9a73a8ac0f5f48c6914fcd2b9f326fac.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\9a73a8ac0f5f48c6914fcd2b9f326fac.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\9a73a8ac0f5f48c6914fcd2b9f326fac.mp4",
+        "bytes":  379457,
+        "sha256":  "E45B673A0C8B068A41FE768F65B47935FF0D59C9AAB4702038302F36DECB55BD",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\9de33d63629a437b9d348ac6293e3498.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\9de33d63629a437b9d348ac6293e3498.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\9de33d63629a437b9d348ac6293e3498.webm",
+        "bytes":  6888662,
+        "sha256":  "AB3E235BA52D644C8AD867A92BD55E48258FDA94A56A4B0B54FC10703F797796",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\a14704b329d44473a55d72eb4f6cbddd.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\a14704b329d44473a55d72eb4f6cbddd.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\a14704b329d44473a55d72eb4f6cbddd.webm",
+        "bytes":  6888662,
+        "sha256":  "EBAD6AC653371318169F9C49A9F040AB7791ECF4494BD8C8C9DBBF9310A86FF9",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\a8e3be8ba49040c29b54fd1e7063ba8c.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\a8e3be8ba49040c29b54fd1e7063ba8c.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\a8e3be8ba49040c29b54fd1e7063ba8c.webm",
+        "bytes":  6391346,
+        "sha256":  "ECA8A81E600C12A99E4431FF5465B4DBBD37185D9F1B01BA3B9D524A27BF5E09",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\b6735aaae2c547109223412c8a38feef.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\b6735aaae2c547109223412c8a38feef.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\b6735aaae2c547109223412c8a38feef.webm",
+        "bytes":  9610757,
+        "sha256":  "0D225B836CD4E4F10DBC8D056B413612EAA1869EB62D5172299C89B517044796",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\c6971ecf7d8c44fc9309495697755a20.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\c6971ecf7d8c44fc9309495697755a20.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\c6971ecf7d8c44fc9309495697755a20.webm",
+        "bytes":  10502016,
+        "sha256":  "C82BC73BB8BA2ED7FF2C0EC976A623291A0573F4EE5B42014726FEB325029859",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\c79babf2ea5641dc865155edc342958a.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\c79babf2ea5641dc865155edc342958a.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\c79babf2ea5641dc865155edc342958a.webm",
+        "bytes":  1785049,
+        "sha256":  "2B52F14AFC724ED1908BDCBB8372ABE590D764B552BE97F31B80C5714C85963B",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\ce1f2d3d1fdf49e7850a05a4bd735ba6.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\ce1f2d3d1fdf49e7850a05a4bd735ba6.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\ce1f2d3d1fdf49e7850a05a4bd735ba6.webm",
+        "bytes":  12334374,
+        "sha256":  "797B715C28CF380619BE40FF63C7924E8A3E8FBDDF9A650E7B25A762FCB0EBF5",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\cefb99bdcdb44b04835737e25d3d3a57.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\cefb99bdcdb44b04835737e25d3d3a57.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\cefb99bdcdb44b04835737e25d3d3a57.mp4",
+        "bytes":  368337,
+        "sha256":  "48FD7255C49E15A6D621AC5CD39AFE18C71D01EEDFB73887C85326ACE6B9ED6C",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\d4374fd24ea14f40b23f73e69e8ab80d.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\d4374fd24ea14f40b23f73e69e8ab80d.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\d4374fd24ea14f40b23f73e69e8ab80d.mp4",
+        "bytes":  305184,
+        "sha256":  "67B639EE71C8E6CBCFDFD9E64168DF004E8D77EE4DC407ECC44696BE03D63687",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\d721ed56681f4040b222c42ccd0d4ec6.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\d721ed56681f4040b222c42ccd0d4ec6.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\d721ed56681f4040b222c42ccd0d4ec6.webm",
+        "bytes":  6888662,
+        "sha256":  "32441AE686C14EA6548B5A6BD9934A090E20A410CB4E65D85DFAB080D0ECEC42",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\d7f05691918543739a79b7d1edd20f38.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\d7f05691918543739a79b7d1edd20f38.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\d7f05691918543739a79b7d1edd20f38.webm",
+        "bytes":  6888662,
+        "sha256":  "E80B61BDE925C38EB9B9915A6456060F4EB4454387EAB97F4D9AE266367D847C",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\d842a1013952416eb8dfea32e05d2a72.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\d842a1013952416eb8dfea32e05d2a72.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\d842a1013952416eb8dfea32e05d2a72.webm",
+        "bytes":  9610757,
+        "sha256":  "70ED150D988FE485CB735F9E453270AE15248B4B3722814D558C020B8C1635BE",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\d8f13942b4584e31a2499ba09af27413.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\d8f13942b4584e31a2499ba09af27413.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\d8f13942b4584e31a2499ba09af27413.webm",
+        "bytes":  6888662,
+        "sha256":  "A80723F5752F73EB4C6FF832FA74DBCEE7E55212CE5C6C8679B93CFD2FFFF63E",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\db085e0322aa426087a12b4717e7dafa.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\db085e0322aa426087a12b4717e7dafa.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\db085e0322aa426087a12b4717e7dafa.webm",
+        "bytes":  6888662,
+        "sha256":  "DE0427434A3B88E36DEA53D9816FCEB85EDF5D390CDE705C1B9BF54B9CCACD97",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\f498b47c9e674bef880b0c68136e365d.mp4",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\f498b47c9e674bef880b0c68136e365d.mp4",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\f498b47c9e674bef880b0c68136e365d.mp4",
+        "bytes":  376641,
+        "sha256":  "D468712C5B199285C98911B7E168A13FBFEB4438D833D2F468ABA33B36568F04",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\clips\\f9ed4ae1e32740b5ad797722236e4099.webm",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\clips\\face_mask\\f9ed4ae1e32740b5ad797722236e4099.webm",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\clips\\f9ed4ae1e32740b5ad797722236e4099.webm",
+        "bytes":  9610757,
+        "sha256":  "EF4B4422364F55081426B0476C04065B78183F6F67A160F3808CAFBAE51E5B63",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\020c9f9bf105465aaf7fa05ed5342089.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\020c9f9bf105465aaf7fa05ed5342089.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\020c9f9bf105465aaf7fa05ed5342089.jpg",
+        "bytes":  160292,
+        "sha256":  "9B80292EF6A59CB3E2C01C7B55B6C479CF200828CA92687DC59C684545A0645F",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\05b71b06be7a4351ab18eff9b5e4fb80.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\05b71b06be7a4351ab18eff9b5e4fb80.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\05b71b06be7a4351ab18eff9b5e4fb80.jpg",
+        "bytes":  160285,
+        "sha256":  "5D6774BD64B1310B07AAC402134A6C070E3A1D07758762167091CCECD36F91AA",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\13e5c19a3c6f40288e2c52f216852638.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\13e5c19a3c6f40288e2c52f216852638.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\13e5c19a3c6f40288e2c52f216852638.jpg",
+        "bytes":  136861,
+        "sha256":  "9B35AEA8C82366B70E59F6F8809BF3F59F1B80CA2E04152BB688F1E763327D29",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\13e5c19a3c6f40288e2c52f216852638.json",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\13e5c19a3c6f40288e2c52f216852638.json",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\13e5c19a3c6f40288e2c52f216852638.json",
+        "bytes":  278,
+        "sha256":  "5F999099AEC9D280573C94024CEA6BEF2A38314AC3A0BB90D304311826BBAB07",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\13e5c19a3c6f40288e2c52f216852638_person.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\13e5c19a3c6f40288e2c52f216852638_person.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\13e5c19a3c6f40288e2c52f216852638_person.jpg",
+        "bytes":  3182,
+        "sha256":  "4B93A29723464503F2F694DFD42A838F122B1B28A1B0CF5A25E262947DCF9D59",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\196fdd4ebda74cba8b73c89f4fecc1a6.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\196fdd4ebda74cba8b73c89f4fecc1a6.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\196fdd4ebda74cba8b73c89f4fecc1a6.jpg",
+        "bytes":  137704,
+        "sha256":  "9941F092AEF7BD43109F398A6AEF3F0E2621E9B0D1732CBC06AF7224EA74EF8D",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\196fdd4ebda74cba8b73c89f4fecc1a6.json",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\196fdd4ebda74cba8b73c89f4fecc1a6.json",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\196fdd4ebda74cba8b73c89f4fecc1a6.json",
+        "bytes":  242,
+        "sha256":  "DF83278CC8E453095C6E5C37D002F973C5BAF4D14E4912B58BE6CC18CE821599",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\196fdd4ebda74cba8b73c89f4fecc1a6_person.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\196fdd4ebda74cba8b73c89f4fecc1a6_person.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\196fdd4ebda74cba8b73c89f4fecc1a6_person.jpg",
+        "bytes":  7651,
+        "sha256":  "8E86ACAF6869D44C8A56C6D36C426C224E12F2600AFEB6A246C3B15F3671C0AF",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\29d04007653948478495a0bdf1f3415b.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\29d04007653948478495a0bdf1f3415b.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\29d04007653948478495a0bdf1f3415b.jpg",
+        "bytes":  160306,
+        "sha256":  "AE9B1B99EB694CDD3BE8A633CD0A2803E9FC0B5ECCED61A9715C4C84392FA565",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\31b36a798f2b4db2b7b9cc8614fb77a8.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\31b36a798f2b4db2b7b9cc8614fb77a8.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\31b36a798f2b4db2b7b9cc8614fb77a8.jpg",
+        "bytes":  160294,
+        "sha256":  "62F06CD89A66CC80505C544B601BCE2F60E106F5C959C9D31F82536BF9A7B182",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\3d4f607ebdd34b9d81feacc14775c34a.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\3d4f607ebdd34b9d81feacc14775c34a.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\3d4f607ebdd34b9d81feacc14775c34a.jpg",
+        "bytes":  137698,
+        "sha256":  "AC95A7E94E6CD59DB29D4F82B4F2391B4273BF8D3D9939C4EC72B7307BE97C40",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\3d4f607ebdd34b9d81feacc14775c34a.json",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\3d4f607ebdd34b9d81feacc14775c34a.json",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\3d4f607ebdd34b9d81feacc14775c34a.json",
+        "bytes":  241,
+        "sha256":  "71C5480290D202CD6D9B51C5F59098FAD1F3B733593025E8A790A9827B7A4046",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\3d4f607ebdd34b9d81feacc14775c34a_person.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\3d4f607ebdd34b9d81feacc14775c34a_person.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\3d4f607ebdd34b9d81feacc14775c34a_person.jpg",
+        "bytes":  7651,
+        "sha256":  "8E86ACAF6869D44C8A56C6D36C426C224E12F2600AFEB6A246C3B15F3671C0AF",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\4ea9e2fe359e4e07ac549ae9ae8bedc6.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\4ea9e2fe359e4e07ac549ae9ae8bedc6.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\4ea9e2fe359e4e07ac549ae9ae8bedc6.jpg",
+        "bytes":  62197,
+        "sha256":  "78B0E0002419176AA512624BF8E8C9E1EE85E97DB229AC49AE6B7E99F240CB37",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\4f228b35dbde44209098f6f2b4c82ecc.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\4f228b35dbde44209098f6f2b4c82ecc.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\4f228b35dbde44209098f6f2b4c82ecc.jpg",
+        "bytes":  160226,
+        "sha256":  "195575D7B152C3F227E7B60F4519897D03C4C6217F233D4A0B27EC6DD51100AB",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\5e15c92eaf5f446889cddc4f06b6fcb0.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\5e15c92eaf5f446889cddc4f06b6fcb0.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\5e15c92eaf5f446889cddc4f06b6fcb0.jpg",
+        "bytes":  160290,
+        "sha256":  "533E240AE6B36511EA0638D02E863616660B6F81703897C36650CB7735EB8E69",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\72cbffb004864dcd8b0da53937d4e3ae.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\72cbffb004864dcd8b0da53937d4e3ae.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\72cbffb004864dcd8b0da53937d4e3ae.jpg",
+        "bytes":  160288,
+        "sha256":  "119D2370A95F11A2F80A1D102E2151608ED495EC1551F5614E1D71E5D5FDB050",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\7a4dff5b8329407fa841b97db9a87f7c.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\7a4dff5b8329407fa841b97db9a87f7c.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\7a4dff5b8329407fa841b97db9a87f7c.jpg",
+        "bytes":  142583,
+        "sha256":  "EB4F55E7F12E3C0416BA487B12D31A654BC752E872EED8BC782424A64307CE1A",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\7fc677118a474fa6908b6e58a58d5fbc.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\7fc677118a474fa6908b6e58a58d5fbc.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\7fc677118a474fa6908b6e58a58d5fbc.jpg",
+        "bytes":  160272,
+        "sha256":  "28DFDCC4CF6C9F3DE909F8F1BFD365497EF132B71805BBCEE9CC4607312DEC15",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\84c03afe57054e958336ff6c09a45b77.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\84c03afe57054e958336ff6c09a45b77.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\84c03afe57054e958336ff6c09a45b77.jpg",
+        "bytes":  135093,
+        "sha256":  "CF58708D4D03024FC367BC72788EBCF791F9D083B7FFA77F51749E801BC52E22",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\84c03afe57054e958336ff6c09a45b77.json",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\84c03afe57054e958336ff6c09a45b77.json",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\84c03afe57054e958336ff6c09a45b77.json",
+        "bytes":  240,
+        "sha256":  "7BF3BC9EAFE46BF2542B4B5D098C1B94E2188B22EFD21B2C57FE6254C885D039",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\84c03afe57054e958336ff6c09a45b77_person.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\84c03afe57054e958336ff6c09a45b77_person.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\84c03afe57054e958336ff6c09a45b77_person.jpg",
+        "bytes":  9182,
+        "sha256":  "54BB62036EA1D21E88DA49837E744E2616A07553E1F317015CBB0F1B594A435E",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\860cc987086748229fba28b0930e4300.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\860cc987086748229fba28b0930e4300.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\860cc987086748229fba28b0930e4300.jpg",
+        "bytes":  160222,
+        "sha256":  "12D2699BA7A0DB7968DF31C5E91333F21CF62F84A443F1DE0E6919745C5EF356",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\897109c628f3494b8ec2d1c0628f871c.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\897109c628f3494b8ec2d1c0628f871c.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\897109c628f3494b8ec2d1c0628f871c.jpg",
+        "bytes":  160252,
+        "sha256":  "83C35EDE3C4D902AC8D059E13756A716ACAA7502B407A9CFE9A3C922D29B389E",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\9a73a8ac0f5f48c6914fcd2b9f326fac.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\9a73a8ac0f5f48c6914fcd2b9f326fac.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\9a73a8ac0f5f48c6914fcd2b9f326fac.jpg",
+        "bytes":  135122,
+        "sha256":  "CBFFE503BD31214C6B020421D73D94EDD02C46307EF1FD7FD0454CCC713220FC",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\9a73a8ac0f5f48c6914fcd2b9f326fac.json",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\9a73a8ac0f5f48c6914fcd2b9f326fac.json",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\9a73a8ac0f5f48c6914fcd2b9f326fac.json",
+        "bytes":  240,
+        "sha256":  "B6BC0D0BCB8071043CF3D8DAA033EF01A9B4158CE5A080289A9F5152A77AF0E0",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\9a73a8ac0f5f48c6914fcd2b9f326fac_person.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\9a73a8ac0f5f48c6914fcd2b9f326fac_person.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\9a73a8ac0f5f48c6914fcd2b9f326fac_person.jpg",
+        "bytes":  9182,
+        "sha256":  "54BB62036EA1D21E88DA49837E744E2616A07553E1F317015CBB0F1B594A435E",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\9de33d63629a437b9d348ac6293e3498.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\9de33d63629a437b9d348ac6293e3498.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\9de33d63629a437b9d348ac6293e3498.jpg",
+        "bytes":  160251,
+        "sha256":  "C1F441C7B810462FF65AD95FB0B36B5A4586E6FE6C1128A434801482ECEE93AE",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\a14704b329d44473a55d72eb4f6cbddd.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\a14704b329d44473a55d72eb4f6cbddd.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\a14704b329d44473a55d72eb4f6cbddd.jpg",
+        "bytes":  160317,
+        "sha256":  "E50F2F4A06218F2E31FAF75B8022FFFCB10E0D06D600920EA1153EA5AB3AC6E6",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\a8e3be8ba49040c29b54fd1e7063ba8c.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\a8e3be8ba49040c29b54fd1e7063ba8c.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\a8e3be8ba49040c29b54fd1e7063ba8c.jpg",
+        "bytes":  167478,
+        "sha256":  "94B0EC1C1713CA32AB1EAAABE7915936030E7585C7498C9531B94BAD4B91597B",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\b6735aaae2c547109223412c8a38feef.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\b6735aaae2c547109223412c8a38feef.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\b6735aaae2c547109223412c8a38feef.jpg",
+        "bytes":  160295,
+        "sha256":  "C5EF3D1A8705D45A29E1BD4D97FC7364F9AA4CC8DDF407F353E2A823659CC763",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\c6971ecf7d8c44fc9309495697755a20.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\c6971ecf7d8c44fc9309495697755a20.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\c6971ecf7d8c44fc9309495697755a20.jpg",
+        "bytes":  167471,
+        "sha256":  "C161A353F1FA035C0CC8222729DDE76DA3CD0279A603543C209CA8A368A06471",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\c79babf2ea5641dc865155edc342958a.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\c79babf2ea5641dc865155edc342958a.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\c79babf2ea5641dc865155edc342958a.jpg",
+        "bytes":  63817,
+        "sha256":  "A6F024F9A658C4AD2556F38C38F421505D05C3FD8616E9708501E5D8D754A231",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\ce1f2d3d1fdf49e7850a05a4bd735ba6.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\ce1f2d3d1fdf49e7850a05a4bd735ba6.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\ce1f2d3d1fdf49e7850a05a4bd735ba6.jpg",
+        "bytes":  167520,
+        "sha256":  "31712473FC4C9119AADF73CAE60587AC749628CE519ADE4F7D016B2B5C657515",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\cefb99bdcdb44b04835737e25d3d3a57.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\cefb99bdcdb44b04835737e25d3d3a57.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\cefb99bdcdb44b04835737e25d3d3a57.jpg",
+        "bytes":  135102,
+        "sha256":  "3D6F38BC7827F8700F62C520B9700209ED3FC8CECAD339D56300D7B4C8E82216",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\cefb99bdcdb44b04835737e25d3d3a57.json",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\cefb99bdcdb44b04835737e25d3d3a57.json",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\cefb99bdcdb44b04835737e25d3d3a57.json",
+        "bytes":  241,
+        "sha256":  "5F29532B68CEFB07677ABC196785332010C2CD076B56F3C3452DDA11A5511A2C",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\cefb99bdcdb44b04835737e25d3d3a57_person.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\cefb99bdcdb44b04835737e25d3d3a57_person.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\cefb99bdcdb44b04835737e25d3d3a57_person.jpg",
+        "bytes":  9182,
+        "sha256":  "54BB62036EA1D21E88DA49837E744E2616A07553E1F317015CBB0F1B594A435E",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\d4374fd24ea14f40b23f73e69e8ab80d.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\d4374fd24ea14f40b23f73e69e8ab80d.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\d4374fd24ea14f40b23f73e69e8ab80d.jpg",
+        "bytes":  137709,
+        "sha256":  "070217C8E807E0B6BF9F923EF20C3158F86D0DAEAC22025F6013EC19D0EBEAC6",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\d4374fd24ea14f40b23f73e69e8ab80d.json",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\d4374fd24ea14f40b23f73e69e8ab80d.json",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\d4374fd24ea14f40b23f73e69e8ab80d.json",
+        "bytes":  241,
+        "sha256":  "11E326E6B31A54D59EB24ADA30F044A1D77F664B825D825C594ABE180A244B64",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\d4374fd24ea14f40b23f73e69e8ab80d_person.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\d4374fd24ea14f40b23f73e69e8ab80d_person.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\d4374fd24ea14f40b23f73e69e8ab80d_person.jpg",
+        "bytes":  7651,
+        "sha256":  "8E86ACAF6869D44C8A56C6D36C426C224E12F2600AFEB6A246C3B15F3671C0AF",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\d721ed56681f4040b222c42ccd0d4ec6.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\d721ed56681f4040b222c42ccd0d4ec6.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\d721ed56681f4040b222c42ccd0d4ec6.jpg",
+        "bytes":  160225,
+        "sha256":  "6EE9FE24AC2AF80BBD65C66C95E5FFD391FCDB06450F792BF31F298C86433581",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\d7f05691918543739a79b7d1edd20f38.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\d7f05691918543739a79b7d1edd20f38.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\d7f05691918543739a79b7d1edd20f38.jpg",
+        "bytes":  160324,
+        "sha256":  "F484E0FEE65D7E4A11671C83BDD13CF1A3AFC39AEBB95A05F45B8F0FB4AE4CBC",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\d842a1013952416eb8dfea32e05d2a72.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\d842a1013952416eb8dfea32e05d2a72.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\d842a1013952416eb8dfea32e05d2a72.jpg",
+        "bytes":  160226,
+        "sha256":  "A345F0907C89D22EBE6C40354438ECE82A5DF1836D777E2E23E227978CB1E9C4",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\d8f13942b4584e31a2499ba09af27413.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\d8f13942b4584e31a2499ba09af27413.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\d8f13942b4584e31a2499ba09af27413.jpg",
+        "bytes":  160280,
+        "sha256":  "66E43FA391A86030313A262974C8FB44022733014ED0B9BC1CDBCB4C519995A4",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\db085e0322aa426087a12b4717e7dafa.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\db085e0322aa426087a12b4717e7dafa.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\db085e0322aa426087a12b4717e7dafa.jpg",
+        "bytes":  160340,
+        "sha256":  "439BAE34B623B7257D99679217D6BA6A9DBE2B5C447198DFE40E00C6CAF88F54",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\f498b47c9e674bef880b0c68136e365d.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\f498b47c9e674bef880b0c68136e365d.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\f498b47c9e674bef880b0c68136e365d.jpg",
+        "bytes":  136327,
+        "sha256":  "BA4AB36F09D62F4133F55A31E43FC7F6C38C6B3235F78564FDF64B96FBF54999",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\f498b47c9e674bef880b0c68136e365d.json",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\f498b47c9e674bef880b0c68136e365d.json",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\f498b47c9e674bef880b0c68136e365d.json",
+        "bytes":  263,
+        "sha256":  "78DE831EED68C60FF26E1C7D6FA54D9EE27845D0B5D292A2FEC946F263101673",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\f498b47c9e674bef880b0c68136e365d_person.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\f498b47c9e674bef880b0c68136e365d_person.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\f498b47c9e674bef880b0c68136e365d_person.jpg",
+        "bytes":  10454,
+        "sha256":  "11AD7419632207A9139EE43476456E4BF2AFB23FA96D1BA560C6A998559AB85C",
+        "action":  "moved"
+    },
+    {
+        "old":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backend\\use_cases\\face_mask\\storage\\snapshots\\f9ed4ae1e32740b5ad797722236e4099.jpg",
+        "new":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\storage\\screenshots\\face_mask\\f9ed4ae1e32740b5ad797722236e4099.jpg",
+        "backup":  "D:\\face_detection_poc_with_branch_exterior\\face_detection_poc\\backups\\storage-migration-20261112\\face_mask\\snapshots\\f9ed4ae1e32740b5ad797722236e4099.jpg",
+        "bytes":  160241,
+        "sha256":  "532398A2D6B5DAD562B0C35E9E510A2CE02F5386D4643B3157C6FADB1B1D3FA3",
+        "action":  "moved"
+    }
+]

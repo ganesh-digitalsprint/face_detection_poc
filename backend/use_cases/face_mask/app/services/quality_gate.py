@@ -19,6 +19,7 @@ FailReason = Literal["too_small", "blurry", "too_dark", "too_bright", "turned_aw
 class QualityResult:
     passed: bool
     reason: FailReason | None = None
+    tier: str = "USABLE"
     metrics: dict[str, float] = field(default_factory=dict)
 
 
@@ -50,7 +51,11 @@ def evaluate_quality(frame: np.ndarray, head: Box, kps: Keypoints | None, cfg: Q
     height = y2 - y1
     metrics: dict[str, float] = {"head_height_px": float(height)}
     if height < cfg.min_head_height_px or x2 <= x1:
-        return QualityResult(False, "too_small", metrics)
+        tier = "TOO_SMALL" if height < cfg.low_res_head_px else "LOW_RES"
+        if x2 > x1 and height > 0:
+            gray = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+            metrics.update(sharpness=float(cv2.Laplacian(gray, cv2.CV_64F).var()), brightness=float(gray.mean()))
+        return QualityResult(False, "too_small", tier, metrics)
 
     gray = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
     sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
@@ -58,15 +63,15 @@ def evaluate_quality(frame: np.ndarray, head: Box, kps: Keypoints | None, cfg: Q
     metrics.update(sharpness=sharpness, brightness=brightness)
 
     if brightness < cfg.min_brightness:
-        return QualityResult(False, "too_dark", metrics)
+        return QualityResult(False, "too_dark", "UNUSABLE", metrics)
     if brightness > cfg.max_brightness:
-        return QualityResult(False, "too_bright", metrics)
+        return QualityResult(False, "too_bright", "UNUSABLE", metrics)
     if sharpness < cfg.min_sharpness:
-        return QualityResult(False, "blurry", metrics)
+        return QualityResult(False, "blurry", "UNUSABLE", metrics)
 
     yaw = estimate_yaw_degrees(kps)
     if yaw is not None:
         metrics["yaw_degrees"] = yaw
         if yaw > cfg.max_yaw_degrees:
-            return QualityResult(False, "turned_away", metrics)
-    return QualityResult(True, None, metrics)
+            return QualityResult(False, "turned_away", "UNUSABLE", metrics)
+    return QualityResult(True, None, "USABLE", metrics)

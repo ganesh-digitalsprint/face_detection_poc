@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core import settings_store
-from app.core.paths import CLIP_DIR, SNAPSHOT_DIR, UPLOAD_DIR
+from app.core.paths import CLIP_DIR, SNAPSHOT_DIR, STORAGE_DIR, UPLOAD_DIR
 from app.services.detection_pipeline import FrameResult
 
 
@@ -106,7 +106,7 @@ def evidence_files():
         path = folder / name
         path.write_bytes(b"\xff\xd8\xff\xe0" + b"0" * 2000 if kind == "snapshot" else b"0" * 5000)
         made.append(path)
-        return f"{folder.name}/{name}"
+        return path.relative_to(STORAGE_DIR).as_posix()
 
     yield make
     for path in made:

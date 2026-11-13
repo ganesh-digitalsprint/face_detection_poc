@@ -41,6 +41,10 @@ function drawPolygon(ctx, w, h, points, color, { closed = true, fill = true, lab
 export default function RoiCanvas({ imageUrl, saved, draft, mode, onDraft, onAspect, onImageError }) {
   const imgRef = useRef(null);
   const canvasRef = useRef(null);
+  const draggingPoint = useRef(-1);
+  const draggingArrow = useRef(false);
+  const arrowStart = useRef(null);
+  const ignoreClick = useRef(false);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [aspect, setAspect] = useState(4 / 3);
 
@@ -53,7 +57,7 @@ export default function RoiCanvas({ imageUrl, saved, draft, mode, onDraft, onAsp
     (saved || []).forEach((roi) => {
       drawPolygon(ctx, size.width, size.height, roi.polygon, SAVED, { label: roi.name });
       const c = centroid(roi.polygon);
-      drawArrow(ctx, size.width, size.height, vectorToArrow(c, roi.inward_vector, aspect), SAVED);
+      if (roi.inward_vector) drawArrow(ctx, size.width, size.height, vectorToArrow(c, roi.inward_vector, aspect), SAVED);
     });
     if (draft.points.length) drawPolygon(ctx, size.width, size.height, draft.points, DRAFT, { closed: draft.closed, fill: draft.closed });
     if (draft.arrow) drawArrow(ctx, size.width, size.height, draft.arrow, ARROW);
@@ -80,30 +84,57 @@ export default function RoiCanvas({ imageUrl, saved, draft, mode, onDraft, onAsp
     const onKey = (e) => {
       if (mode !== 'polygon' || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
       if (e.key === 'Backspace') { e.preventDefault(); onDraft({ ...draft, points: draft.points.slice(0, -1), closed: false }); }
-      if (e.key === 'Enter' && draft.points.length >= 3) onDraft({ ...draft, closed: true });
+      if (e.key === 'Enter' && draft.points.length >= 3) { e.preventDefault(); onDraft({ ...draft, closed: true }); }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [mode, draft, onDraft]);
 
   const onClick = (e) => {
+    if (ignoreClick.current) { ignoreClick.current = false; return; }
     if (mode === 'view') return;
     const p = toNormalised(e.clientX, e.clientY, canvasRef.current.getBoundingClientRect());
     if (mode === 'polygon') {
       if (draft.closed) return;
       if (draft.points.length >= 3 && isNear(p, draft.points[0], size)) onDraft({ ...draft, closed: true });
       else onDraft({ ...draft, points: [...draft.points, p] });
+    }
+  };
+
+  const onDown = (e) => {
+    const p = toNormalised(e.clientX, e.clientY, canvasRef.current.getBoundingClientRect());
+    if (mode === 'edit') {
+      draggingPoint.current = draft.points.findIndex((point) => isNear(p, point, size));
+      if (draggingPoint.current >= 0) e.preventDefault();
     } else if (mode === 'arrow') {
-      const a = draft.arrow;
-      if (!a || a.done) onDraft({ ...draft, arrow: { x1: p.x, y1: p.y, x2: p.x, y2: p.y, done: false } });
-      else onDraft({ ...draft, arrow: { ...a, x2: p.x, y2: p.y, done: true } });
+      draggingArrow.current = true;
+      arrowStart.current = p;
+      onDraft({ ...draft, arrow: { x1: p.x, y1: p.y, x2: p.x, y2: p.y, done: false } });
+      e.preventDefault();
     }
   };
 
   const onMove = (e) => {
-    if (mode !== 'arrow' || !draft.arrow || draft.arrow.done) return;
     const p = toNormalised(e.clientX, e.clientY, canvasRef.current.getBoundingClientRect());
-    onDraft({ ...draft, arrow: { ...draft.arrow, x2: p.x, y2: p.y } });
+    if (mode === 'edit' && draggingPoint.current >= 0) {
+      const points = [...draft.points]; points[draggingPoint.current] = p;
+      onDraft({ ...draft, points });
+    } else if (mode === 'arrow' && draggingArrow.current && draft.arrow) {
+      onDraft({ ...draft, arrow: { ...draft.arrow, x2: p.x, y2: p.y } });
+    }
+  };
+
+  const onUp = (e) => {
+    if (draggingPoint.current >= 0) { draggingPoint.current = -1; ignoreClick.current = true; }
+    if (draggingArrow.current) {
+      draggingArrow.current = false; ignoreClick.current = true;
+      const p = toNormalised(e.clientX, e.clientY, canvasRef.current.getBoundingClientRect());
+      const start = arrowStart.current;
+      if (start && Math.hypot(p.x - start.x, p.y - start.y) > 0.01) {
+        onDraft({ ...draft, arrow: { x1: start.x, y1: start.y, x2: p.x, y2: p.y, done: true } });
+      }
+      arrowStart.current = null;
+    }
   };
 
   return (
@@ -113,7 +144,7 @@ export default function RoiCanvas({ imageUrl, saved, draft, mode, onDraft, onAsp
         style={{ display: 'block', width: '100%', height: 'auto' }}   /* natural aspect: no letterboxing, so canvas and picture line up */
       />
       <canvas
-        ref={canvasRef} onClick={onClick} onMouseMove={onMove}
+        ref={canvasRef} onClick={onClick} onDoubleClick={() => { if (mode === 'polygon' && draft.points.length >= 3) onDraft({ ...draft, closed: true }); }} onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp}
         style={{ cursor: mode === 'view' ? 'default' : 'crosshair', width: size.width, height: size.height }}
         aria-label="Draw the entry region on the camera view"
       />

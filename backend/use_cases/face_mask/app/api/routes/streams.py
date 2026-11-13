@@ -20,10 +20,10 @@ _BOUNDARY = "frame"
 _POLL_SECONDS = 0.08
 
 
-async def _mjpeg(request: Request, runtime: Runtime, camera_id: str):
+async def _mjpeg(request: Request, runtime: Runtime, camera_id: str, debug: bool = False):
     last: bytes | None = None
     while not await request.is_disconnected():
-        jpeg = runtime.bus.latest_jpeg(camera_id)
+        jpeg = runtime.bus.latest_jpeg(camera_id, debug=debug)
         if jpeg is not None and jpeg is not last:
             last = jpeg
             yield (b"--" + _BOUNDARY.encode() + b"\r\nContent-Type: image/jpeg\r\nContent-Length: "
@@ -32,11 +32,11 @@ async def _mjpeg(request: Request, runtime: Runtime, camera_id: str):
 
 
 @router.get("/{camera_id}/processed")
-async def processed_stream(camera_id: str, request: Request, runtime: Runtime = Depends(get_runtime)):
+async def processed_stream(camera_id: str, request: Request, debug: bool = False, runtime: Runtime = Depends(get_runtime)):
     """Annotated MJPEG: person box, Track ID, ROI, head box, score, state. 404 until the camera has produced a frame."""
-    if runtime.bus.latest_jpeg(camera_id) is None:
+    if runtime.bus.latest_jpeg(camera_id, debug=debug) is None:
         raise HTTPException(404, "This camera is not running (start it first)")
-    return StreamingResponse(_mjpeg(request, runtime, camera_id),
+    return StreamingResponse(_mjpeg(request, runtime, camera_id, debug),
                              media_type=f"multipart/x-mixed-replace; boundary={_BOUNDARY}")
 
 

@@ -35,7 +35,9 @@ confirmation:
   confirm_window: 8              # ... out of the last M evaluated frames
 
 quality_gate:
-  min_head_height_px: 48
+  min_head_height_px: 40
+  low_res_head_px: 16
+  upscale_low_res: 4
   min_sharpness: 60.0            # variance of Laplacian
   min_brightness: 40.0
   max_brightness: 230.0
@@ -46,9 +48,23 @@ entering:
   min_inward_displacement_px: 12.0
   head_crop_ratio: 0.30          # fallback head box: top part of the person box
 
+analysis:
+  scope: whole_frame              # analyse every tracked person; zone controls alerts only
+  alert_outside_roi: false
+  max_per_frame: 4
+  max_per_track_fps: 3.0
+  latch_concealed_frames: 3
+  release_visible_frames: 4
+  zone_hit: either                 # foot | bbox_overlap | either
+  min_bbox_overlap: 0.15
+  direction_mode: soft             # off | soft | strict; soft records direction but never suppresses zone alert
+  direction_cone_degrees: 45.0
+
+detector_mode: fast                # fast | accurate (accurate enables tiled inference when available)
+
 evidence:
-  clip_pre_seconds: 5.0
-  clip_post_seconds: 5.0
+  clip_pre_seconds: 1.0
+  clip_post_seconds: 2.0
   snapshot_quality: 85
 
 cooldown:

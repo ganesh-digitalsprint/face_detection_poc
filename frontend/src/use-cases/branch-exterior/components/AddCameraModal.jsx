@@ -109,7 +109,8 @@ export default function AddCameraModal({ onClose, onCreated, start = true }) {
               {browse.files.map((f) => <option key={f.path} value={f.path}>{f.name} ({f.source})</option>)}
             </select>
           </label>
-          <div className="bx-hint">Lists current Branch sample videos, uploads, and backend/branch-exterior-monitoring/storage/sample_videos. If nothing appears, confirm the file is actually in one of those folders, then reopen this dialog.</div>
+          <div className="bx-hint">Lists common storage/sample_videos and uploads. Add a video on the Storage page, then reopen or refresh this dialog.</div>
+          <button type="button" className="bx-btn" onClick={() => api.get('/uploads/browse').then((r) => setBrowse({ state: 'ok', files: r.files || [] })).catch(() => setBrowse({ state: 'error', files: [] }))}>Refresh videos</button>
         </>
       )}
       <label className="bx-field" style={{ marginTop: 12 }}>Location / notes

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api, fmApiUrl } from '../api/index.js';
 import usePolling from '../hooks/usePolling.js';
 import RoiCanvas from './RoiCanvas.jsx';
-import { arrowToVector, describeDirection, isValidPolygon } from './roiMath.js';
+import { arrowToVector, centroid, describeDirection, isValidPolygon, vectorToArrow } from './roiMath.js';
 import { Empty, PageState } from './ui.jsx';
 
 const EMPTY_DRAFT = { points: [], closed: false, arrow: null };
@@ -30,24 +30,31 @@ export default function EntryRoiPanel() {
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
   const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [nonce, setNonce] = useState(0);
 
-  useEffect(() => { setDraft(EMPTY_DRAFT); setMode('view'); setImgError(''); setPos(0); setError(''); setSaved(''); }, [cameraId]);
+  useEffect(() => { setDraft(EMPTY_DRAFT); setMode('view'); setEditingId(null); setImgError(''); setPos(0); setError(''); setSaved(''); }, [cameraId]);
+  useEffect(() => { if (mode === 'polygon' && draft.closed) setMode('arrow'); }, [mode, draft.closed]);
 
   const imageUrl = cameraId ? fmApiUrl(`/streams/${cameraId}/snapshot?pos=${pos}&n=${nonce}`) : '';
   const vector = arrowToVector(draft.arrow?.done ? draft.arrow : null, aspect);
   const ready = draft.closed && isValidPolygon(draft.points) && vector && name.trim();
 
-  const startDrawing = () => { setDraft(EMPTY_DRAFT); setMode('polygon'); setSaved(''); setError(''); };
+  const startDrawing = () => { setDraft(EMPTY_DRAFT); setEditingId(null); setMode('polygon'); setSaved(''); setError(''); };
+  const edit = (roi) => {
+    setDraft({ points: roi.polygon.map((point) => ({ ...point })), closed: true,
+      arrow: roi.inward_vector ? { ...vectorToArrow(centroid(roi.polygon), roi.inward_vector, aspect), done: true } : null });
+    setName(roi.name); setEditingId(roi.id); setMode('edit'); setError(''); setSaved('');
+  };
   const save = async () => {
     setBusy(true); setError('');
     try {
-      await api.post('/roi', {
-        camera_id: cameraId, name: name.trim(),
-        polygon: draft.points.map((p) => ({ x: Number(p.x.toFixed(4)), y: Number(p.y.toFixed(4)) })), inward_vector: vector,
-      });
+      const payload = { name: name.trim(),
+        polygon: draft.points.map((p) => ({ x: Number(p.x.toFixed(4)), y: Number(p.y.toFixed(4)) })), inward_vector: vector };
+      if (editingId) await api.patch(`/roi/${editingId}`, payload);
+      else await api.post('/roi', { camera_id: cameraId, ...payload });
       setSaved(`Saved "${name.trim()}".${camera?.stream?.running ? ' It is already applied to the running stream - no restart needed.' : ' It will be used the next time this camera runs.'}`);
-      setDraft(EMPTY_DRAFT); setMode('view');
+      setDraft(EMPTY_DRAFT); setMode('view'); setEditingId(null);
       await rois.reload();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
@@ -84,11 +91,13 @@ export default function EntryRoiPanel() {
             <div className="bx-card-title">
               {mode === 'polygon' && !draft.closed && 'Step 1 of 2 - click the corners of the entry area. Click the first point or press Enter to close it. Backspace undoes a point.'}
               {mode === 'polygon' && draft.closed && 'Area closed. Now draw the arrow.'}
-              {mode === 'arrow' && (!draft.arrow?.done ? 'Step 2 of 2 - click where a person starts, then click in the direction they walk when ENTERING.' : 'Arrow set.')}
+              {mode === 'arrow' && (!draft.arrow?.done ? 'Step 2 of 2 - drag from tail to head in the inward direction.' : 'Arrow set.')}
+              {mode === 'edit' && 'Drag polygon handles to edit points. Use Edit arrow to change direction.'}
               {mode === 'view' && 'Camera view - draw a new Entry ROI, or review the saved ones.'}
             </div>
+            <div className="bx-hint">Draw the zone on the floor where feet stand at the entrance; person-box overlap is a fallback.</div>
             {imgError && <div className="bx-diag" role="alert">{imgError} <button type="button" className="bx-btn bx-btn-sm" onClick={() => { setImgError(''); setNonce((n) => n + 1); }}>Retry</button></div>}
-            <RoiCanvas imageUrl={imageUrl} saved={rois.data || []} draft={draft} mode={mode} onDraft={setDraft} onAspect={setAspect}
+            <RoiCanvas imageUrl={imageUrl} saved={(rois.data || []).filter((roi) => roi.id !== editingId)} draft={draft} mode={mode} onDraft={setDraft} onAspect={setAspect}
               onImageError={() => setImgError('Could not read a picture from this camera. Is it reachable and enabled?')} />
             {isFile && (
               <label className="bx-field" style={{ marginTop: 10 }}>Position in the video
@@ -97,23 +106,25 @@ export default function EntryRoiPanel() {
             )}
             <div className="bx-row bx-gap-8 bx-wrap" style={{ marginTop: 10 }}>
               {mode === 'view' && <button type="button" className="bx-btn bx-btn-primary" onClick={startDrawing}>+ Draw a new entry</button>}
-              {mode === 'polygon' && draft.closed && <button type="button" className="bx-btn bx-btn-primary" onClick={() => setMode('arrow')}>Next: draw the inward arrow</button>}
               {mode === 'polygon' && !draft.closed && draft.points.length >= 3 && <button type="button" className="bx-btn" onClick={() => setDraft({ ...draft, closed: true })}>Close the area</button>}
+              {mode === 'polygon' && draft.points.length > 0 && <button type="button" className="bx-btn" onClick={() => setDraft({ ...draft, points: draft.points.slice(0, -1) })}>Undo</button>}
+              {mode === 'edit' && <button type="button" className="bx-btn" onClick={() => setMode('arrow')}>Edit arrow</button>}
               {mode === 'arrow' && <button type="button" className="bx-btn" onClick={() => setDraft({ ...draft, arrow: null })}>Redraw arrow</button>}
+              {mode !== 'view' && <button type="button" className="bx-btn" onClick={() => setDraft(EMPTY_DRAFT)}>Clear</button>}
               {mode !== 'view' && <button type="button" className="bx-btn bx-btn-ghost" onClick={() => { setDraft(EMPTY_DRAFT); setMode('view'); }}>Cancel</button>}
             </div>
           </div>
 
           <div className="bx-card">
-            {mode === 'arrow' && draft.arrow?.done && (
+            {(mode === 'arrow' || mode === 'edit') && (
               <>
                 <div className="bx-card-title">Save this zone (Entry ROI)</div>
                 {error && <div className="bx-diag" role="alert">{error}</div>}
                 <label className="bx-field">Name
                   <input className="bx-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} placeholder="e.g. Grill Gate" />
                 </label>
-                <div className="bx-hint">Inward direction: <b>{describeDirection(vector)}</b>. People who move this way inside the area are evaluated; people passing by, waiting or leaving are ignored.</div>
-                <button type="button" className="bx-btn bx-btn-primary" disabled={!ready || busy} onClick={save} style={{ marginTop: 10 }}>{busy ? 'Saving…' : 'Save entry area'}</button>
+                <div className="bx-hint">Inward direction: <b>{describeDirection(vector)}</b>. In soft mode direction does not block a covered-person alert.</div>
+                <button type="button" className="bx-btn bx-btn-primary" disabled={!ready || busy} onClick={save} style={{ marginTop: 10 }}>{busy ? 'Saving…' : editingId ? 'Save changes' : 'Save entry area'}</button>
               </>
             )}
             {saved && <div className="bx-hint" role="status">{saved}</div>}
@@ -123,9 +134,10 @@ export default function EntryRoiPanel() {
               isEmpty={(d) => d.length === 0} emptyIcon="🚪" emptyText="No Entry ROI yet. Without one, nobody is evaluated for this camera.">
               {(rois.data || []).map((roi) => (
                 <div key={roi.id} className="bx-zone-item">
-                  <div><b>{roi.name}</b>{!roi.enabled && <span className="bx-muted"> (disabled)</span>}<div className="bx-muted" style={{ fontSize: 12 }}>Entry ROI · {roi.polygon.length} points · inward: {describeDirection(roi.inward_vector)}</div></div>
+                  <div><b>{roi.name}</b>{!roi.enabled && <span className="bx-muted"> (disabled)</span>}<div className="bx-muted" style={{ fontSize: 12 }}>Entry ROI · {roi.polygon.length} points · inward: {roi.inward_vector ? describeDirection(roi.inward_vector) : 'no direction'}</div></div>
                   <div className="bx-row bx-gap-8">
                     <button type="button" className="bx-btn bx-btn-sm" aria-pressed={roi.enabled} onClick={() => toggle(roi)}>{roi.enabled ? 'Disable' : 'Enable'}</button>
+                    <button type="button" className="bx-btn bx-btn-sm" onClick={() => edit(roi)}>{roi.inward_vector ? 'Edit' : 'Add direction'}</button>
                     <button type="button" className="bx-btn bx-btn-sm" onClick={() => rename(roi)}>Rename</button>
                     <button type="button" className="bx-btn bx-btn-sm bx-btn-ghost" onClick={() => remove(roi)}>Delete</button>
                   </div>

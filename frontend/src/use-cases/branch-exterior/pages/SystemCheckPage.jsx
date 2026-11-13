@@ -30,8 +30,14 @@ export default function SystemCheckPage() {
       else add('ok', `All ${h.routes_checked} required API routes are registered`, 'Zones, cameras, events, streams and reports are all reachable.');
 
       try {
+        const media = await api.get('/storage');
+        const sample = media.categories?.sample_videos?.count ?? 0;
+        add('ok', `Common storage available (${sample} sample videos)`, `${media.files?.length ?? 0} media files; ${Math.round((media.disk_free_bytes ?? 0) / 1073741824)} GB free`);
+      } catch (e) { add('bad', 'Common storage unavailable', e.message); }
+
+      try {
         const cams = await api.get('/cameras');
-        add(cams.length ? 'ok' : 'warn', `${cams.length} video(s)/camera(s) registered`, cams.map((c) => c.name).join(', ') || <>Put a video in <Code>backend/storage/sample_videos</Code> or use Add camera.</>);
+        add(cams.length ? 'ok' : 'warn', `${cams.length} video(s)/camera(s) registered`, cams.map((c) => c.name).join(', ') || <>Put a video in <Code>storage/sample_videos</Code> or use Add camera.</>);
         if (cams.length) {
           const info = await api.get(`/cameras/${cams[0].id}/prep`);
           if (info.ok) {

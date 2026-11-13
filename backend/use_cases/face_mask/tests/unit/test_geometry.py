@@ -60,3 +60,16 @@ def test_fm01_window_only_looks_at_recent_points() -> None:
 def test_zero_direction_is_rejected() -> None:
     with pytest.raises(ValueError):
         inward_displacement([(0, 0), (1, 1)], (0, 0))
+
+
+@pytest.mark.parametrize("direction,history", [
+    ((1, 0), [(0, 0), (20, 0)]), ((-1, 0), [(20, 0), (0, 0)]),
+    ((0, 1), [(0, 0), (0, 20)]), ((0, -1), [(0, 20), (0, 0)]),
+])
+def test_four_inward_directions(direction, history) -> None:
+    assert is_moving_inward(history, direction, window=5, min_displacement=12)
+
+
+def test_jitter_and_standing_still_do_not_count_as_inward() -> None:
+    assert not is_moving_inward([(0, 0), (2, -1), (-1, 1), (1, 0)], (1, 0), 4, 12)
+    assert not is_moving_inward([(10, 10)] * 5, (0, -1), 5, 12)

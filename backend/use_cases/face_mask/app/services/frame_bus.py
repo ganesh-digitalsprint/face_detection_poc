@@ -35,17 +35,23 @@ class FrameBus:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._jpeg: dict[str, bytes] = {}
+        self._debug_jpeg: dict[str, bytes] = {}
         self._status: dict[str, CameraStatus] = {}
 
-    def update_frame(self, camera_id: str, annotated: np.ndarray) -> None:
+    def update_frame(self, camera_id: str, annotated: np.ndarray, debug_frame: np.ndarray | None = None) -> None:
         ok, encoded = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
         if ok:
             with self._lock:
                 self._jpeg[camera_id] = encoded.tobytes()
+        if debug_frame is not None:
+            ok, encoded = cv2.imencode(".jpg", debug_frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            if ok:
+                with self._lock:
+                    self._debug_jpeg[camera_id] = encoded.tobytes()
 
-    def latest_jpeg(self, camera_id: str) -> bytes | None:
+    def latest_jpeg(self, camera_id: str, debug: bool = False) -> bytes | None:
         with self._lock:
-            return self._jpeg.get(camera_id)
+            return (self._debug_jpeg if debug else self._jpeg).get(camera_id)
 
     def set_status(self, status: CameraStatus) -> None:
         with self._lock:
@@ -62,3 +68,4 @@ class FrameBus:
     def clear(self, camera_id: str) -> None:
         with self._lock:
             self._jpeg.pop(camera_id, None)
+            self._debug_jpeg.pop(camera_id, None)

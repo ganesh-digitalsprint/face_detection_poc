@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.services.entry_service import EntryTracker, RoiSpec
 
 W, H = 1000, 1000
@@ -68,3 +70,34 @@ def test_fm01_tracks_are_independent_and_forget_clears_state(cfg) -> None:
     assert _walk(tracker, 2, [(500, 700)] * 3).entering is False
     tracker.forget(1)
     assert _walk(tracker, 1, [(500, 700)] * 3).entering is False
+
+
+@pytest.mark.parametrize("vector,positions", [
+    ((1, 0), [(350 + 15 * i, 700) for i in range(8)]),
+    ((-1, 0), [(650 - 15 * i, 700) for i in range(8)]),
+    ((0, 1), [(500, 600 + 15 * i) for i in range(8)]),
+    ((0, -1), [(500, 800 - 15 * i) for i in range(8)]),
+])
+def test_normalized_direction_four_axes(cfg, vector, positions) -> None:
+    roi = RoiSpec("r", "Door", ROI.polygon, vector, "normalized")
+    tracker = EntryTracker(cfg.entering, cfg.analysis)
+    result = None
+    for x, y in positions:
+        result = tracker.observe(1, _box(x, y), (W, H), [roi])
+    assert result.in_roi and result.entering and result.direction == "inward"
+
+
+def test_normalized_direction_rejects_jitter(cfg) -> None:
+    roi = RoiSpec("r", "Door", ROI.polygon, (1, 0), "normalized")
+    tracker = EntryTracker(cfg.entering, cfg.analysis)
+    results = [tracker.observe(1, _box(500 + offset, 700), (W, H), [roi])
+               for offset in (0, 2, -2, 1, -1, 0)]
+    assert not any(result.entering for result in results)
+
+
+def test_either_zone_hit_accepts_person_box_overlap_when_foot_is_outside(cfg) -> None:
+    zone = RoiSpec("r", "Door", ((0.4, 0.4), (0.6, 0.4), (0.6, 0.6), (0.4, 0.6)), (0, -1))
+    tracker = EntryTracker(cfg.entering, cfg.analysis)
+    result = tracker.observe(1, (450, 450, 550, 650), (W, H), [zone])
+    assert result.foot == (500, 650)
+    assert result.in_roi and result.roi == zone
