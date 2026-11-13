@@ -22,7 +22,7 @@ import socket
 import xml.etree.ElementTree as ET
 
 from cryptography.fernet import Fernet
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
 from app.core import paths as _paths  # sets the shared-library import path
@@ -117,6 +117,24 @@ def _admin(x_platform_admin_key: str = Header(default="")) -> None:
         raise HTTPException(503, "Platform writes require a server-side admin key")
     if not secrets.compare_digest(expected, x_platform_admin_key):
         raise HTTPException(403, "Admin permission required")
+
+
+def _hierarchy_admin(request: Request, x_platform_admin_key: str) -> None:
+    """Allow only hierarchy setup in an explicitly enabled, local demo.
+
+    Recorder, camera and upload writes continue to require the admin key.
+    Do not use this mode behind a network-accessible frontend proxy.
+    """
+    if os.environ.get("FEDBANK_PLATFORM_DEMO_WRITES") == "1":
+        try:
+            client = ipaddress.ip_address(request.client.host if request.client else "")
+            server = ipaddress.ip_address(request.scope["server"][0])
+        except (ValueError, KeyError, TypeError):
+            pass
+        else:
+            if client.is_loopback and server.is_loopback:
+                return
+    _admin(x_platform_admin_key)
 
 
 def _cipher() -> Fernet:
@@ -349,7 +367,8 @@ class CameraBatch(BaseModel):
 def health():
     with database():
         return {"status": "ok", "admin_configured": bool(os.environ.get("FEDBANK_PLATFORM_ADMIN_KEY")),
-                "encryption_configured": bool(os.environ.get("FEDBANK_PLATFORM_FERNET_KEY"))}
+                "encryption_configured": bool(os.environ.get("FEDBANK_PLATFORM_FERNET_KEY")),
+                "demo_writes_enabled": os.environ.get("FEDBANK_PLATFORM_DEMO_WRITES") == "1"}
 
 
 @router.get("/rtsp-templates")
@@ -412,8 +431,8 @@ def zones():
 
 
 @router.post("/zones", status_code=201)
-def create_zone(payload: Named, x_platform_admin_key: str = Header(default="")):
-    _admin(x_platform_admin_key)
+def create_zone(payload: Named, request: Request, x_platform_admin_key: str = Header(default="")):
+    _hierarchy_admin(request, x_platform_admin_key)
     with database() as conn:
         try:
             ident = str(uuid.uuid4())
@@ -430,8 +449,8 @@ def cities(zone_id: str):
 
 
 @router.post("/cities", status_code=201)
-def create_city(payload: CityCreate, x_platform_admin_key: str = Header(default="")):
-    _admin(x_platform_admin_key)
+def create_city(payload: CityCreate, request: Request, x_platform_admin_key: str = Header(default="")):
+    _hierarchy_admin(request, x_platform_admin_key)
     with database() as conn:
         _one(conn, "SELECT id FROM zones WHERE id=?", (payload.zone_id,))
         try:
@@ -475,8 +494,8 @@ def branch(branch_id: str):
 
 
 @router.post("/branches", status_code=201)
-def create_branch(payload: BranchCreate, x_platform_admin_key: str = Header(default="")):
-    _admin(x_platform_admin_key)
+def create_branch(payload: BranchCreate, request: Request, x_platform_admin_key: str = Header(default="")):
+    _hierarchy_admin(request, x_platform_admin_key)
     with database() as conn:
         _one(conn, "SELECT id FROM cities WHERE id=?", (payload.city_id,))
         try:

@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "pydantic>=2.8.0",
     "pydantic-settings>=2.4.0",
+    "cryptography>=42.0.0",                    # Fernet encryption for platform RTSP credentials
     "sqlalchemy[asyncio]>=2.0.32",
     "aiosqlite>=0.20.0",
     "asyncpg>=0.29.0",
