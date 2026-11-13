@@ -355,20 +355,11 @@ class GrillGateAlertRuleEngine:
         return False
 
     def _resolve(self, alert_type: str, at: datetime, note: str) -> None:
-        event = self._active.get(alert_type)
-        if event is None:
-            self._pending_source_ids.pop(alert_type, None)
-            self._pending_commands.pop(alert_type, None)
-            return
-        try:
-            if self._publish({"action": "resolve", "source_event_id": event.source_event_id,
-                              "expected_source_version": event.version, "note": note,
-                              "resolved_at": _iso(at)}):
-                self._active.pop(alert_type, None)
-                self._pending_source_ids.pop(alert_type, None)
-        except Exception:
-            logger.exception("Grill Gate alert resolution submission failed camera=%s assignment=%s type=%s",
-                             self.camera_id, self.assignment_id, alert_type)
+        # Recovery ends the detector episode, not the operator-owned incident.
+        # A later episode can raise a new incident with its own stable identity.
+        self._active.pop(alert_type, None)
+        self._pending_source_ids.pop(alert_type, None)
+        self._pending_commands.pop(alert_type, None)
 
     def reset(self) -> None:
         # Session stop is not evidence that a gate or mesh condition has recovered.

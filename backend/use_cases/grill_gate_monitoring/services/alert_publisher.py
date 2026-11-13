@@ -210,22 +210,22 @@ class GrillGateAlertPublisher:
 
     def _deliver(self, path: Path, command: dict, state: dict) -> None:
         action = command["action"]
+        if action != "create":
+            # Quarantine legacy automatic recovery commands without contacting Common Alerts.
+            # Manual operator transitions are published through the transactional database outbox.
+            self._write(self._failed / path.name, {**state, "ignored_reason":"manual_lifecycle_required"})
+            path.unlink(missing_ok=True)
+            return
         for attempt in range(5):
             try:
                 with self._client_factory(timeout=self._timeout, follow_redirects=False) as client:
                     headers = {"Authorization": f"Bearer {self._token}"}
-                    if action == "create":
-                        headers["Idempotency-Key"] = command["idempotency_key"]
-                        response = client.post(f"{self._base}/api/v1/alerts", headers=headers,
-                                               json=command["payload"])
-                    else:
-                        response = client.post(
-                            f"{self._base}/api/v1/alerts/source-events/{command['source_event_id']}/resolution",
-                            headers=headers, json={"expected_source_version": command["expected_source_version"],
-                                                   "note": command["note"]})
+                    headers["Idempotency-Key"] = command["idempotency_key"]
+                    response = client.post(f"{self._base}/api/v1/alerts", headers=headers,
+                                           json=command["payload"])
                 if 200 <= response.status_code < 300:
                     logger.info("Grill Gate alert %s camera=%s assignment=%s type=%s",
-                                "created" if action == "create" else "resolved",
+                                "created",
                                 command.get("payload", {}).get("resource_refs", {}).get("camera_id"),
                                 command.get("payload", {}).get("resource_refs", {}).get("assignment_id"),
                                 command.get("payload", {}).get("source_event_type"))

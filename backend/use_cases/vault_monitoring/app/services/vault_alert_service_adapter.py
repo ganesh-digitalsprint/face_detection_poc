@@ -217,7 +217,8 @@ class VaultAlertServiceAdapter:
                 logger.warning("Alert Service publication failed for Vault alert %s (%s)",
                                  alert_id, type(exc).__name__)
                 self._record_result(alert_id, state, attempt, RETRY, error_kind=type(exc).__name__)
-        return attempted
+        from app.services.vault_alert_lifecycle import dispatch_lifecycle
+        return attempted + dispatch_lifecycle(self, limit=limit)
 
     def _record_result(self, alert_id: str, prior_state: dict, attempt: int, action: str,
                        *, status_code: int | None = None, error_kind: str | None = None) -> None:

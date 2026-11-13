@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     EVIDENCE_UPLOAD_RETRIES: int = Field(default=2, ge=0, le=5)
     EVIDENCE_URL_TTL_SECONDS: int = Field(default=300, ge=30, le=900)
     EVIDENCE_SPOOL_DIR: str = "var/evidence-spool"
+    VAULT_ACTIVITY_CONFIRM_SECONDS: float = Field(default=1.0, ge=0, le=60)
+    VAULT_ACTIVITY_MIN_FRAMES: int = Field(default=2, ge=2, le=120)
+    VAULT_ACTIVITY_ROI_TOLERANCE: float = Field(default=0.002, ge=0, le=0.1)
 
     # ------------------------------------------------------------------
     # Video / webcam

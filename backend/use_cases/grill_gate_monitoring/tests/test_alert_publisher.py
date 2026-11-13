@@ -50,14 +50,16 @@ def test_republishing_a_retry_uses_the_same_logical_alert_idempotency_key(tmp_pa
     assert [call[1]["json"]["source_event_id"] for call in client.calls] == ["source-1", "source-1"]
 
 
-def test_resolution_uses_source_owned_resolution_endpoint(tmp_path):
+def test_legacy_resolution_is_quarantined_without_contacting_common(tmp_path):
     client = Client(Response(200))
     publisher = GrillGateAlertPublisher("http://alerts", "producer", outbox_dir=tmp_path,
         client_factory=lambda **_kwargs: client, retry_wait=lambda _seconds: None)
     publisher._persist_and_deliver(command("resolve"))
-    url, request = client.calls[0]
-    assert url.endswith("/api/v1/alerts/source-events/source-1/resolution")
-    assert request["json"] == {"expected_source_version": 1, "note": "Gate closed"}
+    assert client.calls == []
+    assert list((tmp_path / "pending").glob("*.json")) == []
+    ignored = list((tmp_path / "failed").glob("*.json"))
+    assert len(ignored) == 1
+    assert json.loads(ignored[0].read_text())["ignored_reason"] == "manual_lifecycle_required"
 
 
 def test_failed_publication_is_left_in_durable_pending_outbox(tmp_path):

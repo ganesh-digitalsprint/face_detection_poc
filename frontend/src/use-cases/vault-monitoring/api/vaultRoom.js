@@ -4,6 +4,23 @@ const key = import.meta.env?.VITE_VAULT_ROOM_API_KEY;
 const headers = key ? { 'X-API-Key': key } : {};
 
 export const getVaultRoomState = () => client.get('/api/v1/vault-room/state', { headers }).then((r) => r.data);
+const replayRoot = '/api/v1/vault-room/video-sessions';
+export const uploadRoomVideo = (file, signal, onUploadProgress) => {
+  const body = new FormData(); body.append('file', file);
+  return client.post(replayRoot, body, { headers, signal, onUploadProgress, timeout: 120000 }).then((r) => r.data);
+};
+export const startRoomReplay = (id, requiredPersons, signal, profileId) => client.post(`${replayRoot}/${encodeURIComponent(id)}/start`, { required_persons: requiredPersons, ...(profileId ? { profile_id: profileId } : {}) }, { headers, signal }).then((r) => r.data);
+const profilesRoot = '/api/v1/vault-room/region-profiles';
+export const listRoomRegionProfiles = () => client.get(profilesRoot, { headers }).then((r) => r.data);
+export const getRoomRegionProfile = (id, signal) => client.get(`${profilesRoot}/${encodeURIComponent(id)}`, { headers, signal }).then((r) => r.data);
+export const createRoomRegionProfile = (name) => client.post(profilesRoot, { name }, { headers }).then((r) => r.data);
+export const saveRoomRegionProfile = (id, configuration) => client.put(`${profilesRoot}/${encodeURIComponent(id)}`, configuration, { headers }).then((r) => r.data);
+export const activateRoomRegionProfile = (id) => client.post(`${profilesRoot}/${encodeURIComponent(id)}/activate`, {}, { headers }).then((r) => r.data);
+export const getRoomReplay = (id, signal) => client.get(`${replayRoot}/${encodeURIComponent(id)}`, { headers, signal }).then((r) => r.data);
+export const controlRoomReplay = (id, action) => client.post(`${replayRoot}/${encodeURIComponent(id)}/control`, { action }, { headers }).then((r) => r.data);
+export const deleteRoomReplay = (id) => client.delete(`${replayRoot}/${encodeURIComponent(id)}`, { headers });
+export const getRoomReplayFrame = (id, signal, debug = false) => client.get(`${replayRoot}/${encodeURIComponent(id)}/frame`, { headers, signal, params: { debug }, responseType: 'blob' }).then((r) => r.status === 204 ? null : r.data);
+export const getRoomReplayEvidence = (id, alertId, signal) => client.get(`${replayRoot}/${encodeURIComponent(id)}/evidence/${encodeURIComponent(alertId)}`, { headers, signal, responseType: 'blob' }).then((r) => r.data);
 export const closeVault = () => client.post('/api/v1/vault-room/close', undefined, { headers }).then((r) => r.data);
 export const getVaultSessions = (limit = 20) => client.get('/api/v1/vault-room/sessions', { params: { limit }, headers }).then((r) => r.data);
 export const analyzeVaultFrame = (blob, signal, posePreview = false) => {

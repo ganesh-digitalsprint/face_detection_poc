@@ -183,16 +183,8 @@ class PersistentAlertWorker:
                         cond.clear_since = job.event_at
                     if cond.active and cond.clear_since and (_as_utc(job.event_at) - _as_utc(cond.clear_since)).total_seconds() >= cfg.clear_seconds:
                         cond.active = False
-                        if alert_type in {"COUNT_MISMATCH", "EXCESS_PERSON", "NO_ENTRY", "CAMERA_FEED_LOST", "CAMERA_FEED_STALE"} and cond.active_alert_id:
-                            alert = db.get(VaultRoomAlert, cond.active_alert_id)
-                            if alert and alert.status in {"OPEN", "ACKNOWLEDGED"}:
-                                alert.status = "RESOLVED"; alert.resolved_at = job.event_at
-                                alert.closed_at = job.event_at; alert.updated_at = job.event_at
-                                alert.resolution_source = "SYSTEM"; alert.row_version += 1
-                                db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_RESOLVED",
-                                    entity_type="alert", entity_id=alert.id,
-                                    details={"source": "SYSTEM", "reason": "condition_clear"}))
-                                events.append(self._event("alert.updated", alert, job, {"status": "RESOLVED"}))
+                        # Keep persisted incidents active until an authorized operator closes them.
+                        # cond.active still resets, preserving detection of later episodes.
             db.commit()
         return events
 
@@ -201,15 +193,9 @@ class PersistentAlertWorker:
         prior = db.scalars(select(VaultRoomAlert).where(VaultRoomAlert.dedup_key == dedup)
             .order_by(VaultRoomAlert.created_at.desc())).first()
         now = job.event_at
-        if prior and prior.status == "RESOLVED" and prior.resolution_source == "SYSTEM" and prior.resolved_at \
-            and (_as_utc(now) - _as_utc(prior.resolved_at)).total_seconds() <= load_ml_config_file().vault_alerts.reopen_cooldown_seconds:
-            prior.status = "OPEN"; prior.resolved_at = None; prior.closed_at = None
-            prior.resolution_source = None; prior.resolution_note = None
-            prior.occurrence_count += 1; prior.row_version += 1; prior.updated_at = now
+        if prior and prior.status in {"OPEN", "ACKNOWLEDGED"}:
             cond.active_alert_id = prior.id
-            db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_REOPENED", entity_type="alert",
-                entity_id=prior.id, details={"dedup_key": dedup}))
-            events.append(self._event("alert.updated", prior, job, {"status": "OPEN", "occurrence_count": prior.occurrence_count}))
+            self._touch(db, cond, job, 0)
             return
         alert = VaultRoomAlert(id=str(uuid4()), session_id=cond.session_ref or "", session_ref=cond.session_ref,
             camera_id=cond.camera_id, dedup_key=dedup, type=cond.alert_type, severity=severity,

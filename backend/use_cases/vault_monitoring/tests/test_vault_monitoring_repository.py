@@ -27,9 +27,44 @@ def test_alert_transition_is_audited_and_dismissal_preserves_row(db):
     repo.transition_alert(alert.id, "DISMISSED", actor_id="operator-1", note="Reviewed")
     db.commit()
     assert db.get(VaultRoomAlert, alert.id).status == "DISMISSED"
-    assert len(list(db.scalars(select(VaultAuditEvent)))) == 3
+    assert len(list(db.scalars(select(VaultAuditEvent).where(VaultAuditEvent.entity_type == 'alert')))) == 3
+    deliveries = list(db.scalars(select(VaultAuditEvent).where(VaultAuditEvent.entity_type == 'vault_alert_lifecycle')))
+    assert [row.details['payload']['source_status'] for row in deliveries] == ['ACKNOWLEDGED', 'DISMISSED']
+    assert all(row.details['payload']['domain_data']['lifecycle_actor_id'] == 'operator-1' for row in deliveries)
     with pytest.raises(InvalidAlertTransition):
         repo.transition_alert(alert.id, "RESOLVED")
+
+
+def test_manual_transition_and_publication_rollback_together(db):
+    repo = VaultMonitoringRepository(db)
+    alert = repo.create_alert(session_id='rollback-session', alert_type='COUNT_MISMATCH', severity='WARNING', message='Mismatch')
+    db.commit()
+    repo.transition_alert(alert.id, 'ACKNOWLEDGED', actor_id='operator-1')
+    db.rollback()
+    assert db.get(VaultRoomAlert, alert.id).status == 'OPEN'
+    assert list(db.scalars(select(VaultAuditEvent).where(VaultAuditEvent.entity_type == 'vault_alert_lifecycle'))) == []
+
+
+@pytest.mark.parametrize('status', ['OPEN', 'ACKNOWLEDGED'])
+def test_legacy_condition_clear_preserves_manual_lifecycle(db, monkeypatch, status):
+    from contextlib import contextmanager
+    from app.services import vault_room_manager
+
+    @contextmanager
+    def local_session():
+        yield db
+        db.commit()
+
+    monkeypatch.setattr(vault_room_manager, 'session_scope', local_session)
+    row = VaultMonitoringRepository(db).create_alert(
+        session_id='legacy-session', alert_type='COUNT_MISMATCH', severity='WARNING', message='Mismatch')
+    row.status = status
+    db.commit()
+    manager = object.__new__(vault_room_manager.VaultRoomManager)
+    manager._write_job(('alert_close', {'id': row.id, 'duration_seconds': 12, 'closed_at': datetime.now(timezone.utc)}))
+    db.refresh(row)
+    assert row.status == status and row.resolved_at is None and row.closed_at is None
+    assert row.duration_seconds == 12
 
 
 def test_incident_can_group_multiple_alerts_and_evidence(db):

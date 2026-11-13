@@ -16,7 +16,7 @@ export const USE_CASE_LABELS = {
 export const LIFECYCLE = {
   ACKNOWLEDGED: { path: 'acknowledgements', label: 'Acknowledge', noteRequired: false },
   RESOLVED: { path: 'resolution', label: 'Resolve', noteRequired: true },
-  DISMISSED: { path: 'dismissal', label: 'Dismiss', noteRequired: true },
+  DISMISSED: { path: 'dismissal', label: 'Discard', noteRequired: true },
 };
 
 export const useCaseLabel = (useCase) => USE_CASE_LABELS[useCase] || useCase || 'Unknown source';
@@ -37,6 +37,7 @@ export function normalizeServiceAlert(item) {
     videoJobId: item.video_job_id || refs.video_job_id || item.domain_data?.video_job_id || null,
     localId: null,
     sourceEventId: item.source_event_id,
+    sourceEventVersion: item.source_event_version,
     sourceEventType: item.source_event_type,
     category: item.category,
     severity: item.severity,
@@ -57,6 +58,7 @@ export function normalizeServiceAlert(item) {
     domainData: item.domain_data || {},
     occurrenceCount: item.occurrence_count ?? 1,
     rowVersion: item.row_version,
+    acknowledgementComment: item.acknowledgement_comment ?? item.domain_data?.acknowledgement_comment,
     acknowledgedAt: item.acknowledged_at,
     acknowledgedBy: item.acknowledged_by,
     resolvedAt: item.resolved_at,
@@ -94,8 +96,10 @@ export function buildAlertParams({ status, useCase, severity, sourceType, from, 
 
 /** Actions to offer for an alert. Empty when lifecycle actions are disabled or the alert is terminal. */
 export function availableActions(alert, enabled) {
-  if (!enabled || !alert || alert.useCase === 'grill_gate' || alert.lifecycleOwner === 'source') return [];
-  return alert.allowedActions.filter((target) => LIFECYCLE[target]).map((target) => ({ target, ...LIFECYCLE[target] }));
+  if (!enabled || !alert) return [];
+  const targets = alert.sourceAllowedActions ?? (['grill_gate','vault_monitoring'].includes(alert.useCase) || alert.lifecycleOwner === 'source' ? [] : alert.allowedActions);
+  const byStatus = { OPEN: ['ACKNOWLEDGED', 'RESOLVED', 'DISMISSED'], ACKNOWLEDGED: ['RESOLVED', 'DISMISSED'] };
+  return (targets || []).filter((target) => byStatus[alert.status]?.includes(target) && LIFECYCLE[target]).map((target) => ({ target, ...LIFECYCLE[target] }));
 }
 
 /** Body for a lifecycle call. The note is mandatory for resolve/dismiss, optional for acknowledge. */
@@ -104,7 +108,7 @@ export function buildLifecycleBody(alert, target, note) {
   const rule = LIFECYCLE[target];
   if (!rule) throw new Error(`Unsupported lifecycle action: ${target}`);
   if (rule.noteRequired && !trimmed) throw new Error(`${rule.label} requires a note.`);
-  return { expected_version: alert.rowVersion, ...(trimmed ? { note: trimmed } : {}) };
+  return { expected_version: alert.sourceRowVersion ?? alert.rowVersion, ...(trimmed ? { note: trimmed } : {}) };
 }
 
 /** Replace one alert in a list by id without mutating it (the server copy wins). Unknown ids are ignored. */

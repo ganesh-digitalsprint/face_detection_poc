@@ -1,13 +1,15 @@
+import { alertAuthority, authorityErrorMessage } from '../api/alertAuthority.js';
+import LifecycleConfirmation from '../components/alerts/LifecycleConfirmation.jsx';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertCard, AlertEvidenceDetails } from '../components/alerts/AlertPresentation.jsx';
 import { Bell, RefreshCw } from 'lucide-react';
-import { getServiceAudit, transitionServiceAlert } from '../api/alertService.js';
+import { getServiceAudit } from '../api/alertService.js';
 import {
   ACTIVE_STATUSES, SEVERITIES, STATUSES, USE_CASE_LABELS, availableActions, buildAlertParams, buildLifecycleBody,
   describeServiceError, isStaleConflict, useCaseLabel, alertSourceLink, alertSourceLabel,
 } from '../api/alertServiceModel.js';
-import { ALERT_POLL_MS, ALERT_SERVICE_ACTIONS_ENABLED } from '../config/services.js';
+import { ALERT_POLL_MS } from '../config/services.js';
 import useServiceAlerts from '../hooks/useServiceAlerts.js';
 import { faceMaskEventLink } from '../layouts/routes.js';
 
@@ -51,6 +53,7 @@ function Timeline({ audit }) {
 
 export function ServiceAlertDetail({ alert, audit, actionsEnabled, pending, notice, onAction, onClose }) {
   const [note, setNote] = useState('');
+  const [confirmTarget, setConfirmTarget] = useState(null);
   useEffect(() => setNote(''), [alert.id, alert.rowVersion]);
   const actions = availableActions(alert, actionsEnabled);
   const sourceLink = alertSourceLink(alert);
@@ -62,7 +65,7 @@ export function ServiceAlertDetail({ alert, audit, actionsEnabled, pending, noti
     </div>
     <p className="text-sm text-slate-500">{alertSourceLabel(alert)} &middot; {useCaseLabel(alert.useCase)}</p>
     <p className="text-sm leading-relaxed text-slate-700">{alert.summary}</p>
-    {alert.useCase === 'grill_gate' && <AlertEvidenceDetails alert={alert} />}
+    <AlertEvidenceDetails alert={alert} />
     <dl className="grid grid-cols-2 gap-3 text-xs">
       <div><dt className="text-slate-500">Source</dt><dd className="mt-1 font-bold">{useCaseLabel(alert.useCase)}</dd></div>
       <div><dt className="text-slate-500">Camera / video</dt><dd className="mt-1 break-words font-bold">{alertSourceLabel(alert)}</dd></div>
@@ -78,15 +81,17 @@ export function ServiceAlertDetail({ alert, audit, actionsEnabled, pending, noti
     </dl>
     {alert.resolutionNote && <p className="text-xs text-slate-600">Note: {alert.resolutionNote}</p>}
     <div><h3 className="mb-2 text-xs font-semibold uppercase text-slate-500">Timeline</h3><Timeline audit={audit} /></div>
+    {alert.acknowledgementComment && <p className="text-sm text-slate-700">Acknowledgement comment: {alert.acknowledgementComment}</p>}
     {actions.length > 0 && <div className="space-y-2">
-      <textarea aria-label="Note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2}
-        placeholder="Note (required to resolve or dismiss)" className="w-full rounded-lg border border-slate-200 p-2 text-sm" />
+      {alert.useCase !== 'grill_gate' && <textarea aria-label="Note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2}
+        placeholder="Note (required to resolve or dismiss)" className="w-full rounded-lg border border-slate-200 p-2 text-sm" />}
       <div className="flex flex-wrap gap-2">
-        {actions.map((action) => <button key={action.target} type="button" disabled={pending} onClick={() => onAction(alert, action.target, note)}
+        {actions.map((action) => <button key={action.target} type="button" disabled={pending} onClick={() => action.target === 'ACKNOWLEDGED' && alert.useCase !== 'grill_gate' ? onAction(alert, action.target, note) : setConfirmTarget(action.target)}
           className="min-h-10 flex-1 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-[#26365F] disabled:opacity-50">{action.label}</button>)}
       </div>
     </div>}
-    {(!actionsEnabled || alert.useCase === 'grill_gate') && <p className="text-xs text-slate-500">{useCaseLabel(alert.useCase)} manages this alert's lifecycle. Use the source monitoring page for actions.</p>}
+    {(!actionsEnabled || (!alert.sourceAllowedActions && ['grill_gate','vault_monitoring'].includes(alert.useCase))) && <p className="text-xs text-slate-500">{useCaseLabel(alert.useCase)} manages this alert's lifecycle. Use the source monitoring page for actions.</p>}
+    {confirmTarget && <LifecycleConfirmation target={confirmTarget} initialReason={note} pending={pending} onClose={() => setConfirmTarget(null)} onConfirm={(reason) => { onAction(alert,confirmTarget,reason); setConfirmTarget(null); }} />}
     {notice && <p className="text-sm text-slate-700" role="status" aria-live="polite">{notice}</p>}
     {sourceLink && <Link to={sourceLink} className="block text-center text-sm font-semibold text-[#34479B] underline">Open in {useCaseLabel(alert.useCase)}</Link>}
   </div>;
@@ -116,6 +121,21 @@ export default function AlertCenter() {
   const feed = useServiceAlerts({ params, status: status || group, pollMs: ALERT_POLL_MS });
   const visibleItems = feed.items.filter((item) => !evidence || item.evidenceStatus === evidence);
   const selected = feed.items.find((item) => item.id === selectedId || (selectedId === null && sourceEventId && item.sourceEventId === sourceEventId)) || null;
+  const [sourceDetail, setSourceDetail] = useState(null);
+  const [sourceError, setSourceError] = useState('');
+  const [sourceRetry, setSourceRetry] = useState(0);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  useEffect(() => {
+    const ctl=new AbortController(); setSourceError(''); setSourceDetail(null);
+    if (!selected) { setSourceLoading(false); return () => ctl.abort(); }
+    setSourceLoading(true);
+    alertAuthority.load(selected,ctl.signal).then((row)=>{if(!ctl.signal.aborted)setSourceDetail(row);})
+      .catch((error)=>{if(!ctl.signal.aborted)setSourceError(authorityErrorMessage(error));})
+      .finally(()=>{if(!ctl.signal.aborted)setSourceLoading(false);});
+    return ()=>ctl.abort();
+  },[selected?.id,selected?.sourceEventVersion,sourceRetry]);
+  const detailed = sourceDetail?.id === selected?.id ? sourceDetail : selected;
+
 
   const setFilter = (key, value) => {
     const next = new URLSearchParams(query);
@@ -150,13 +170,17 @@ export default function AlertCenter() {
     try { body = buildLifecycleBody(alert, target, note); } catch (err) { setNotice(err.message); return; }
     setPending(true);
     try {
-      const updated = await transitionServiceAlert(alert.id, target, body);
+      const updated = await alertAuthority.transition(alert, target, body);
       feed.applyUpdate(updated);
+      setSourceDetail(updated);
       setNotice(`Alert ${updated.status.toLowerCase()}.`);
     } catch (error) {
       const info = describeServiceError(error);
       setNotice(info.message);
-      if (isStaleConflict(info)) await feed.refresh();
+      if (isStaleConflict(info)) {
+        try { const latest=await alertAuthority.load(alert);setSourceDetail(latest);feed.applyUpdate(latest); } catch { setSourceError('Could not reload the source alert. Retry after the source service is available.'); }
+        await feed.refresh();
+      }
     } finally { setPending(false); }
   }, [feed]);
 
@@ -228,8 +252,10 @@ export default function AlertCenter() {
         <p className="mt-3 text-xs text-slate-500">Active alerts are {ACTIVE_STATUSES.join(' and ').toLowerCase()}; resolved and dismissed alerts are history.</p>
       </section>
       <aside className="min-w-0" aria-label="Alert details">
+        {sourceLoading && <p role="status" className="mb-2 text-sm text-slate-500">Loading latest alert details...</p>}
+        {sourceError && <p role="alert" className="mb-2 text-sm text-red-700">{sourceError} <button type="button" onClick={() => setSourceRetry((value) => value + 1)} className="underline">Retry details</button></p>}
         {selected
-          ? <ServiceAlertDetail alert={selected} audit={audit} actionsEnabled={ALERT_SERVICE_ACTIONS_ENABLED} pending={pending} notice={notice} onAction={act} onClose={() => setSelectedId('')} />
+          ? <ServiceAlertDetail key={selected.id} alert={detailed} audit={audit} actionsEnabled={Boolean(sourceDetail?.id === selected?.id && !sourceLoading && !sourceError)} pending={pending} notice={notice} onAction={act} onClose={() => setSelectedId('')} />
           : <div className="hidden rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 xl:block">Select an alert to view details and its timeline.</div>}
       </aside>
     </div>

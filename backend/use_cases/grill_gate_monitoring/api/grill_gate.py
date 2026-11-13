@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import Operator, get_db, get_operator
 from app.db.models.camera_registry import CameraUseCaseAssignment
 from app.services import camera_registry_service as registry
-from app.db.models import GrillGateEvent, GrillGateVideoJob
+from app.db.models import GrillGateEvent, GrillGateVideoJob, VaultAuditEvent
 from grill_gate_monitoring.models.alert import GrillGateAlert
 from grill_gate_monitoring.services.alert_store import alert_dict, persist_command
 from grill_gate_monitoring.services.alert_delivery import stage_publication, backfill_publications
@@ -1032,6 +1032,15 @@ def get_alert_history(assignment_id: str, db: Db, caller: Caller,
         limit=limit, offset=offset)
 
 
+@router.get("/alerts/source-events/{source_event_id}")
+def get_grill_gate_source_alert(source_event_id: str, db: Db, caller: Caller):
+    row = db.scalar(select(GrillGateAlert).where(GrillGateAlert.source_event_id == source_event_id,
+                                               GrillGateAlert.use_case == "grill_gate"))
+    if row is None:
+        raise HTTPException(404, "Grill Gate alert not found")
+    return alert_dict(row)
+
+
 @router.get("/alerts/{alert_id}")
 def get_grill_gate_alert(alert_id: str, db: Db, caller: Caller):
     row = db.get(GrillGateAlert, alert_id)
@@ -1040,7 +1049,7 @@ def get_grill_gate_alert(alert_id: str, db: Db, caller: Caller):
     return alert_dict(row)
 
 
-def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session):
+def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session, actor_id: str | None = None):
     row = db.scalar(select(GrillGateAlert).where(GrillGateAlert.id == alert_id).with_for_update())
     if row is None or row.use_case != "grill_gate":
         raise HTTPException(status_code=404, detail="Grill Gate alert not found")
@@ -1050,20 +1059,33 @@ def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session):
         raise HTTPException(status_code=409, detail="Only an active Grill Gate alert can be changed")
     if action == "acknowledge" and row.status == "ACKNOWLEDGED":
         return alert_dict(row)
+    before = row.status
     now = datetime.now(timezone.utc)
+    domain = dict(row.domain_data or {})
+    note = (body.note or "").strip()
     if action == "acknowledge":
         if row.status == "OPEN":
+            domain.update(acknowledgement_comment=note, acknowledged_at=now.isoformat(), acknowledged_by=actor_id)
             row.status = "ACKNOWLEDGED"
             row.row_version += 1
             row.updated_at = now
     else:
         row.status = "DISMISSED" if action == "dismiss" else "RESOLVED"
-        row.resolved_at = now
+        if action == "dismiss":
+            domain.update(dismissed_at=now.isoformat(), dismissed_by=actor_id)
+        else:
+            domain.update(resolved_by=actor_id)
+            row.resolved_at = now
         row.resolution_note = (body.note or "Resolved by operator").strip()[:500]
         row.row_version += 1
         row.updated_at = now
     row.source_event_version += 1
     row.source_status = row.status
+    row.domain_data = {**domain, "lifecycle_actor_type": "operator", "lifecycle_actor_id": actor_id}
+    db.add(VaultAuditEvent(id=str(uuid4()), entity_type="grill_gate_alert", entity_id=str(row.id),
+        action=f"GRILL_ALERT_{row.status}", details={"actor_type":"operator", "actor_id":actor_id,
+            "from_status":before, "to_status":row.status, "note":note,
+            "acted_at":now.isoformat(), "row_version":row.row_version}))
     stage_publication(db, row)
     db.commit()
     db.refresh(row)
@@ -1072,14 +1094,14 @@ def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session):
 
 @router.post("/alerts/{alert_id}/acknowledge")
 def acknowledge_grill_gate_alert(alert_id: str, body: AlertAction, db: Db, caller: Caller):
-    return _act_on_alert(alert_id, "acknowledge", body, db)
+    return _act_on_alert(alert_id, "acknowledge", body, db, caller.id)
 
 
 @router.post("/alerts/{alert_id}/resolve")
 def resolve_grill_gate_alert(alert_id: str, body: AlertAction, db: Db, caller: Caller):
     if not body.note or not body.note.strip():
         raise HTTPException(status_code=422, detail="A note is required to resolve an alert")
-    return _act_on_alert(alert_id, "resolve", body, db)
+    return _act_on_alert(alert_id, "resolve", body, db, caller.id)
 
 
 @router.get("/alerts/{alert_id}/evidence/{evidence_id}")
@@ -1114,4 +1136,4 @@ def backfill_grill_gate_alerts(db: Db, caller: Caller, dry_run: bool = True,
 def dismiss_grill_gate_alert(alert_id: str, body: AlertAction, db: Db, caller: Caller):
     if not body.note or not body.note.strip():
         raise HTTPException(status_code=422, detail="A note is required to dismiss an alert")
-    return _act_on_alert(alert_id, "dismiss", body, db)
+    return _act_on_alert(alert_id, "dismiss", body, db, caller.id)

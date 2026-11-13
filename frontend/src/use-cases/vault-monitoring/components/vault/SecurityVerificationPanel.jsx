@@ -65,8 +65,8 @@ export default function SecurityVerificationPanel({ vault, slot, onRetry, onGoRo
           Start a camera, then begin vault access. {requiredCount == null
             ? 'Loading authorization requirements.'
             : requiredCount === 1
-              ? 'One authorized custodian must pass face, liveness, identity and authorization checks within 3 minutes.'
-              : `${requiredCount} authorized custodians must each pass face, liveness, identity and authorization checks within 3 minutes before access is granted.`}
+              ? 'Complete all four checks within 3 minutes.'
+              : `Each of ${requiredCount} authorized custodians must complete all four checks within 3 minutes.`}
         </p>
       )}
 

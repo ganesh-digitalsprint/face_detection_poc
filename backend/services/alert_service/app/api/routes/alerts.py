@@ -204,8 +204,8 @@ def get_alert(alert_id: str, operator: OperatorIdentity = Depends(get_operator),
 def _act(alert_id: str, target: str, request: Request, body: LifecycleAction,
          operator: OperatorIdentity, db: Session):
     alert = _scoped_alert(db, alert_id, operator)
-    if alert.use_case == "grill_gate":
-        raise HTTPException(status_code=409, detail={"code": "SOURCE_LIFECYCLE_OWNED", "message": "Use the Grill Gate source API to change this alert"})
+    if alert.use_case in {"grill_gate", "vault_monitoring"}:
+        raise HTTPException(status_code=409, detail={"code": "SOURCE_LIFECYCLE_OWNED", "message": "Use the owning source API to change this alert"})
     action = {"ACKNOWLEDGED": "acknowledge", "RESOLVED": "resolve", "DISMISSED": "dismiss"}[target]
     try:
         row = transition(db, alert_id=alert_id, target=target, action=action, actor_id=operator.actor_id,

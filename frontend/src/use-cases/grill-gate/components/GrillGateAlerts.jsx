@@ -1,3 +1,4 @@
+import LifecycleConfirmation from '../../../components/alerts/LifecycleConfirmation.jsx';
 import GrillGateAlertCard from './GrillGateAlertCard.jsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -7,7 +8,7 @@ import { AlertCard, SourceAlertDetail } from '../../../components/alerts/AlertPr
 import { describeError } from '../../../utils/errors.js';
 import { createGrillAlertApi } from '../grillAlertFeed.js';
 import { getLiveActiveAlerts, getLiveAlertHistory, getGrillGateVideoResults, getGrillGateAlert,
-  acknowledgeGrillGateAlert, resolveGrillGateAlert } from '../api/grillGate.js';
+  acknowledgeGrillGateAlert, resolveGrillGateAlert, dismissGrillGateAlert } from '../api/grillGate.js';
 
 const reads = { active: getLiveActiveAlerts, history: getLiveAlertHistory, video: getGrillGateVideoResults, detail: getGrillGateAlert };
 export default function GrillGateAlerts({ assignmentId, jobId, compact = false }) {
@@ -18,6 +19,8 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
   const [detailError, setDetailError] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
   const [pending, setPending] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState(null);
+  const [detailRetry, setDetailRetry] = useState(0);
   const [notice, setNotice] = useState('');
   const scope = jobId ? `video:${jobId}` : `live:${assignmentId || ''}`;
   const scopeRef = useRef(scope); scopeRef.current = scope;
@@ -32,27 +35,27 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
   useEffect(() => {
     if (!selectedKey) { setDetail(null); return undefined; }
     const ctl = new AbortController();
-    setDetailError(''); setDetailLoading(true);
+    setDetail(null); setConfirmTarget(null); setDetailError(''); setDetailLoading(true);
     getGrillGateAlert(selectedKey, ctl.signal).then((row) => {
+      if (row.id !== selectedKey || !Number.isInteger(row.row_version)) throw new Error('Invalid source alert detail');
       if (!ctl.signal.aborted) setDetail(normalizeGrillGateAlert(row));
     }).catch((error) => { if (!ctl.signal.aborted) setDetailError(describeError(error).message); }).finally(() => { if (!ctl.signal.aborted) setDetailLoading(false); });
     return () => ctl.abort();
-  }, [selectedKey, selectedVersion, scope]);
-  const act = async (target) => {
-    const alert = detail?.id === selected?.id ? detail : selected;
-    if (!alert || pending) return;
-    const note = target === 'RESOLVED' ? window.prompt('Resolution note (required):') : null;
-    if (target === 'RESOLVED' && !note?.trim()) return;
+  }, [selectedKey, selectedVersion, scope, detailRetry]);
+  const act = async (target, note) => {
+    const alert = detail?.id === selected?.id ? detail : null;
+    if (!alert || pending || detailLoading || detailError || !alert.allowedActions.includes(target)) return;
+    if (!note?.trim()) return;
     const atScope = scope;
     setPending(true); setNotice('');
     try {
-      const row = target === 'ACKNOWLEDGED' ? await acknowledgeGrillGateAlert(alert.localId, alert.rowVersion)
-        : await resolveGrillGateAlert(alert.localId, alert.rowVersion, note.trim());
+      const row = target === 'ACKNOWLEDGED' ? await acknowledgeGrillGateAlert(alert.localId, alert.rowVersion, note.trim())
+        : await (target === 'RESOLVED' ? resolveGrillGateAlert : dismissGrillGateAlert)(alert.localId, alert.rowVersion, note.trim());
       if (scopeRef.current !== atScope) return;
       const updated = normalizeGrillGateAlert(row);
       adapter.applyUpdate(updated);
       feed.applyUpdate(updated); setDetail(updated); setNotice(`Alert ${updated.status.toLowerCase()}.`);
-    } catch (error) { if (scopeRef.current === atScope) setNotice(describeError(error).message); }
+    } catch (error) { if (scopeRef.current === atScope) { setNotice(describeError(error).message); if (error?.response?.status === 409) setDetailRetry((value) => value + 1); } }
     finally { setPending(false); if (scopeRef.current === atScope) feed.refresh(); }
   };
   return <section className="vault-card p-4 sm:p-5" aria-label="Grill Gate alerts">
@@ -64,8 +67,9 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
     {!feed.loading && !feed.error && !feed.items.length && (assignmentId || jobId) && <p className="text-sm text-[#55607A]">{status === 'ACTIVE' ? (adapter.count('HISTORY') > 0 ? 'No active alerts. Resolved or dismissed incidents are available in History.' : 'No active alerts.') : feed.hasMore ? 'No matching alerts on this page. Load more alerts below.' : 'No historical alerts.'}</p>}
     <div className={`grid gap-3 ${!compact && selected ? 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]' : ''}`}>
       <div className="min-w-0 space-y-3">{feed.items.map((alert) => compact ? <GrillGateAlertCard key={alert.id} alert={alert} selected={selected?.id === alert.id} onSelect={setSelectedId} /> : <AlertCard key={alert.id} alert={alert} selected={selected?.id === alert.id} onSelect={setSelectedId} />)}</div>
-      {selected && <div className="min-w-0">{detailLoading && <p role="status" className="mb-2 text-xs text-slate-500">Refreshing alert details...</p>}{detailError && <p role="alert" className="mb-2 text-sm text-red-800">Could not load latest details: {detailError}</p>}<SourceAlertDetail alert={detail?.id === selected.id ? detail : selected} onClose={() => setSelectedId('')}>
-        <div className="flex flex-wrap gap-2">{(detail?.id === selected.id ? detail : selected).allowedActions.filter((action) => ['ACKNOWLEDGED','RESOLVED'].includes(action)).map((target) => <button key={target} type="button" disabled={pending} onClick={() => act(target)} className="rounded-lg border border-[#D0D7E6] px-4 py-2 text-sm font-semibold text-[#34479B] disabled:opacity-50">{target === 'ACKNOWLEDGED' ? 'Acknowledge' : 'Resolve'}</button>)}</div>
+      {selected && <div className="min-w-0">{detailLoading && <p role="status" className="mb-2 text-xs text-slate-500">Refreshing alert details...</p>}{detailError && <p role="alert" className="mb-2 text-sm text-red-800">Could not load latest details: {detailError} <button type="button" onClick={() => setDetailRetry((value) => value + 1)} className="underline">Retry details</button></p>}<SourceAlertDetail alert={detail?.id === selected.id ? detail : selected} onClose={() => setSelectedId('')}>
+        {detail?.id === selected.id && !detailLoading && !detailError && <div className="flex flex-wrap gap-2">{detail.allowedActions.filter((action) => ({OPEN:['ACKNOWLEDGED','RESOLVED','DISMISSED'],ACKNOWLEDGED:['RESOLVED','DISMISSED']}[detail.status] || []).includes(action)).map((target) => <button key={target} type="button" disabled={pending} onClick={() => setConfirmTarget(target)} className="rounded-lg border border-[#D0D7E6] px-4 py-2 text-sm font-semibold text-[#34479B] disabled:opacity-50">{{ACKNOWLEDGED:'Acknowledge',RESOLVED:'Resolve',DISMISSED:'Discard'}[target]}</button>)}</div>}
+        {confirmTarget && detail?.id === selected.id && <LifecycleConfirmation key={selected.id} target={confirmTarget} pending={pending} onClose={() => setConfirmTarget(null)} onConfirm={(reason) => { act(confirmTarget, reason); setConfirmTarget(null); }} />}
       </SourceAlertDetail></div>}
     </div>
     {notice && <p role="status" className="mt-3 text-sm text-[#55607A]">{notice}</p>}

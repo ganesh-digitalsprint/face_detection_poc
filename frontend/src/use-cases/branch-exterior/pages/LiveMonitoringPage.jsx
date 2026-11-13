@@ -1,6 +1,8 @@
+import SourceIncidentCard from '../../../components/alerts/SourceIncidentCard.jsx';
+import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, bxApiUrl, timeAgo } from '../api/index.js';
+import { api, bxApiUrl, bxStorageUrl, timeAgo } from '../api/index.js';
 import { useNewEvents } from '../feed.js';
 import { beep, setSound, soundOn } from '../sound.js';
 import AddCameraModal, { rescanVideosFolder } from '../components/AddCameraModal.jsx';
@@ -37,6 +39,7 @@ const stageMsg = { height: '100%', display: 'flex', flexDirection: 'column', ali
 
 export default function LiveMonitoringPage() {
   const navigate = useNavigate();
+  const incidentStates = useCommonIncidentStates('branch_exterior');
   const [cameras, setCameras] = useState([]);
   const [statuses, setStatuses] = useState({});
   const [selectedId, setSelectedId] = useState(() => localStorage.getItem('liveCameraId') || '');
@@ -242,13 +245,7 @@ export default function LiveMonitoringPage() {
           <div className="bx-card-title">Live alert ticker</div>
           <div className="bx-ticker">
             {ticker.length === 0 && <Empty icon="🕑" bare>Waiting for events...</Empty>}
-            {ticker.map((e) => (
-              <div key={e.id} className={`bx-ticker-item sev-${e.severity}`}>
-                <div className="top"><span className="cam">{e.camera_name}</span><span className="time">{timeAgo(e.created_at)}</span></div>
-                <div className="msg">{e.message}</div>
-                <div style={{ marginTop: 5 }}><span className={`bx-badge sev-${e.severity}`}>{e.severity}</span> <span className="bx-tag">{e.scenario}</span></div>
-              </div>
-            ))}
+            {ticker.map((e) => <SourceIncidentCard key={e.id} event={e} useCase="branch_exterior" common={incidentStates.bySource[e.id]} thumbnailUrl={e.snapshot_path ? bxStorageUrl(e.snapshot_path) : undefined} onSelect={(id)=>navigate(`/alerts/branch?event=${encodeURIComponent(id)}`)} />)}
           </div>
           <div className="bx-card-title" style={{ marginTop: 18 }}>What the AI watches for <span className="bx-muted" style={{ fontWeight: 400 }}>(incidents this video)</span></div>
           <div>

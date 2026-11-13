@@ -1,0 +1,209 @@
+{
+  "session_id": "460e8a0cd75746da9af0b361d34834d9",
+  "source": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\temp\\vault_monitoring_hand_raise_updated_25s.mp4",
+  "sha256": "be7a0e0781991302efc232ab9553bdf9cf048a89542ab3f30d5ec6d28c3debde",
+  "effective_workflow": {
+    "enabled": true,
+    "confirmation_seconds": 0.5,
+    "min_observations": 3,
+    "exit_confirmation_seconds": 0.5,
+    "exit_min_observations": 3,
+    "dropout_tolerance_seconds": 0.5
+  },
+  "items": [
+    {
+      "id": "d43f1989-2f0b-5d15-86ca-bfb7adf95db6",
+      "type": "VAULT_DOOR_INTERACTION",
+      "session_id": "460e8a0cd75746da9af0b361d34834d9",
+      "camera_id": "460e8a0cd75746da9af0b361d34834d9",
+      "source_id": "460e8a0cd75746da9af0b361d34834d9",
+      "video_timestamp_seconds": 14.791666666666666,
+      "created_at": "2026-11-12T20:05:25.655046Z",
+      "track_ids": [
+        1
+      ],
+      "person_count": 1,
+      "zone_id": "vault_door_roi",
+      "description": "Reliable tracked wrist interaction observed in Vault Door; physical operation unverified.",
+      "evidence_reference": "06fded7aed3fae943f95a79c4e5636d12164606c39aac67d0b89163e2c01aade",
+      "source": "upload",
+      "replay": true,
+      "test_mode": true,
+      "metadata": {
+        "region": "vault_door_roi",
+        "track_id": 1,
+        "hand": "right",
+        "workflow_stage": 4,
+        "detection_method": "mediapipe_pose_wrist_roi_workflow",
+        "physical_operation_verified": false,
+        "simulated_authorization": true,
+        "interaction_duration_seconds": 0.625,
+        "valid_observations": 4,
+        "visibility": 0.9113739728927612,
+        "presence": 0.9951208233833313,
+        "wrist_coordinates": [
+          0.7223718166351318,
+          0.5625367760658264
+        ],
+        "candidate_regions": [
+          "vault_area_roi",
+          "vault_door_roi"
+        ],
+        "selected_region": "vault_door_roi",
+        "profile_id": "upload"
+      }
+    },
+    {
+      "id": "f2d91631-48b4-52fb-8575-f322214587e6",
+      "type": "VAULT_AREA_INTERACTION",
+      "session_id": "460e8a0cd75746da9af0b361d34834d9",
+      "camera_id": "460e8a0cd75746da9af0b361d34834d9",
+      "source_id": "460e8a0cd75746da9af0b361d34834d9",
+      "video_timestamp_seconds": 2.7083333333333335,
+      "created_at": "2026-11-12T20:04:19.114929Z",
+      "track_ids": [
+        1
+      ],
+      "person_count": 1,
+      "zone_id": "vault_area_roi",
+      "description": "Tracked person's wrist detected inside the Vault Area.",
+      "evidence_reference": "a55cec5bed20f64aa1eb8ccb836daea2ba9d2ca0d0826ddd178fa053c050ccec",
+      "source": "upload",
+      "replay": true,
+      "test_mode": true,
+      "metadata": {
+        "event_type": "VAULT_AREA_INTERACTION",
+        "region": "vault_area_roi",
+        "track_id": 1,
+        "hand": "right",
+        "interaction_duration_seconds": 1.0416666666666665,
+        "detection_method": "mediapipe_pose_wrist_roi",
+        "simulated_authorization": true,
+        "valid_observations": 6,
+        "profile_id": "upload"
+      }
+    },
+    {
+      "id": "62618b84-08a2-58fe-86cc-d5b8e95ca2c3",
+      "type": "SESSION_STARTED",
+      "session_id": "460e8a0cd75746da9af0b361d34834d9",
+      "camera_id": "460e8a0cd75746da9af0b361d34834d9",
+      "source_id": "460e8a0cd75746da9af0b361d34834d9",
+      "video_timestamp_seconds": 1.25,
+      "created_at": "2026-11-12T20:04:10.209410Z",
+      "track_ids": [
+        1,
+        2
+      ],
+      "person_count": 2,
+      "zone_id": "person_monitoring_roi",
+      "description": "Authorized two-person vault session started",
+      "evidence_reference": "bcbe35e04e19a485cc494c3caa35471bc60736b3989a378d99b116a75bd256eb",
+      "source": "upload",
+      "replay": true,
+      "test_mode": true,
+      "metadata": {
+        "region": "person_monitoring_roi",
+        "count": 2,
+        "track_ids": [
+          1,
+          2
+        ],
+        "started_at": "2026-11-12T20:03:10.015592+00:00",
+        "deadline": "2026-11-12T20:09:10.015592+00:00",
+        "duration_seconds": 360,
+        "simulated_authorization": true,
+        "authorization_method": "SIMULATED_TWO_PERSON_PRESENCE",
+        "real_identity_verified": false,
+        "profile_id": "upload"
+      }
+    },
+    {
+      "id": "d40ed48d-f602-57c0-87db-00b33c208aa5",
+      "type": "PERSON_DETECTED",
+      "session_id": "460e8a0cd75746da9af0b361d34834d9",
+      "camera_id": "460e8a0cd75746da9af0b361d34834d9",
+      "source_id": "460e8a0cd75746da9af0b361d34834d9",
+      "video_timestamp_seconds": 1.25,
+      "created_at": "2026-11-12T20:04:10.195868Z",
+      "track_ids": [
+        1
+      ],
+      "person_count": 2,
+      "zone_id": "person_monitoring_roi",
+      "description": "Person consistently detected in the monitoring area",
+      "evidence_reference": "bcbe35e04e19a485cc494c3caa35471bc60736b3989a378d99b116a75bd256eb",
+      "source": "upload",
+      "replay": true,
+      "test_mode": true,
+      "metadata": {
+        "region": "person_monitoring_roi",
+        "track_id": 1,
+        "count": 2,
+        "membership_mode": "roi",
+        "profile_id": "upload"
+      }
+    },
+    {
+      "id": "7ea82f80-e516-5182-8406-1583808694a0",
+      "type": "PERSON_ENTERED",
+      "session_id": "460e8a0cd75746da9af0b361d34834d9",
+      "camera_id": "460e8a0cd75746da9af0b361d34834d9",
+      "source_id": "460e8a0cd75746da9af0b361d34834d9",
+      "video_timestamp_seconds": 1.25,
+      "created_at": "2026-11-12T20:04:10.195868Z",
+      "track_ids": [
+        1,
+        2
+      ],
+      "person_count": 2,
+      "zone_id": "person_monitoring_roi",
+      "description": "Two people confirmed in the Person Monitoring Area",
+      "evidence_reference": "bcbe35e04e19a485cc494c3caa35471bc60736b3989a378d99b116a75bd256eb",
+      "source": "upload",
+      "replay": true,
+      "test_mode": true,
+      "metadata": {
+        "region": "person_monitoring_roi",
+        "count": 2,
+        "track_ids": [
+          1,
+          2
+        ],
+        "detection_method": "inferred_presence",
+        "membership_mode": "roi",
+        "verified_doorway_entry": false,
+        "profile_id": "upload"
+      }
+    },
+    {
+      "id": "51ee06e9-9800-5c83-9a14-7f88fe56c053",
+      "type": "PERSON_DETECTED",
+      "session_id": "460e8a0cd75746da9af0b361d34834d9",
+      "camera_id": "460e8a0cd75746da9af0b361d34834d9",
+      "source_id": "460e8a0cd75746da9af0b361d34834d9",
+      "video_timestamp_seconds": 1.25,
+      "created_at": "2026-11-12T20:04:10.195868Z",
+      "track_ids": [
+        2
+      ],
+      "person_count": 2,
+      "zone_id": "person_monitoring_roi",
+      "description": "Person consistently detected in the monitoring area",
+      "evidence_reference": "bcbe35e04e19a485cc494c3caa35471bc60736b3989a378d99b116a75bd256eb",
+      "source": "upload",
+      "replay": true,
+      "test_mode": true,
+      "metadata": {
+        "region": "person_monitoring_roi",
+        "track_id": 2,
+        "count": 2,
+        "membership_mode": "roi",
+        "profile_id": "upload"
+      }
+    }
+  ],
+  "total": 6,
+  "status": "completed",
+  "finalized": true
+}

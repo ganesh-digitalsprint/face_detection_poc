@@ -39,9 +39,9 @@ class PosePreviewError(RuntimeError):
 class PosePreviewService:
     """Lazily owns one MediaPipe Tasks PoseLandmarker in VIDEO mode."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, model_path=None) -> None:
         cfg = get_vault_room_config().pose_preview
-        configured = os.environ.get("VAULT_POSE_LANDMARKER_MODEL", cfg.model_path)
+        configured = os.environ.get("VAULT_POSE_LANDMARKER_MODEL", model_path or cfg.model_path)
         self._model_path = Path(configured)
         if not self._model_path.is_absolute():
             self._model_path = Path(__file__).resolve().parents[2] / self._model_path
@@ -56,6 +56,7 @@ class PosePreviewService:
         self._latencies: deque[float] = deque(maxlen=30)
         self._completed_at: deque[float] = deque(maxlen=30)
         self._last_result: dict = {"poses": [], "pose_count": 0}
+        self._last_source_ms = None
 
     @property
     def status(self) -> dict:
@@ -67,7 +68,7 @@ class PosePreviewService:
                 "initialization_ms": self._init_ms,
             }
 
-    def process(self, frame_bgr: np.ndarray, timestamp_ms: int | None = None) -> dict:
+    def process(self, frame_bgr: np.ndarray, timestamp_ms: int | None = None, *, source_interval_ms: int | None = None) -> dict:
         if not isinstance(frame_bgr, np.ndarray) or frame_bgr.size == 0 or frame_bgr.ndim != 3:
             raise PosePreviewError("Pose preview received an invalid frame")
         if frame_bgr.shape[2] != 3:
@@ -76,7 +77,12 @@ class PosePreviewService:
         with self._lock:
             landmarker = self._get_landmarker()
             now = time.monotonic()
-            if (self._last_inference_at is not None
+            if source_interval_ms is not None:
+                if timestamp_ms is None:
+                    raise PosePreviewError('Source sampling requires a video timestamp')
+                if self._last_source_ms is not None and timestamp_ms - self._last_source_ms < source_interval_ms:
+                    return {**self._last_result, 'throttled': True}
+            elif (self._last_inference_at is not None
                     and now - self._last_inference_at < self._cfg.processing_interval_ms / 1000.0):
                 return {**self._last_result, "throttled": True}
             now_ms = int(time.monotonic() * 1000) if timestamp_ms is None else int(timestamp_ms)
@@ -91,6 +97,7 @@ class PosePreviewService:
                 result = landmarker.detect_for_video(image, now_ms)
                 inference_ms = (time.perf_counter() - started) * 1000.0
                 self._last_inference_at = now
+                self._last_source_ms = timestamp_ms
             except Exception as exc:
                 self._status, self._error = "unavailable", type(exc).__name__
                 raise PosePreviewError("MediaPipe pose inference failed") from exc
@@ -123,6 +130,7 @@ class PosePreviewService:
                 "status": "poses_detected" if poses else "no_pose_detected",
                 "initialization_ms": self._init_ms,
                 "model_status": self._status,
+                "model": self._model_path.name,
             }
             return dict(self._last_result)
 
@@ -133,6 +141,7 @@ class PosePreviewService:
                 self._landmarker = None
             self._status, self._error = "not_started", None
             self._last_timestamp_ms = -1
+            self._last_source_ms = None
             self._last_inference_at = None
             self._latencies.clear()
             self._completed_at.clear()

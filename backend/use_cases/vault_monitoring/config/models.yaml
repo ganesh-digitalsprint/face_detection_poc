@@ -45,6 +45,25 @@ vault_room:
     min_pose_presence_confidence: 0.5
     min_tracking_confidence: 0.5
   session_seconds: 360
+  wrist_interaction:
+    enabled: true
+    sampling_interval_ms: 200
+    confirmation_seconds: 1
+    exit_confirmation_seconds: 0.5
+    min_observations: 3
+    max_observation_gap_seconds: 0.75
+    landmark_confidence: 0.5
+    association_margin: 0.12
+    dropout_tolerance_seconds: 0.5
+    pose_model_path: app/models/pose_landmarker_full.task
+    diagnostics: false
+  workflow:
+    enabled: true
+    confirmation_seconds: 0.5
+    min_observations: 3
+    exit_confirmation_seconds: 0.5
+    exit_min_observations: 3
+    dropout_tolerance_seconds: 0.5
   warn_before_expiry_seconds: 60
   expired_repeat_seconds: 60
   expired_open_max_seconds: null

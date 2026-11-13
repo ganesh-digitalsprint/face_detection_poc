@@ -1,3 +1,4 @@
+import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, bxApiUrl, bxStorageUrl, fmtTime } from '../api/index.js';
@@ -10,7 +11,7 @@ const SEV_COLORS = { info: '#6b7788', low: '#3fbf6f', medium: '#e0a930', high: '
 const SCEN_LABELS = ['loitering', 'gathering', 'movement', 'intrusion', 'anomaly', 'simulated'];
 const qstr = (o) => Object.entries(o).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
 
-function EventDetail({ id, onClose, onReviewed }) {
+function EventDetail({ id, incident, onClose, onReviewed }) {
   const [e, setE] = useState(null);
   const [remarks, setRemarks] = useState('');
   const [err, setErr] = useState('');
@@ -40,7 +41,7 @@ function EventDetail({ id, onClose, onReviewed }) {
     >
       <div className="bx-row bx-gap-8 bx-wrap" style={{ marginBottom: 10 }}>
         <span className={`bx-badge sev-${e.severity}`}>{e.severity}</span>
-        <span className={`bx-badge status-${e.status}`}>{e.status.replace('_', ' ')}</span>
+        <span className="bx-tag">Incident: {incident?.status || e.status.toUpperCase()}</span><span className={`bx-badge status-${e.status}`}>{e.status.replace('_', ' ')}</span>
         <span className="bx-tag">{fmtTime(e.created_at)}</span>
         <span className="bx-tag">confidence {Math.round((e.confidence || 0) * 100)}%</span>
       </div>
@@ -61,6 +62,7 @@ function EventDetail({ id, onClose, onReviewed }) {
 }
 
 export default function AlertsDashboardPage() {
+  const incidentStates=useCommonIncidentStates('branch_exterior');
   const [params, setParams] = useSearchParams();
   const [summary, setSummary] = useState(null);
   const [events, setEvents] = useState([]);
@@ -166,7 +168,7 @@ export default function AlertsDashboardPage() {
                     {e.meta && e.meta.kind && e.meta.kind !== e.scenario && <> <span className="bx-tag bx-tag-blue">{String(e.meta.kind).replace(/_/g, ' ')}</span></>}
                   </td>
                   <td><span className={`bx-badge sev-${e.severity}`}>{e.severity}</span></td>
-                  <td><span className={`bx-badge status-${e.status}`}>{e.status.replace('_', ' ')}</span></td>
+                  <td><span className="bx-tag">Incident: {incidentStates.bySource[e.id]?.status || e.status.toUpperCase()}</span><span className={`bx-badge status-${e.status}`}>{incidentStates.bySource[e.id]?.status || e.status.replace('_', ' ')}</span></td>
                   <td>{Math.round((e.confidence || 0) * 100)}%</td>
                 </tr>
               ))}
@@ -176,7 +178,7 @@ export default function AlertsDashboardPage() {
         {loaded && events.length === 0 && <Empty icon="✅" bare>No events match these filters.</Empty>}
       </div>
 
-      {detailId && <EventDetail id={detailId} onClose={closeDetail} onReviewed={() => { closeDetail(); loadEvents(); loadSummary(); }} />}
+      {detailId && <EventDetail incident={incidentStates.bySource[detailId]} id={detailId} onClose={closeDetail} onReviewed={() => { closeDetail(); loadEvents(); loadSummary(); }} />}
     </>
   );
 }

@@ -1,0 +1,105 @@
+﻿from copy import deepcopy
+from app.core.ml_config import VaultWorkflowSettings, get_vault_room_config
+from app.services.vault_region_monitor import VaultRegionMonitor
+from app.services.vault_workflow import VaultWorkflowMonitor
+
+
+def rectangle(x1,y1,x2,y2):return [[x1,y1],[x2,y1],[x2,y2],[x1,y2]]
+
+
+def profile(overlap=False):
+    return dict(id='upload',zones=[dict(id=k,name=k,polygon=p) for k,p in [
+        ('vault_area_roi',rectangle(0,0,1,1)),('vault_door_roi',rectangle(.2,.2,.35,.4)),
+        ('ornament_area_roi',rectangle(.2,.2,.35,.4) if overlap else rectangle(.45,.2,.6,.4)),
+        ('tray_area_roi',rectangle(.7,.2,.85,.4))]])
+
+
+def engine(overlap=False):return VaultWorkflowMonitor(VaultRegionMonitor(profile(overlap)),VaultWorkflowSettings(),.5)
+
+
+def wrist(x=.05,y=.05,track=1,valid=True,hand='right'):
+    return dict(track_id=track,hand=hand,wrist=dict(x=x,y=y,visibility=.99 if valid else .1,presence=.99))
+
+
+def run(m,t,x=.05,y=.05,*,track=1,valid=True,missing=False,authorized=True,hand='right'):
+    return m.update(t,[] if missing else [wrist(x,y,track,valid,hand)],
+        [dict(track_id=track)],[],presence_confirmed=False,authorized=authorized)
+
+
+def test_loaded_threshold_and_existing_detector_settings_unchanged():
+    cfg=get_vault_room_config()
+    assert cfg.workflow.confirmation_seconds==.5 and cfg.workflow.min_observations==3
+    assert cfg.workflow.exit_confirmation_seconds==.5 and cfg.workflow.exit_min_observations==3
+    assert cfg.workflow.dropout_tolerance_seconds==.5
+    assert cfg.wrist_interaction.confirmation_seconds==1 and cfg.wrist_interaction.landmark_confidence==.5
+    m=engine()
+    assert run(m,0,.25,.3)==[]
+    assert run(m,.25,.25,.3)==[]
+    events=run(m,.5,.25,.3)
+    assert events[0][2]['valid_observations']==3 and events[0][2]['interaction_duration_seconds']==.5
+
+
+def test_any_order_without_prior_events_authorization_or_operator_lock():
+    m=engine();events=[]
+    for i,x in enumerate((.75,.5,.25)):
+        for n in range(3):events+=run(m,i+.25*n,x,.3,authorized=False)
+    assert [e[0] for e in events]==['TRAY_INTERACTION','ORNAMENT_AREA_INTERACTION','VAULT_DOOR_INTERACTION']
+    assert all(e[2]['physical_operation_verified'] is False for e in events)
+    assert 'stage' not in m.debug and m.debug['mode']=='INDEPENDENT_ROI_MONITORING'
+
+
+def test_overlapping_regions_confirm_independently_once_per_continuous_episode():
+    m=engine(True);events=[]
+    for i in range(15):events+=run(m,i*.25,.25,.3)
+    assert [e[0] for e in events]==['VAULT_DOOR_INTERACTION','ORNAMENT_AREA_INTERACTION']
+    assert all(e[2]['candidate_regions']==['vault_area_roi','vault_door_roi','ornament_area_roi'] for e in events)
+    assert run(m,3.5,.25,.3)==[]  # Duplicate timestamp.
+
+
+def test_repeated_episode_requires_confirmed_exit_not_missing_or_boundary_flicker():
+    m=engine()
+    for t in (0,.25):assert run(m,t,.25,.3)==[]
+    assert len(run(m,.5,.25,.3))==1
+    for t in (.75,1,1.25):assert run(m,t,missing=True)==[]
+    assert run(m,1.5,.25,.3)==[]
+    assert run(m,1.75)==[]
+    assert run(m,2,.25,.3)==[]
+    for t in (2.25,2.5,2.75):assert run(m,t)==[]
+    for t in (3,3.25):assert run(m,t,.25,.3)==[]
+    assert len(run(m,3.5,.25,.3))==1
+    assert run(m,3.75,.25,.3)==[]
+
+
+def test_dropout_unreliable_unmatched_and_track_hand_isolation():
+    m=engine()
+    run(m,0,.25,.3);run(m,.25,.25,.3)
+    assert run(m,.5,.25,.3,valid=False)==[]
+    assert run(m,1,missing=True)==[]
+    assert run(m,1.25,.25,.3,track=2)==[]
+    assert run(m,1.5,.25,.3,track=2,hand='left')==[]
+    assert run(m,1.75,.25,.3,track=2)==[]
+    assert len(run(m,2,.25,.3,track=2))==1
+    # Track 1 cannot inherit track 2 confirmation or accumulated samples.
+    assert run(m,2.25,.25,.3)==[]
+    assert run(m,2.5,.25,.3)==[]
+    assert len(run(m,2.75,.25,.3))==1
+    assert m.update(3,[wrist(.75,.3,track=99)],[],[],presence_confirmed=True,authorized=True)==[]
+    snapshot=deepcopy(m.debug)
+    other=engine();run(other,0,.75,.3)
+    assert m.debug==snapshot
+
+
+def test_short_dropout_keeps_pending_but_never_adds_positive_or_exit_samples():
+    m=engine();run(m,0,.25,.3)
+    assert run(m,.25,missing=True)==[]
+    assert run(m,.5,.25,.3)==[]  # Duration reached, but only two positives.
+    assert len(run(m,.75,.25,.3))==1
+    run(m,1);run(m,1.25,missing=True);run(m,1.5)
+    assert m.debug['tracks']['1']['regions']['vault_door_roi']['right']['exit']['samples']==1
+    assert run(m,1.75,.25,.3)==[]
+
+
+def test_missing_region_is_reported_not_fabricated():
+    m=engine();m.regions.zones.pop('tray_area_roi')
+    for t in (0,.25,.5,1):assert run(m,t,.75,.3)==[]
+    assert m.debug['tracks']['1']['regions']['tray_area_roi']['right']['reason']=='TARGET_REGION_NOT_CONFIGURED'

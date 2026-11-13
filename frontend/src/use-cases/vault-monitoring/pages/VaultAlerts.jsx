@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { Bell, ExternalLink, RefreshCw } from 'lucide-react';
-import { createIncidentFromAlert, getAlertMeta, getAlertSummary, updateAlert } from '../api/alerts.js';
+import { createIncidentFromAlert, getAlertMeta, getAlertSummary, getAlert, normalizeAlert, updateAlert } from '../api/alerts.js';
 import { describeError } from '../../../utils/errors.js';
 import AlertCard from '../components/alerts/AlertCard.jsx';
 import useVaultAlerts from '../hooks/useVaultAlerts.js';
@@ -32,7 +32,9 @@ export default function VaultAlerts() {
   const [meta, setMeta] = useState(null);
   const [metaError, setMetaError] = useState(null);
   const [summaryError, setSummaryError] = useState(null);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(query.get('alert'));
+  const selectedFromQuery = query.get('alert');
+  useEffect(() => { setSelectedId(selectedFromQuery); }, [selectedFromQuery]);
   const [pendingId, setPendingId] = useState(null);
   const [notice, setNotice] = useState('');
   const setFilter = (key, value) => { const next = new URLSearchParams(query); if (value) next.set(key, value); else next.delete(key); next.delete('cursor'); setQuery(next); };
@@ -40,7 +42,11 @@ export default function VaultAlerts() {
     try { setSummary(await getAlertSummary({ scope, ...params })); setSummaryError(null); }
     catch (error) { setSummaryError(describeError(error).message); }
   }, [scope, params]);
-  useEffect(() => { refreshSummary(); }, [refreshSummary]);
+  useEffect(() => {
+    refreshSummary();
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') refreshSummary(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [refreshSummary]);
   useEffect(() => { setSessionSearch(sessionRef); }, [sessionRef]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -51,17 +57,31 @@ export default function VaultAlerts() {
     return () => window.clearTimeout(timer);
   }, [sessionSearch]);
   useEffect(() => { getAlertMeta().then(setMeta).catch((error) => setMetaError(describeError(error).message)); }, []);
-  const selected = feed.items.find((item) => item.id === selectedId) || null;
+  const [detail, setDetail] = useState({ id:null, row:null, loading:false, error:'' });
+  const [detailRetry, setDetailRetry] = useState(0);
+  const listedVersion = feed.items.find((item) => item.id === selectedId)?.rowVersion;
+  useEffect(() => {
+    const ctl = new AbortController();
+    setDetail({ id:selectedId, row:null, loading:Boolean(selectedId), error:'' });
+    if (selectedId) getAlert(selectedId, ctl.signal).then((row) => {
+      if (row.id !== selectedId || !Number.isInteger(row.row_version)) throw new Error('Mismatched source alert');
+      if (!ctl.signal.aborted) setDetail({ id:selectedId, row:normalizeAlert(row), loading:false, error:'' });
+    }).catch((error) => { if (!ctl.signal.aborted) setDetail({ id:selectedId, row:null, loading:false, error:describeError(error).message }); });
+    return () => ctl.abort();
+  }, [selectedId, listedVersion, detailRetry]);
+  const selected = detail.id === selectedId && !detail.loading && !detail.error ? detail.row : null;
   const act = async (alert, action, note) => {
+    if (!selected || selected.id !== alert.id || !selected.allowedActions.includes(action)) return;
     setPendingId(alert.id); setNotice('');
     try {
-      await updateAlert(alert.id, action, { ...(note ? { note } : {}), expected_version: alert.rowVersion });
+      const updated = await updateAlert(alert.id, action, { ...(note ? { note } : {}), expected_version: alert.rowVersion });
+      setDetail((current) => current.id === alert.id ? { ...current, row:normalizeAlert(updated) } : current);
       setNotice(`${action === 'acknowledge' ? 'Alert acknowledged' : action === 'dismiss' ? 'Alert discarded' : 'Alert resolved'}.`);
       await Promise.all([feed.refresh(), refreshSummary()]);
     } catch (error) {
       const info = describeError(error);
       setNotice(info.code === 'VERSION_CONFLICT' ? 'This alert changed. The latest version has been reloaded.' : info.message);
-      if (info.status === 409) await feed.refresh();
+      if (info.status === 409) { setDetailRetry((value) => value + 1); await feed.refresh(); }
     } finally { setPendingId(null); }
   };
   const openIncident = async () => {
@@ -106,8 +126,10 @@ export default function VaultAlerts() {
         {feed.hasMore && <button type="button" disabled={feed.loading} onClick={feed.loadMore} className="mt-4 min-h-11 w-full rounded-lg border border-slate-200 bg-white text-sm font-semibold text-[#34479B] disabled:opacity-50">{feed.loading ? 'Loading…' : 'Load more'}</button>}
       </section>
       <aside className="min-w-0" aria-label="Alert details">
+        {selectedId && detail.loading && <p role="status">Loading latest alert details...</p>}
+        {selectedId && detail.error && <p role="alert">{detail.error} <button type="button" onClick={() => setDetailRetry((value) => value + 1)} className="underline">Retry details</button></p>}
         {selected ? <div className="vault-card sticky top-24 space-y-4 p-4 sm:p-5"><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-semibold uppercase text-slate-500">Alert details</p><h2 className="mt-1 text-lg font-bold text-[#152449]">{selected.title}</h2></div><button type="button" onClick={() => setSelectedId(null)} className="min-h-9 rounded px-2 text-sm text-slate-500" aria-label="Close alert details">Close</button></div>
-          <AlertCard alert={selected} variant="drawer" pending={pendingId === selected.id} onAction={act} thumbnailUrl={thumbnails[selected.primaryEvidenceId]}/>
+          <AlertCard key={selected.id} alert={selected} variant="drawer" pending={pendingId === selected.id} onAction={act} thumbnailUrl={thumbnails[selected.primaryEvidenceId]}/>
           <dl className="grid grid-cols-2 gap-3 text-xs"><div><dt className="text-slate-500">Observed / required</dt><dd className="mt-1 font-bold">{selected.observedCount ?? '—'} / {selected.requiredCount ?? '—'}</dd></div><div><dt className="text-slate-500">First seen</dt><dd className="mt-1 font-bold">{selected.firstSeenAt ? new Date(selected.firstSeenAt).toLocaleTimeString([], { timeZoneName: 'short' }) : '—'}</dd></div><div><dt className="text-slate-500">Session</dt><dd className="mt-1 break-all font-bold">{selected.sessionRef || '—'}</dd></div><div><dt className="text-slate-500">Incident</dt><dd className="mt-1 font-bold">{selected.incidentNumber || 'Not linked'}</dd></div></dl>
           {selected.incidentId ? <Link to={`/vault-alerts/incidents/${encodeURIComponent(selected.incidentId)}?alert=${encodeURIComponent(selected.id)}`} className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 text-sm font-semibold text-[#26365F]">Open incident <ExternalLink className="h-4 w-4" aria-hidden/></Link> : <button type="button" disabled={pendingId === selected.id} onClick={openIncident} className="min-h-10 w-full rounded-lg border border-slate-200 text-sm font-semibold text-[#26365F] disabled:opacity-50">Open incident</button>}
         </div> : <div className="hidden rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 xl:block">Select an alert to view details.</div>}

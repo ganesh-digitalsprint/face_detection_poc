@@ -80,6 +80,23 @@ def test_pose_preview_rejects_invalid_frames_before_model_initialization(monkeyp
     assert calls["options"] is None
 
 
+def test_replay_sampling_uses_source_time_and_does_not_reuse_cached_pose_as_observation(monkeypatch):
+    calls = fake_mediapipe(monkeypatch)
+    monkeypatch.setattr(Path, 'is_file', lambda self: True)
+    service = pose_preview.PosePreviewService()
+    frame = np.zeros((64,80,3),dtype=np.uint8)
+    try:
+        for timestamp in [0,0,100,200,400]:
+            result = service.process(frame,timestamp_ms=timestamp,source_interval_ms=200)
+            if timestamp == 100: assert result['throttled']
+        assert calls['timestamps']==[0,200,400]
+        service.close()
+        service.process(frame,timestamp_ms=0,source_interval_ms=200)
+        assert calls['timestamps']==[0,200,400,0]
+    finally:
+        service.close()
+
+
 def test_pose_only_path_remains_available_while_room_counting_is_idle(monkeypatch):
     from app.services.vault_room_manager import VaultRoomManager
 

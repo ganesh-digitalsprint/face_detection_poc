@@ -151,6 +151,8 @@ class VaultMonitoringRepository:
         _audit(self.session, f"ALERT_{new_status}", "alert", row.id, actor_id,
                {"from": "OPEN" if new_status == "ACKNOWLEDGED" else "ACKNOWLEDGED", "to": new_status, "note": note})
         self.session.flush()
+        from app.services.vault_alert_lifecycle import stage_lifecycle
+        stage_lifecycle(self.session, row)
         return row
 
     def create_incident(self, *, incident_number: str, title: str, description: str | None = None,

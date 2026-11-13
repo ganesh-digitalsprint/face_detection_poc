@@ -211,7 +211,7 @@ def test_lifecycle_transitions_notes_versions_and_audit(configured):
     assert audit.json()[-1]["actor_id"] == "operator-17"
 
 
-def test_producer_resolves_own_condition_and_cannot_resolve_other_producers_alert(configured):
+def test_producer_recovery_cannot_resolve_an_operator_incident(configured):
     client, app = configured
     alert = create(client, payload(resource_refs={"camera_id": "cam", "assignment_id": "a"})).json()
     ack = client.post(f"/api/v1/alerts/{alert['id']}/acknowledgements", headers={"Authorization": OPERATOR},
@@ -219,12 +219,12 @@ def test_producer_resolves_own_condition_and_cannot_resolve_other_producers_aler
     assert ack.json()["status"] == "ACKNOWLEDGED"
     resolved = client.post("/api/v1/alerts/source-events/event-abc/resolution",
         headers={"Authorization": PRODUCER}, json={"expected_source_version": 1, "note": "Gate closed"})
-    assert resolved.status_code == 200
-    assert resolved.json()["status"] == "RESOLVED"
-    assert resolved.json()["resolution_source"] == "SOURCE"
+    assert resolved.status_code == 409
+    assert resolved.json()["detail"]["code"] == "MANUAL_LIFECYCLE_REQUIRED"
     with app.state.session_factory() as db:
         actions = [row.action for row in db.query(AlertAudit).order_by(AlertAudit.created_at).all()]
-    assert "SOURCE_RESOLVED" in actions
+    assert "SOURCE_RESOLVED" not in actions
+    assert client.get(f"/api/v1/alerts/{alert['id']}", headers={"Authorization": OPERATOR}).json()["status"] == "ACKNOWLEDGED"
     assert client.post("/api/v1/alerts/source-events/event-abc/resolution",
         headers={"Authorization": "Bearer unrelated"},
         json={"expected_source_version": 1, "note": "wrong producer"}).status_code == 401
@@ -372,15 +372,16 @@ def test_transient_webhook_failure_retries_and_persists_across_restart(configure
             assert delivery.attempts == 2
 
 
-def test_grill_gate_source_owns_lifecycle_and_can_publish_evidence_without_operator_dual_writes(tmp_path):
+@pytest.mark.parametrize('use_case,token', [('grill_gate', 'grill'), ('vault_monitoring', 'vault')])
+def test_source_owns_lifecycle_and_can_publish_evidence_without_operator_dual_writes(tmp_path, use_case, token):
     config = Settings(database_url=f"sqlite:///{(tmp_path / 'source-owned.db').as_posix()}",
         producer_credentials={"grill": {"use_case": "grill_gate", "producer": "grill-gate-monitoring"},
                               "vault": {"use_case": "vault_monitoring", "producer": "vault-monitoring"}},
         operator_credentials={"operator": {"actor_id": "browser-operator", "use_cases": ["*"]}})
     app = create_app(config, start_notification_worker=False)
     with TestClient(app) as client:
-        producer = {"Authorization": "Bearer grill"}
-        assert client.get("/api/v1/producer", headers=producer).json()["use_case"] == "grill_gate"
+        producer = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/v1/producer", headers=producer).json()["use_case"] == use_case
         body = payload(source_event_id="source-owned", source_status="OPEN", severity="WARNING",
             evidence_refs=[{"provider": "grill_gate", "id": "opaque-id", "content_type": "image/jpeg",
                 "retrieval_path": "/api/v1/grill-gate/alerts/local-id/evidence/opaque-id?video_job_id=job"}])
@@ -388,12 +389,17 @@ def test_grill_gate_source_owns_lifecycle_and_can_publish_evidence_without_opera
         assert created.status_code == 201, created.text
         alert = created.json()
         assert alert["allowed_actions"] == [] and alert["lifecycle_owner"] == "source"
-        assert client.get("/api/v1/alerts/source-events/source-owned", headers={"Authorization": "Bearer vault"}).status_code == 404
+        other_token = 'vault' if token == 'grill' else 'grill'
+        assert client.get("/api/v1/alerts/source-events/source-owned", headers={"Authorization": f"Bearer {other_token}"}).status_code == 404
         denied = client.post(f"/api/v1/alerts/{alert['id']}/resolution", headers={"Authorization": "Bearer operator"},
             json={"expected_version": 1, "note": "Competing writer"})
         assert denied.status_code == 409 and denied.json()["detail"]["code"] == "SOURCE_LIFECYCLE_OWNED"
-        for version, status in [(2, "ACKNOWLEDGED"), (3, "RESOLVED")]:
-            body = {**body, "source_event_version": version, "source_status": status}
+        recovery = client.put("/api/v1/alerts/source-events/source-owned", headers={**producer, "If-Match": "1"},
+            json={**body, "source_event_version": 2, "source_status": "RESOLVED"})
+        assert recovery.status_code == 200 and recovery.json()['status'] == 'OPEN'
+        assert recovery.json()['evidence_refs'] == alert['evidence_refs']
+        for version, status in [(3, "ACKNOWLEDGED"), (4, "RESOLVED")]:
+            body = {**body, "source_event_version": version, "source_status": status, "domain_data": {**body.get("domain_data", {}), "lifecycle_actor_type": "operator"}}
             changed = client.put("/api/v1/alerts/source-events/source-owned",
                 headers={**producer, "If-Match": str(version - 1)}, json=body)
             assert changed.status_code == 200, changed.text
@@ -401,5 +407,5 @@ def test_grill_gate_source_owns_lifecycle_and_can_publish_evidence_without_opera
             assert changed.json()["id"] == alert["id"]
             assert changed.json()["evidence_refs"]
         history = client.get("/api/v1/alerts", headers={"Authorization": "Bearer operator"},
-            params={"use_case": "grill_gate", "status": "RESOLVED"})
+            params={"use_case": use_case, "status": "RESOLVED"})
         assert len(history.json()["items"]) == 1

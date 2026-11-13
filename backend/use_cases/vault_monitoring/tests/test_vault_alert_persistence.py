@@ -45,7 +45,7 @@ def test_constant_condition_10k_samples_creates_one_row_and_throttles_touches(wo
         assert rows[0].dedup_key == "COUNT_MISMATCH:session-ref:camera-1::0"
 
 
-def test_condition_clear_resolves_warning_and_reopens_same_episode(worker_db):
+def test_condition_clear_keeps_warning_active_and_reuses_same_episode(worker_db):
     engine, worker = worker_db
     at = datetime(2026, 1, 1, tzinfo=timezone.utc)
     worker._persist(_job(at))
@@ -53,11 +53,11 @@ def test_condition_clear_resolves_warning_and_reopens_same_episode(worker_db):
     worker._persist(_job(at + timedelta(seconds=12), count=2))
     with Session(engine) as db:
         row = db.scalar(select(VaultRoomAlert))
-        assert row.status == "RESOLVED" and row.resolution_source == "SYSTEM"
+        assert row.status == "OPEN" and row.resolved_at is None
     worker._persist(_job(at + timedelta(seconds=13)))
     with Session(engine) as db:
         row = db.scalar(select(VaultRoomAlert))
-        assert row.status == "OPEN" and row.occurrence_count == 2
+        assert row.status == "OPEN" and row.occurrence_count == 1
         assert row.resolution_source is None
 
 

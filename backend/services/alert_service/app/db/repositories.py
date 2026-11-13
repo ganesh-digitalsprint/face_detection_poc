@@ -45,13 +45,17 @@ def source_payload_matches(alert: Alert, payload: dict, severity: str) -> bool:
 
 
 def _source_lifecycle(use_case, payload, current=None):
-    if use_case != "grill_gate":
+    if use_case not in {"grill_gate", "vault_monitoring"}:
         return {}
     target = str(payload.get("source_status") or "OPEN").upper()
     if target not in {"OPEN", "ACKNOWLEDGED", "RESOLVED", "DISMISSED"}:
         raise ValueError("Invalid source-owned lifecycle status")
+    if target != "OPEN" and payload.get("domain_data", {}).get("lifecycle_actor_type") != "operator":
+        # Old recovery publications may update evidence/metadata but never close incidents.
+        return {}
     if current is not None and target != current.status and target not in TRANSITIONS.get(current.status, set()):
         raise Conflict("INVALID_TRANSITION", "Source lifecycle cannot reopen a terminal alert")
+    actor = payload.get("domain_data", {}).get("lifecycle_actor_id") or f"{use_case}/source"
     values = {"status": target}
     if current is not None and target == current.status:
         return values
@@ -60,12 +64,12 @@ def _source_lifecycle(use_case, payload, current=None):
     if now.tzinfo is None:
         raise ValueError("Source lifecycle timestamp must include timezone")
     if target == "ACKNOWLEDGED":
-        values.update(acknowledged_at=now, acknowledged_by="grill_gate/source")
+        values.update(acknowledged_at=now, acknowledged_by=actor)
     if target == "RESOLVED":
-        values.update(resolved_at=now, resolved_by="grill_gate/source", resolution_source="SOURCE",
+        values.update(resolved_at=now, resolved_by=actor, resolution_source="SOURCE",
             resolution_note=payload.get("domain_data", {}).get("resolution_note", "Source condition recovered"))
     if target == "DISMISSED":
-        values.update(dismissed_at=now, dismissed_by="grill_gate/source")
+        values.update(dismissed_at=now, dismissed_by=actor, resolution_note=payload.get("domain_data", {}).get("resolution_note"))
     return values
 
 
@@ -214,7 +218,10 @@ def update_source(db: Session, *, use_case: str, producer: str, source_event_id:
     db.expire(alert)
     db.refresh(alert)
     audit(db, alert, "SOURCE_UPDATED", "producer", f"{use_case}/{producer}", request_id,
-          before, alert.status, {"source_event_version": alert.source_event_version})
+          before, alert.status, {"source_event_version": alert.source_event_version,
+              **({"note":payload.get("domain_data", {}).get("acknowledgement_comment") if alert.status == "ACKNOWLEDGED" else payload.get("domain_data", {}).get("resolution_note"),
+                  "source_actor_id":payload.get("domain_data", {}).get("lifecycle_actor_id")}
+                 if use_case == "grill_gate" else {})})
     db.commit()
     db.refresh(alert)
     return alert
@@ -261,32 +268,8 @@ def transition(db: Session, *, alert_id: str, target: str, action: str, actor_id
 
 def resolve_source(db: Session, *, use_case: str, producer: str, source_event_id: str,
                    expected_source_version: int, note: str, request_id: str) -> Alert:
-    """Resolve an alert only when its owning producer confirms its source condition cleared."""
-    alert = db.scalar(select(Alert).where(Alert.use_case == use_case, Alert.producer == producer,
-                                          Alert.source_event_id == source_event_id))
-    if alert is None:
-        raise LookupError("Source event not found")
-    if alert.status == "RESOLVED":
-        return alert
-    if alert.status not in {"OPEN", "ACKNOWLEDGED"}:
-        raise Conflict("INVALID_TRANSITION", "Dismissed alerts cannot be source-resolved")
-    if alert.source_event_version != expected_source_version:
-        raise Conflict("SOURCE_VERSION_CONFLICT", "Source version did not match")
-    before, now = alert.status, utcnow()
-    result = db.execute(update(Alert).where(Alert.id == alert.id, Alert.row_version == alert.row_version,
-        Alert.status == before).values(status="RESOLVED", resolved_at=now,
-        resolved_by=f"{use_case}/{producer}", resolution_note=note,
-        resolution_source="SOURCE", updated_at=now, row_version=Alert.row_version + 1))
-    if result.rowcount != 1:
-        db.rollback()
-        raise Conflict("VERSION_CONFLICT", "Alert was changed concurrently")
-    db.expire(alert)
-    db.refresh(alert)
-    audit(db, alert, "SOURCE_RESOLVED", "producer", f"{use_case}/{producer}", request_id,
-          before, "RESOLVED", {"note": note, "source_event_id": source_event_id})
-    db.commit()
-    db.refresh(alert)
-    return alert
+    """Condition recovery cannot close an operator-managed incident."""
+    raise Conflict("MANUAL_LIFECYCLE_REQUIRED", "Only an authorized operator may resolve an incident")
 
 
 def alert_dict(alert: Alert) -> dict:
@@ -311,8 +294,8 @@ def alert_dict(alert: Alert) -> dict:
             "resolved_at": iso(alert.resolved_at), "resolved_by": alert.resolved_by,
             "resolution_note": alert.resolution_note, "resolution_source": alert.resolution_source,
             "dismissed_at": iso(alert.dismissed_at), "dismissed_by": alert.dismissed_by,
-            "lifecycle_owner": "source" if alert.use_case == "grill_gate" else "common",
-            "allowed_actions": [] if alert.use_case == "grill_gate" else allowed_actions(alert.status)}
+            "lifecycle_owner": "source" if alert.use_case in {"grill_gate", "vault_monitoring"} else "common",
+            "allowed_actions": [] if alert.use_case in {"grill_gate", "vault_monitoring"} else allowed_actions(alert.status)}
 
 
 def list_alerts(db: Session, *, scopes: list[str], filters: dict, sort: str, limit: int, cursor):

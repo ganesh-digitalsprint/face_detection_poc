@@ -4,6 +4,9 @@ import Button from '../../../../components/common/Button.jsx';
 import ErrorMessage from '../../../../components/common/ErrorMessage.jsx';
 import { getSessionAlerts, getVaultSessions } from '../../api/vaultRoom.js';
 import VaultAlertsPanel from '../alerts/VaultAlertsPanel.jsx';
+import VaultRoomReplayAlerts from './VaultRoomReplayAlerts.jsx';
+import useVaultActivityEvents from '../../hooks/useVaultActivityEvents.js';
+import VaultActivityEvents from './VaultActivityEvents.jsx';
 
 const card = 'vault-card p-4 sm:p-5';
 const stateNames = { IDLE:'Idle', ENTRY_BUFFER:'Entering', ACTIVE:'Session active', EXPIRED_OPEN:'Expired', CLOSED:'Closed' };
@@ -66,7 +69,7 @@ export function VaultRoomVideoOverlay({ roomState, connection, counting, poses =
   return <>
     <span className="absolute left-3 top-3 z-10 inline-flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs font-semibold text-white sm:left-4 sm:top-4"><span className="h-2 w-2 rounded-full bg-red-500" aria-hidden /> Live · Vault Room</span>
     <span className="absolute right-3 top-3 z-10 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#0F1B3D] sm:right-4 sm:top-4">{stateNames[state]}</span>
-    {(connection === 'reconnecting' || connection === 'offline') && <span className="absolute left-3 top-12 z-10 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-[#6B4500] sm:left-4">Reconnecting...</span>}
+    {(connection === 'reconnecting' || connection === 'offline') && <span className="absolute left-3 top-[88px] z-10 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-[#6B4500] sm:left-4">Reconnecting...</span>}
     <span className="absolute left-3 top-12 z-10 rounded-full bg-white/95 px-3 py-1.5 text-xs font-bold text-[#0F1B3D] sm:left-4">{count ?? '?'} of {expected ?? '?'} present</span>
     <button type="button" aria-pressed={showBoxes} onClick={toggleBoxes} className="absolute right-3 top-12 z-10 inline-flex min-h-11 items-center rounded-full bg-white/95 px-3 text-xs font-bold text-[#0F1B3D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:right-4">{showBoxes ? 'Hide boxes' : 'Show boxes'}</button>
     {showBoxes && tracks.length > 0 && <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid slice">
@@ -116,7 +119,8 @@ function TimerCard({ roomState, progress }) {
   const DoorIcon = roomState?.door === 'UNLOCKED' ? DoorOpen : DoorClosed;
   return <section className={card} aria-labelledby="room-timer-title">
     <h2 id="room-timer-title" className="vault-heading flex items-center gap-2"><Clock3 className="h-5 w-5 text-brand" aria-hidden /> Session timer</h2>
-    {state === 'ENTRY_BUFFER' ? <p className="mt-3 text-3xl font-bold tabular-nums text-[#0F1B3D]">{entry}s <span className="text-sm font-medium text-[#55607A]">entry window</span></p>
+    {['IDLE', 'ENTRY_BUFFER'].includes(state) && roomState?.replay_mode && !roomState.simulated_authorization ? <p className="mt-3 text-sm font-semibold text-[#55607A]">Waiting for two-person confirmation</p>
+      : state === 'ENTRY_BUFFER' ? <p className="mt-3 text-3xl font-bold tabular-nums text-[#0F1B3D]">{entry}s <span className="text-sm font-medium text-[#55607A]">entry window</span></p>
       : state === 'ACTIVE' ? <><p className={`mt-3 text-3xl font-bold tabular-nums ${remaining <= 60 ? 'text-[#6B4500]' : 'text-[#0F1B3D]'}`}>{mmss(remaining)}</p>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100" aria-label="Session time remaining"><div className={`h-full transition-[width] motion-reduce:transition-none ${remaining <= 60 ? 'bg-amber-500' : 'bg-[#34479B]'}`} style={{ width:`${progress}%` }} /></div></>
       : <p className={`mt-3 text-2xl font-bold ${alert ? 'text-[#B3261E]' : 'text-[#55607A]'}`}>{alert ? 'Expired' : stateNames[state]}</p>}
@@ -130,7 +134,7 @@ function CustodiansCard({ roomState }) {
   const required = roomState?.required_persons;
   return <section className={card} aria-labelledby="room-custodian-title">
     <div className="flex flex-wrap items-center justify-between gap-2"><h2 id="room-custodian-title" className="vault-heading">Custodians</h2>
-      {roomState?.test_mode && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-[#6B4500]">TEST MODE · 1 person</span>}</div>
+      {roomState?.test_mode && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-[#6B4500]">{roomState?.replay_mode ? `Replay test · ${required ?? '?'} expected` : 'TEST MODE · 1 person'}</span>}</div>
     <p className="mt-1 text-sm text-[#55607A]">{employees.length} of {required ?? '—'} custodians</p>
     {employees.length ? <ul className="mt-3 divide-y divide-slate-100">{employees.map((person) => <li key={`${person.slot}-${person.employee_id}`} className="flex items-start gap-3 py-3">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E9EDFF] font-bold text-[#34479B]" aria-hidden>{(person.name || person.employee_id || '?').slice(0,1).toUpperCase()}</span>
@@ -153,8 +157,10 @@ function PresenceCard({ roomState }) {
   const extra = Array.from({ length: Math.max(0, (count ?? 0) - regular.length) }, (_, i) => i);
   return <section className={card} aria-labelledby="room-presence-title">
     <div className="flex flex-wrap items-center justify-between gap-2"><h2 id="room-presence-title" className="vault-heading flex items-center gap-2"><UserRound className="h-5 w-5 text-brand" aria-hidden /> People in the room</h2>
-      {roomState?.test_mode && <span className="rounded-full bg-[#FFF4DC] px-3 py-1 text-xs font-bold text-[#6B4500]">TEST MODE</span>}</div>
+      {roomState?.test_mode && <span className="rounded-full bg-[#FFF4DC] px-3 py-1 text-xs font-bold text-[#6B4500]">{roomState?.replay_mode ? 'Replay test' : 'TEST MODE'}</span>}</div>
     <div className="mt-3 flex flex-wrap items-center gap-3"><p className="text-3xl font-bold tabular-nums text-[#0F1B3D]">{count ?? '?'} <span className="text-lg font-semibold text-[#55607A]">of {expected ?? '?'}</span></p><span className={`rounded-full px-3 py-1 text-xs font-bold ${tone}`}>{status}</span></div>
+    {roomState?.monitoring?.person_monitoring_mode === 'roi' && roomState.monitoring.confirmed_track_count > roomState.monitoring.roi_person_count && <p className="mt-2 text-xs text-[#6B4500]">{roomState.monitoring.confirmed_track_count} tracked · {roomState.monitoring.roi_person_count} inside Person Monitoring Area. Check the region and its reference point.</p>}
+    {roomState?.replay_mode && roomState.simulated_authorization && <p className="mt-2 text-xs text-[#55607A]">Simulated authorization · replay only</p>}
     {expected != null && <div className="mt-2 flex items-center gap-2" aria-label={`${count ?? 'Unknown'} people counted; ${expected} expected`}>
       {regular.map((slot) => <UserRound key={`slot-${slot}`} className={`h-6 w-6 ${count != null && count > slot ? 'fill-[#34479B] text-[#34479B]' : 'text-[#8790A5]'}`} aria-hidden />)}
       {extra.map((slot) => <UserRoundPlus key={`extra-${slot}`} className="h-6 w-6 text-[#B3261E]" aria-hidden />)}
@@ -215,7 +221,12 @@ function CloseDialog({ open, onCancel, onConfirm, closing, triggerRef, roomState
   </div>;
 }
 
-export default function VaultRoomPanel({ room, onRetry }) {
+export default function VaultRoomPanel({ room, onRetry, activityContext }) {
+  const activityFeed = useVaultActivityEvents({ ...activityContext,
+    sessionId: room.replay ? room.replay.session_id : room.roomState?.session_id,
+    replay: Boolean(room.replay), liveEvents: room.events });
+  const activity = { total: activityFeed.total, loading: activityFeed.loading, refresh: activityFeed.refresh,
+    connected: room.connection === 'live', content: <VaultActivityEvents key={activityFeed.key} feed={activityFeed} status={room.replay?.status} replay={Boolean(room.replay)} /> };
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [sessionsError, setSessionsError] = useState(null);
@@ -236,18 +247,29 @@ export default function VaultRoomPanel({ room, onRetry }) {
     } else setSessionsOpen(false);
   };
   return <>
-    <div className="grid gap-4">
+      <div className="room-information-notices">
       {!room.roomState && !room.error && <section className={card} role="status">Connecting to vault room…</section>}
       {room.error && <div className="space-y-2"><ErrorMessage error={room.error} /><Button variant="secondary" onClick={onRetry} className="min-h-11">Retry connection</Button></div>}
+      </div>
+    <div className="room-information-grid grid gap-4">
+      <div className="room-stat-cards">
       <PresenceCard roomState={room.roomState} />
       <TimerCard roomState={room.roomState} progress={room.countdownProgress} />
+      </div>
+      <div className="room-custodians-area">
       <CustodiansCard roomState={room.roomState} />
-      <VaultAlertsPanel liveEvents={room.alertEvents} />
-      <EventTimeline events={room.events} clearEvents={room.clearEvents} />
+      </div>
+      <div className="room-alerts-area">
+      {room.replay ? <VaultRoomReplayAlerts replay={room.replay} activity={activity} /> : <VaultAlertsPanel liveEvents={room.alertEvents} activity={activity} />}
+      </div>
+      <div className="room-events-area">
+      <EventTimeline events={room.events.filter((event) => event.type !== 'activity.created' && !['PERSON_DETECTED', 'PERSON_ENTERED', 'VAULT_AREA_ENTERED', 'VAULT_AREA_INTERACTION', 'VAULT_DOOR_INTERACTION', 'ORNAMENT_AREA_INTERACTION', 'TRAY_INTERACTION'].includes(event.type))} clearEvents={room.clearEvents} />
+      </div>
+      <div className="room-history-area space-y-4">
       <Summary summary={room.closeSummary} />
       {sessionsError && <ErrorMessage error={sessionsError} />}
-      <button type="button" onClick={showSessions} aria-expanded={sessionsOpen} className="min-h-11 self-start font-semibold text-[#34479B] hover:underline">{sessionsOpen ? 'Hide previous sessions' : 'Previous sessions'}</button>
-      {sessionsOpen && <section className={`${card} overflow-x-auto`} aria-label="Previous vault sessions"><table className="w-full min-w-[690px] text-left text-xs"><thead><tr className="text-[#55607A]"><th className="p-2">Start time</th><th className="p-2">Duration</th><th className="p-2">Peak count</th><th className="p-2">Alert count</th><th className="p-2">End reason</th><th className="p-2">Expired</th></tr></thead>
+      {!room.replay && <button type="button" onClick={showSessions} aria-expanded={sessionsOpen} className="min-h-11 self-start font-semibold text-[#34479B] hover:underline">{sessionsOpen ? 'Hide previous sessions' : 'Previous sessions'}</button>}
+      {sessionsOpen && !room.replay && <section className={`${card} overflow-x-auto`} aria-label="Previous vault sessions"><table className="w-full min-w-[690px] text-left text-xs"><thead><tr className="text-[#55607A]"><th className="p-2">Start time</th><th className="p-2">Duration</th><th className="p-2">Peak count</th><th className="p-2">Alert count</th><th className="p-2">End reason</th><th className="p-2">Expired</th></tr></thead>
         <tbody>{sessions.map((item) => <tr key={item.session_id} tabIndex={0} aria-label={`Load alerts for session ${item.session_id}`} onClick={async () => {
           setSelectedSession(item.session_id); setLoadingSession(item.session_id); setSelectedAlertsError(null);
           try { setSelectedAlerts(await getSessionAlerts(item.session_id)); } catch (err) { setSelectedAlertsError(err.message || 'Could not load session alerts.'); }
@@ -255,6 +277,7 @@ export default function VaultRoomPanel({ room, onRetry }) {
         }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.currentTarget.click(); } }} className="cursor-pointer border-t border-slate-100 hover:bg-[#F4F6FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"><td className="p-2">{(item.started_at || item.granted_at) ? new Date(item.started_at || item.granted_at).toLocaleString() : '—'}</td><td className="p-2">{mmss(item.duration_seconds)}</td><td className="p-2">{item.peak_count ?? '—'}</td><td className="p-2">{item.alert_count ?? 0}</td><td className="p-2">{END_REASONS[item.end_reason] || item.end_reason}</td><td className="p-2">{item.expired_before_close ? 'Yes' : 'No'}</td></tr>)}</tbody></table>{!sessions.length && <p className="p-2 text-sm text-[#55607A]">No previous sessions.</p>}
         {selectedSession && <div className="mt-4 border-t border-slate-200 pt-3"><h3 className="font-bold text-[#0F1B3D]">Alerts for selected session</h3>{loadingSession && <p role="status" className="mt-2 text-sm text-[#55607A]">Loading alerts…</p>}{selectedAlertsError && <p role="alert" className="mt-2 text-sm text-[#B3261E]">{selectedAlertsError}</p>}{!loadingSession && !selectedAlertsError && (selectedAlerts.length ? <ul className="mt-2 space-y-2">{selectedAlerts.map((alert) => <li key={alert.id} className="rounded border border-slate-200 p-3 text-sm"><p className="font-semibold">{ALERT_NAMES[alert.type] || alert.type} · {alert.severity}</p><p>{alert.message}</p><p className="text-xs text-[#55607A]">{localTime(alert.opened_at)} · {alert.closed_at ? localTime(alert.closed_at) : 'ongoing'} · {durationText(alert.duration_seconds)}</p></li>)}</ul> : <p className="mt-2 text-sm text-[#55607A]">No alerts in this session.</p>)}</div>}</section>}
       {critical && announcedId === critical.id && <div role="alert" className="sr-only">Critical alert: {critical.message}</div>}
+      </div>
     </div>
   </>;
 }

@@ -30,6 +30,7 @@ export default function useServiceAlerts({ params, status, pollMs, api = default
   const cursorRef = useRef(null);
   const pagesRef = useRef(1);
   const sequence = useRef(0);
+  const confirmations = useRef(new Map());
   const controller = useRef(null);
   const inFlight = useRef(false);
   const summaryController = useRef(null);
@@ -67,7 +68,14 @@ export default function useServiceAlerts({ params, status, pollMs, api = default
       const page = await api.list(
         { ...paramsRef.current, ...(append && cursorRef.current ? { cursor: cursorRef.current } : {}) }, ctl.signal);
       if (id !== sequence.current || ctl.signal.aborted || requestKey !== keyRef.current) return;
-      setItems((current) => mergeById(current, page.items, append));
+      const confirmedRows = page.items.map((row) => {
+        const key = `${row.useCase}:${row.sourceEventId}`;
+        const confirmed = confirmations.current.get(key);
+        if (!confirmed) return row;
+        if ((row.sourceEventVersion || 0) >= confirmed.confirmedSourceVersion) { confirmations.current.delete(key); return row; }
+        return confirmed;
+      }).filter((row) => matchesStatus(row, status));
+      setItems((current) => mergeById(current, confirmedRows, append));
       setLoadedKey(requestKey);
       cursorRef.current = page.nextCursor;
       setNextCursor(page.nextCursor);
@@ -81,7 +89,7 @@ export default function useServiceAlerts({ params, status, pollMs, api = default
     } finally {
       if (id === sequence.current) { inFlight.current = false; setLoading(false); }
     }
-  }, [api, enabled]);
+  }, [api, enabled, status]);
 
   // Reload from scratch whenever the filters change.
   useEffect(() => {
@@ -116,6 +124,7 @@ export default function useServiceAlerts({ params, status, pollMs, api = default
 
   /** Apply a server-confirmed alert update in place; remove it if it no longer matches the status filter. */
   const applyUpdate = useCallback((updated) => {
+    if (updated.confirmedSourceVersion) confirmations.current.set(`${updated.useCase}:${updated.sourceEventId}`, updated);
     setItems((current) => (matchesStatus(updated, status)
       ? replaceAlert(current, updated)
       : current.filter((item) => item.id !== updated.id)));

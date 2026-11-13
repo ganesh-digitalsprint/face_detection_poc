@@ -56,6 +56,12 @@ def alert_dict(row: GrillGateAlert) -> dict:
         "lifecycle_owner": "source", "evidence_refs": row.evidence_refs or [], "resolution_note": row.resolution_note,
         "resolved_at": row.resolved_at, "row_version": row.row_version,
         "created_at": row.created_at, "updated_at": row.updated_at,
+        "acknowledgement_comment": (row.domain_data or {}).get("acknowledgement_comment"),
+        "acknowledged_at": (row.domain_data or {}).get("acknowledged_at"),
+        "acknowledged_by": (row.domain_data or {}).get("acknowledged_by"),
+        "resolved_by": (row.domain_data or {}).get("resolved_by"),
+        "dismissed_at": (row.domain_data or {}).get("dismissed_at"),
+        "dismissed_by": (row.domain_data or {}).get("dismissed_by"),
         "allowed_actions": actions,
     }
 
@@ -116,18 +122,7 @@ def persist_command(db: Session, command: dict) -> GrillGateAlert | None:
             return duplicate
         return row
     if action == "resolve":
-        if row is None or row.status in {"RESOLVED", "DISMISSED"}:
-            return row
-        row.status = "RESOLVED"
-        row.resolved_at = parse_timestamp(command.get("resolved_at"))
-        row.resolution_note = str(command.get("note") or "Condition recovered")[:500]
-        row.row_version += 1
-        row.updated_at = datetime.now(timezone.utc)
-        row.source_event_version += 1
-        row.source_status = row.status
-        stage_publication(db, row)
-        db.commit()
-        db.refresh(row)
+        # Legacy queued condition-recovery commands cannot close operator incidents.
         return row
     raise ValueError(f"Unsupported Grill Gate alert command action: {action}")
 

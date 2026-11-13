@@ -139,9 +139,18 @@ def test_manual_status_commits_a_mirrored_transition_without_deleting_incident(h
     assert result.json()["status"] == target
     with h.factory() as db:
         assert db.get(GrillGateAlert, row.id) is not None
-        changes = db.scalars(select(VaultAuditEvent)).all()
+        changes = db.scalars(select(VaultAuditEvent).where(VaultAuditEvent.entity_type == ENTITY)).all()
         assert len(changes) == 2
         assert any(item.details["payload"]["source_status"] == target for item in changes)
+        audit = db.scalar(select(VaultAuditEvent).where(VaultAuditEvent.entity_type == "grill_gate_alert"))
+        assert audit.details["actor_id"] == "test" and audit.details["note"] == "Reviewed by operator"
+        assert audit.details["from_status"] == "OPEN" and audit.details["to_status"] == target
+        assert audit.details["acted_at"]
+        if target == "ACKNOWLEDGED":
+            assert result.json()["acknowledgement_comment"] == "Reviewed by operator"
+            assert result.json()["acknowledged_at"] and result.json()["acknowledged_by"] == "test"
+        if target == "DISMISSED":
+            assert result.json()["dismissed_at"] and result.json()["resolved_at"] is None
 
 def test_backfill_defaults_to_dry_run_and_is_idempotent(h):
     row = saved(h, command())
@@ -192,12 +201,12 @@ def test_vault_identity_is_rejected_before_any_common_create(h):
     assert remote.posts == []
     with h.factory() as db: assert db.scalar(select(VaultAuditEvent)).action == FAILED
 
-def test_automatic_recovery_is_mirrored_after_create(h):
+def test_legacy_automatic_recovery_does_not_close_a_persisted_incident(h):
     value = command(); row = saved(h, value); remote = Remote()
     publisher(h, remote).drain_database_once()
     assert h.writer.submit({"action": "resolve", "source_event_id": value["source_event_id"], "note": "Gate closed"})
     publisher(h, remote).drain_database_once()
-    assert remote.rows[row.source_event_id]["source_status"] == "RESOLVED"
+    assert remote.rows[row.source_event_id]["source_status"] == "OPEN"
 
 
 def test_active_history_filtering_keeps_resolved_rows(h, monkeypatch):
@@ -206,7 +215,7 @@ def test_active_history_filtering_keeps_resolved_rows(h, monkeypatch):
     active = f"/api/v1/grill-gate/assignments/{row.assignment_id}/alerts/active"
     history = f"/api/v1/grill-gate/assignments/{row.assignment_id}/alerts/history"
     assert len(h.client.get(active).json()["items"]) == 1
-    assert h.writer.submit({"action": "resolve", "source_event_id": row.source_event_id, "note": "Confirmed gate closure"})
+    assert h.client.post(f"/api/v1/grill-gate/alerts/{row.id}/resolve", json={"expected_version": row.row_version, "note": "Operator reviewed the incident"}).status_code == 200
     assert h.client.get(active).json()["items"] == []
     assert len(h.client.get(history).json()["items"]) == 1
     assert h.client.get(f"/api/v1/grill-gate/alerts/{row.id}").json()["status"] == "RESOLVED"
@@ -322,4 +331,46 @@ def test_missing_mesh_track_does_not_resolve_until_confirmed_observation_returns
     processor._apply_mesh_alert_observation([], T0)
     assert [item["action"] for item in sent] == ["create"]
     processor._apply_mesh_alert_observation([{"track_id": 1, "confidence": 1}], T0)
-    assert [item["action"] for item in sent] == ["create", "resolve"]
+    assert [item["action"] for item in sent] == ["create"]
+
+
+@pytest.mark.parametrize("recovery", ["gate_closed", "crossing_reset", "video_completed"])
+def test_condition_recovery_and_completion_keep_persisted_incident_open(h, recovery):
+    from datetime import timedelta
+    from grill_gate_monitoring.schemas.alerts import GrillGateAlertConfig
+    from grill_gate_monitoring.services.alert_rule_engine import GrillGateAlertRuleEngine
+    rule = GrillGateAlertRuleEngine(str(uuid4()), str(uuid4()), h.writer.submit,
+        config=GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=3))
+    rule.on_crossing_activity(0, True, T0)
+    rule.on_gate_transition("OPEN", T0)
+    rule.tick(T0 + timedelta(seconds=3))
+    with h.factory() as db:
+        before = db.scalar(select(GrillGateAlert))
+        identity = before.id
+    if recovery == "gate_closed": rule.on_gate_transition("CLOSED", T0 + timedelta(seconds=4))
+    elif recovery == "crossing_reset": rule.on_crossing_activity(1, True, T0 + timedelta(seconds=4))
+    else: rule.reset()
+    with h.factory() as db:
+        row = db.get(GrillGateAlert, identity)
+        assert row.status == "OPEN" and row.row_version == 1 and row.resolved_at is None
+        assert db.scalar(select(func.count()).select_from(GrillGateAlert)) == 1
+
+
+def test_action_audit_and_outbox_are_atomic_and_stale_retries_do_not_duplicate(h, monkeypatch):
+    row = saved(h, command())
+    original = grill_gate.stage_publication
+    monkeypatch.setattr(grill_gate, "stage_publication", lambda *args: (_ for _ in ()).throw(RuntimeError("outbox unavailable")))
+    with pytest.raises(RuntimeError):
+        h.client.post(f"/api/v1/grill-gate/alerts/{row.id}/acknowledge", json={"expected_version":1,"note":"Checked snapshot"})
+    with h.factory() as db:
+        assert db.get(GrillGateAlert, row.id).status == "OPEN"
+        assert db.scalar(select(func.count()).select_from(VaultAuditEvent).where(VaultAuditEvent.entity_type == "grill_gate_alert")) == 0
+    monkeypatch.setattr(grill_gate, "stage_publication", original)
+    url = f"/api/v1/grill-gate/alerts/{row.id}/acknowledge"
+    body = {"expected_version":1,"note":"  Checked snapshot  "}
+    assert h.client.post(url, json=body).status_code == 200
+    assert h.client.post(url, json=body).status_code == 409
+    stored = h.client.get(f"/api/v1/grill-gate/alerts/{row.id}").json()
+    assert stored["acknowledgement_comment"] == "Checked snapshot"
+    with h.factory() as db:
+        assert db.scalar(select(func.count()).select_from(VaultAuditEvent).where(VaultAuditEvent.entity_type == "grill_gate_alert")) == 1

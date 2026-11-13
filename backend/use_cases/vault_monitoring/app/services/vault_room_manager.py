@@ -1,6 +1,7 @@
 """One process-local room state machine with asynchronous audit persistence."""
 from __future__ import annotations
 import asyncio
+from copy import deepcopy
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -68,7 +69,9 @@ class VaultRoomDetectorUnavailableError(RuntimeError): pass
 
 class VaultRoomManager:
     def __init__(self, *, clock=time.monotonic, door: DoorController | None=None, writer=None, config=None,
-                 detector=None, tracker=None, counter=None, zone_file=None, zone_monitor=None, zone_provider=None):
+                 detector=None, tracker=None, counter=None, zone_file=None, zone_monitor=None, zone_provider=None,
+                 replay_alert_worker=None):
+        self._replay = replay_alert_worker is not None
         self._lock = threading.RLock()
         self._clock = clock
         self._wall_anchor = datetime.now(timezone.utc)
@@ -84,6 +87,17 @@ class VaultRoomManager:
             stale_seconds=self._counting.frame_stale_seconds) if self._counting.enabled else None)
         self._zone_provider = zone_provider or VaultRoomZoneProvider(zone_file or ZoneFile())
         self._zone_monitor = zone_monitor or ZoneMonitor()
+        self._region_monitor = None
+        self._activity_session_id = str(uuid4())
+        self._activity_sequence = 0
+        self._activity_write_status = {}
+        self._activity_origin = clock()
+        self._activity_source_id = None
+        self._activity_simulated_authorization = False
+        self._activity_auto_authorization = False
+        self._activity_started = False
+        self._custom_writer = writer
+        self._monitoring_observation = {}
         self._zone_identity: dict | None = None
         self._session_identity: dict | None = None
         self._zones_status = {"source": "file", "status": "not_loaded", "zone_count": 0,
@@ -96,6 +110,8 @@ class VaultRoomManager:
         self._latest_image_size = (640, 360)
         self._video_source = "browser"
         self._pose_preview = None
+        self._wrist_monitor = None
+        self._workflow_monitor = None
         self._log_batch_ms: deque[float] = deque(maxlen=30)
         self._completed_frames: deque[float] = deque()
         self._frames_since_log = 0
@@ -106,7 +122,7 @@ class VaultRoomManager:
         self._events = deque(maxlen=500)
         self._subscribers: set[tuple[asyncio.AbstractEventLoop, asyncio.Queue]] = set()
         self._jobs = queue.Queue()
-        self._writer_fn = writer or self._write_job
+        self._writer_fn = (lambda _job: None) if self._replay else (writer or self._write_job)
         self._writer_stop = object()
         self._writer_thread = threading.Thread(target=self._writer_loop, name="vault-room-db-writer", daemon=True)
         self._writer_thread.start()
@@ -120,7 +136,7 @@ class VaultRoomManager:
             timeout_seconds=settings.ALERT_SERVICE_TIMEOUT_SECONDS,
             poll_seconds=settings.ALERT_SERVICE_POLL_SECONDS,
         )
-        self._alert_worker = PersistentAlertWorker(
+        self._alert_worker = replay_alert_worker if self._replay else PersistentAlertWorker(
             publisher=self._publish_alert_event,
             alert_service_adapter=self._alert_service_adapter,
         )
@@ -181,13 +197,18 @@ class VaultRoomManager:
             try:
                 if job is self._writer_stop: return
                 self._writer_fn(job)
-            except Exception:
+            except Exception as error:
+                if job is not self._writer_stop and job[0] == 'activity':
+                    self._record_activity_write(job[1][0], 'FAILED', error=type(error).__name__)
                 logger.exception("Vault-room database write failed")
             finally:
                 self._jobs.task_done()
 
     def _write_job(self, job):
         kind, data = job
+        if kind == 'activity':
+            self._write_activity(data)
+            return
         with session_scope() as db:
             if kind == "event":
                 db.add(VaultRoomEvent(**data))
@@ -210,14 +231,11 @@ class VaultRoomManager:
                     db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_CREATED", entity_type="alert",
                         entity_id=data["id"], details={"type": data["type"], "session_id": data["session_id"]}))
             elif kind == "alert_close":
+                # A recovered source condition is not an operator incident disposition.
                 row = db.get(VaultRoomAlert, data["id"])
                 if row is not None:
-                    row.closed_at = data["closed_at"]
                     row.duration_seconds = data["duration_seconds"]
-                    row.status = "RESOLVED"
-                    row.resolved_at = data["closed_at"]
-                    row.updated_at = data["closed_at"]
-                    db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_RESOLVED", entity_type="alert",
+                    db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_CONDITION_CLEARED", entity_type="alert",
                         entity_id=row.id, details={"source": "condition_cleared"}))
 
     def start(self):
@@ -253,9 +271,16 @@ class VaultRoomManager:
                 logger.warning("Access grant ignored; room already has an open session")
                 return
             self._ctx = result.ctx
+            self._activity_session_id = self._ctx.session_id
+            self._monitoring_observation = {}
+            self._activity_sequence = 0
+            self._activity_origin = self._clock()
+            self._activity_started = False
             self._tracker.reset()
             self._counter.reset()
             self._zone_monitor.reset()
+            if self._region_monitor:
+                self._region_monitor.reset()
             self._last_frame_at = None
             self._ever_had_session = True
             self._summary = None
@@ -264,7 +289,8 @@ class VaultRoomManager:
             self._verified_count = len(custodians)
             self._phase_since = self._clock()
             self._shortfall_since = self._unauthorized_since = None
-            self._door.unlock(self._ctx.session_id)
+            if not self._replay:
+                self._door.unlock(self._ctx.session_id)
             self._publish(result.events)
             self._stop.clear()
             self._ensure_ticker()
@@ -332,6 +358,8 @@ class VaultRoomManager:
             self._phase_since = None
 
     def _ensure_ticker(self):
+        if self._replay:
+            return  # Replay ticks are driven by source timestamps, including pauses.
         if self._ticker and self._ticker.is_alive():
             return
         self._stop.clear()
@@ -344,9 +372,43 @@ class VaultRoomManager:
 
     def tick(self):
         with self._lock:
-            result = tick_rules(self._ctx, self._now(), self._config)
+            if self._replay and self._activity_auto_authorization and not self._activity_simulated_authorization and self._activity_presence_confirmed():
+                # This is a replay-local presence simulation, never identity verification
+                # or a grant/actuator callback. Processing was already running in IDLE.
+                self._activity_simulated_authorization = True
+                self._verified_count = 2
+                self._ctx = replace(self._ctx, state=ENTRY_BUFFER, granted_at=self._clock())
+                self._phase = 'VAULT_SESSION'
+                self._phase_since = self._clock()
+                self._ever_had_session = True
+            # A configured monitoring ROI must confirm two people before the
+            # authorized room timer can start. Authentication itself is unchanged.
+            gated = self._region_monitor is not None and (self._replay or 'person_monitoring_roi' in self._region_monitor.zones)
+            if gated and self._ctx.state == ENTRY_BUFFER and not self._activity_can_start():
+                result = SimpleNamespace(ctx=self._ctx, events=(), actions=())
+            elif self._replay and gated and self._ctx.state == ENTRY_BUFFER and self._activity_can_start():
+                # Replay authorization is simulated and local. Confirmed presence
+                # starts the six-minute source-time session; live entry rules stay unchanged.
+                result = SimpleNamespace(ctx=replace(self._ctx, state=ACTIVE, session_started_at=self._clock()),
+                    events=(RoomEvent(str(uuid4()), self._ctx.session_id, 'SESSION_STARTED', 'info',
+                        'Replay session started after confirmed authorized presence', self._now().utc.isoformat(),
+                        {'simulated_authorization': True, 'authorization_method': 'SIMULATED_TWO_PERSON_PRESENCE',
+                         'real_identity_verified': False}),), actions=())
+            else:
+                result = tick_rules(self._ctx, self._now(), self._config)
             self._ctx = result.ctx
             self._publish(result.events)
+            if self._region_monitor is not None and self._ctx.state == ACTIVE and not self._activity_started and self._activity_can_start():
+                self._activity_started = True
+                self._publish_activities([('SESSION_STARTED', 'Authorized two-person vault session started',
+                    dict(region='person_monitoring_roi' if 'person_monitoring_roi' in self._region_monitor.zones else None,
+                         count=2, track_ids=list(self._region_monitor.person_ids),
+                         started_at=self._utc_datetime(self._ctx.session_started_at).isoformat(),
+                         deadline=self._utc_datetime(self._ctx.session_started_at + self._config.session_seconds).isoformat(),
+                         duration_seconds=self._config.session_seconds,
+                         simulated_authorization=self._activity_simulated_authorization,
+                         authorization_method='SIMULATED_TWO_PERSON_PRESENCE' if self._replay else 'EXISTING_VAULT_AUTHORIZATION',
+                         real_identity_verified=not self._replay))], self._clock(), self._latest_frame)
             if "LOCK_DOOR" in result.actions:
                 logger.warning("Vault-room session force-closed after expired-open timeout session=%s", self._ctx.session_id)
                 self._finish_counted_lock()
@@ -354,7 +416,7 @@ class VaultRoomManager:
             count = self._counter.stable_count(self._clock()) if self._counter else None
             if self._ctx.state == EXPIRED_OPEN and self._ctx.count_at_expiry is None:
                 self._ctx = replace(self._ctx, count_at_expiry=count)
-            if self._ctx.state != "IDLE":
+            if self._ctx.state != "IDLE" or self._replay:
                 counted = evaluate_count(self._ctx, count, self._now(), self._config)
                 self._ctx = counted.ctx
                 if "LOCK_DOOR" in counted.actions:
@@ -383,7 +445,8 @@ class VaultRoomManager:
         feed_stale = self._last_frame_at is None or age >= self._counting.frame_stale_seconds
         snapshot = AlertSnapshot(phase=phase, required_persons=required, observed_count=count,
             verified_count=self._verified_count, stable=stable,
-            no_entry_elapsed=bool(self._phase_since is not None and now-self._phase_since >= self._counting.mismatch_alert_after_seconds),
+            no_entry_elapsed=bool(self._phase_since is not None and now-self._phase_since >= self._counting.mismatch_alert_after_seconds
+                and (not self._replay or not self._ctx.ever_present)),
             shortfall_elapsed=bool(self._shortfall_since is not None and now-self._shortfall_since >= shortfall_grace),
             unauthorized_elapsed=bool(self._unauthorized_since is not None and now-self._unauthorized_since >= self._counting.count_stable_seconds),
             feed_lost=feed_lost, feed_stale=feed_stale,
@@ -424,7 +487,7 @@ class VaultRoomManager:
             remaining = max(0, int(self._config.session_seconds - (now - ctx.session_started_at))) if ctx.state == ACTIVE else (0 if ctx.state == EXPIRED_OPEN else None)
             return ActiveSessionInfo(ctx.state, remaining, entry_remaining, ctx.session_id)
 
-    def process_frame(self, frame_bgr, *, source="browser", include_pose=False):
+    def process_frame(self, frame_bgr, *, source="browser", include_pose=False, source_id=None):
         """Run one browser-uploaded frame; never retains the image after this call."""
         if not self._inference_slot.acquire(blocking=False):
             raise VaultRoomBusyError("Vault-room detector is busy")
@@ -432,7 +495,7 @@ class VaultRoomManager:
             arrival = self._clock()
             with self._lock:
                 allowed_states = (ENTRY_BUFFER, ACTIVE, EXPIRED_OPEN)
-                accepts = self._phase == "ACCESS_ATTEMPT" or self._ctx.state in allowed_states or (
+                accepts = self._replay or self._phase == "ACCESS_ATTEMPT" or self._ctx.state in allowed_states or (
                     self._ctx.state == "IDLE" and self._counting.idle_monitoring_enabled
                 )
                 if not accepts:
@@ -463,7 +526,7 @@ class VaultRoomManager:
                 if self._detector.status.get("status") == "unavailable":
                     raise VaultRoomDetectorUnavailableError("Person detector unavailable") from exc
                 raise VaultRoomDetectorUnavailableError("Person detector failed") from exc
-            pose_result = self._run_pose_preview(frame_bgr) if include_pose else {
+            pose_result = self._run_pose_preview(frame_bgr, replay_timestamp=max(0, self._clock()-self._activity_origin)) if self._wrist_monitor else self._run_pose_preview(frame_bgr) if include_pose else {
                 "poses": [], "pose_count": 0, "status": "disabled"
             }
             with self._lock:
@@ -472,12 +535,60 @@ class VaultRoomManager:
                 completed_at = self._clock()
                 normalized_tracks = [(t.track_id, t.x1 / frame_bgr.shape[1], t.y1 / frame_bgr.shape[0],
                     t.x2 / frame_bgr.shape[1], t.y2 / frame_bgr.shape[0]) for t in tracks]
+                region_tracks = [dict(track_id=identifier, x=x1, y=y1, w=x2-x1, h=y2-y1)
+                    for identifier, x1, y1, x2, y2 in normalized_tracks]
+                if self._region_monitor:
+                    raw_count = self._region_monitor.count(region_tracks)
                 zone_events = self._zone_monitor.update(completed_at, normalized_tracks)
                 self._publish_zone_events(zone_events, completed_at)
                 zone_snapshot = self._zone_monitor.snapshot()
                 processing_ms = (time.perf_counter() - started) * 1000
                 self._counter.feed(completed_at, raw_count)
                 stable = self._counter.stable_count(completed_at)
+                self._video_source = source
+                if source_id is not None:
+                    self._activity_source_id = source_id
+                if self._region_monitor:
+                    entries = self._region_monitor.update(completed_at, region_tracks, stable)
+                    if self._wrist_monitor:
+                        fresh_pose = not pose_result.get('throttled') and pose_result.get('model_status') == 'ready'
+                        entries += self._wrist_monitor.update(completed_at, pose_result['poses'] if fresh_pose else [], region_tracks,
+                            simulated_authorization=self._activity_simulated_authorization,
+                            observation_reason='POSE_SAMPLE_SKIPPED' if pose_result.get('throttled') else 'POSE_INFERENCE_UNAVAILABLE' if not fresh_pose else None)
+                    if self._workflow_monitor:
+                        entries += self._workflow_monitor.update(max(0,completed_at-self._activity_origin),
+                            self._wrist_monitor.debug['wrists'] if self._wrist_monitor else [],region_tracks,entries,
+                            presence_confirmed=self._activity_presence_confirmed(),authorized=self._activity_simulated_authorization)
+                    self._publish([RoomEvent(str(uuid4()), self._ctx.session_id or "", kind, "info", message,
+                        self._utc_datetime(completed_at).isoformat(), data) for kind, message, data in entries])
+                    self._publish_activities(entries, completed_at, frame_bgr)
+                else:
+                    entries = []
+                person_zone = self._region_monitor.zones.get('person_monitoring_roi') if self._region_monitor else None
+                self._monitoring_observation = dict(raw_detection_count=len(detections), confirmed_track_count=len(tracks),
+                    roi_person_count=raw_count, confirmed_person_count=stable,
+                    active_track_ids=[track.track_id for track in tracks],
+                    person_monitoring_mode='roi' if person_zone else 'full_frame',
+                    person_monitoring_reference=person_zone.get('reference', 'bottom_center') if person_zone else None,
+                    zone_membership={key: [track['track_id'] for track in self._region_monitor.inside(key, region_tracks)]
+                        for key in self._region_monitor.zones} if self._region_monitor else {},
+                    activity_engine_invoked=self._region_monitor is not None, generated_event_types=[entry[0] for entry in entries],
+                    alert_input_count=stable, entry_elapsed_seconds=max(0, completed_at-self._phase_since) if self._phase_since is not None else 0,
+                    video_timestamp_seconds=max(0, completed_at-self._activity_origin))
+                if self._replay and self._config.wrist_interaction.diagnostics:
+                    self._monitoring_observation['activity_conditions'] = dict(
+                        person_ids=list(self._region_monitor.person_ids),person_entered_emitted=self._region_monitor.person_emitted,
+                        body=self._region_monitor.body_entry_diagnostics(completed_at,region_tracks),
+                        wrists=deepcopy(self._wrist_monitor.states) if self._wrist_monitor else {},
+                        generated=[entry[0] for entry in entries])
+                if self._wrist_monitor:
+                    self._monitoring_observation['pose'] = {**self._wrist_monitor.diagnostics,
+                        'status': pose_result.get('status'), 'throttled': pose_result.get('throttled', False),
+                        'inference_ms': pose_result.get('inference_ms'), 'average_inference_ms': pose_result.get('average_inference_ms'),
+                        'initialization_ms': pose_result.get('initialization_ms')}
+                    self._monitoring_observation['pose']['model'] = pose_result.get('model')
+                if self._workflow_monitor:
+                    self._monitoring_observation['workflow']=deepcopy(self._workflow_monitor.debug)
                 expected = self._ctx.required_persons
                 self._last_frame_at = completed_at
                 self._video_source = source
@@ -488,6 +599,17 @@ class VaultRoomManager:
                 self._latest_frame = frame_bgr.copy()
                 self._record_processing_locked(processing_ms, completed_at)
             height, width = frame_bgr.shape[:2]
+            debug_snapshot = None
+            if self._wrist_monitor:
+                debug_snapshot = {**self._wrist_monitor.debug, 'pose_inference_ms':pose_result.get('inference_ms')}
+            if self._replay and self._region_monitor:
+                debug_snapshot = {**(debug_snapshot or dict(poses=[], matches={}, wrists=[], states={},
+                    confidence=self._config.wrist_interaction.landmark_confidence,
+                    confirmation_seconds=self._config.wrist_interaction.confirmation_seconds)),
+                    'regions': deepcopy(self._region_monitor.profile['zones']),
+                    'profile_id': self._region_monitor.profile['id']}
+            if self._workflow_monitor and debug_snapshot is not None:
+                debug_snapshot['workflow']=deepcopy(self._workflow_monitor.debug)
             return {"image_width": width, "image_height": height, "raw_count": raw_count,
                 "stable_count": stable, "expected_persons": expected,
                 "tracks": [{"track_id": t.track_id, "x": t.x1 / width, "y": t.y1 / height,
@@ -496,15 +618,19 @@ class VaultRoomManager:
                 "zones": zone_snapshot,
                 "processing_ms": round(processing_ms, 1),
                 "detector_status": self._detector.status.get("status", "ready"),
+                "pose_debug": debug_snapshot,
                 "pose_preview": pose_result}
         finally:
             self._inference_slot.release()
 
-    def _run_pose_preview(self, frame_bgr):
+    def _run_pose_preview(self, frame_bgr, *, replay_timestamp=None):
         try:
             if self._pose_preview is None:
                 from app.services.pose_preview import PosePreviewService
-                self._pose_preview = PosePreviewService()
+                self._pose_preview = PosePreviewService(model_path=self._config.wrist_interaction.pose_model_path) if replay_timestamp is not None and self._config.wrist_interaction.pose_model_path else PosePreviewService()
+            if replay_timestamp is not None:
+                return self._pose_preview.process(frame_bgr, timestamp_ms=round(replay_timestamp*1000),
+                    source_interval_ms=self._config.wrist_interaction.sampling_interval_ms)
             return self._pose_preview.process(frame_bgr)
         except Exception as exc:
             logger.warning("Vault Room pose preview unavailable: %s", type(exc).__name__)
@@ -519,11 +645,13 @@ class VaultRoomManager:
 
     def _finish_counted_lock(self):
         ctx = self._ctx
-        self._door.lock(ctx.session_id, ctx.end_reason or "AUTO_LOCK")
+        if not self._replay:
+            self._door.lock(ctx.session_id, ctx.end_reason or "AUTO_LOCK")
         summary = self._build_summary(ctx, ctx)
         self._summary = summary
         self._jobs.put(("summary", self._summary_db_row(summary)))
-        self._discard_dual(ctx.dual_control_session_id)
+        if not self._replay:
+            self._discard_dual(ctx.dual_control_session_id)
         self._phase = "IDLE"
         self._session_ref = None
         self._phase_since = None
@@ -544,11 +672,13 @@ class VaultRoomManager:
             self._ctx = replace(self._ctx, count_at_close=self._counter.stable_count(self._clock()) if self._counter else None)
             self._tracker.reset() if self._tracker else None
             self._zone_monitor.reset()
-            self._door.lock(self._ctx.session_id, self._ctx.end_reason)
+            if not self._replay:
+                self._door.lock(self._ctx.session_id, self._ctx.end_reason)
             self._publish(result.events)
             self._summary = self._build_summary(before, self._ctx)
             self._jobs.put(("summary", self._summary_db_row(self._summary)))
-            self._discard_dual(before.dual_control_session_id)
+            if not self._replay:
+                self._discard_dual(before.dual_control_session_id)
             self._phase = "IDLE"
             self._session_ref = None
             self._phase_since = None
@@ -681,6 +811,14 @@ class VaultRoomManager:
                 "session_id": c.session_id}
             return {"state":c.state, "phase":self._phase, "session_ref":self._session_ref,
                 "identity": identity, "zones_status": dict(self._zones_status),
+                "monitoring": {**self._monitoring_observation, **({'activity_writes':deepcopy(list(self._activity_write_status.values()))}
+                    if self._replay and self._config.wrist_interaction.diagnostics else {})}, "activity_session_id": self._activity_session_id,
+                "replay_mode": self._replay, "simulated_authorization": self._activity_simulated_authorization,
+                "automatic_simulated_authorization": self._replay and self._activity_auto_authorization,
+                "real_identity_verified": not self._replay and self._phase == 'VAULT_SESSION',
+                "authorization_status": 'SIMULATED' if self._replay and self._activity_simulated_authorization else
+                    'PENDING_SIMULATION' if self._replay and self._activity_auto_authorization else
+                    'UNVERIFIED' if self._replay else 'AUTHORIZED' if self._phase == 'VAULT_SESSION' else 'PENDING',
                 "session_id":c.session_id, "end_reason":c.end_reason,
                 "required_persons":c.required_persons,
                 "verified_count":self._verified_count, "expires_at":expires_at,
@@ -706,6 +844,128 @@ class VaultRoomManager:
             if self._phase == "IDLE" and self._ctx.state == "IDLE":
                 return None
             return dict(self._session_identity) if self._session_identity else None
+
+    def create_replay(self, *, clock, alert_worker):
+        """Share model/inference admission; keep all temporal state and side effects isolated."""
+        replay = VaultRoomManager(clock=clock, config=self._config,
+            detector=self._detector, replay_alert_worker=alert_worker)
+        # Replay alerts stay temporary; operational activities use the same durable
+        # writer as live activity, without writing replay security alerts to live DB.
+        replay._writer_fn = lambda job: (self._custom_writer or replay._write_job)(job) if job[0] == 'activity' else None
+        replay._inference_slot = self._inference_slot
+        # A replay receives only its explicitly selected profile. Inheriting the
+        # live camera's registry/file zones leaks another source into this run.
+        return replay
+
+    def configure_regions(self, profile):
+        """Snapshot a Vault-only profile before connecting; never changes registry/global zones."""
+        if self._replay:
+            return self._configure_regions_locked(profile)
+        if not self._inference_slot.acquire(blocking=False):
+            raise RuntimeError('Wait for frame processing to finish before activating another region profile')
+        try:
+            self._configure_regions_locked(profile)
+        finally:
+            self._inference_slot.release()
+
+    def _configure_regions_locked(self, profile):
+        from app.services.vault_region_monitor import VaultRegionMonitor
+        with self._lock:
+            if self._phase == 'ACCESS_ATTEMPT' or self._ctx.state in (ENTRY_BUFFER, ACTIVE, EXPIRED_OPEN):
+                raise RuntimeError('Finish the active Vault Room session before activating another region profile')
+            self._region_monitor = VaultRegionMonitor(profile, max_gap_seconds=self._counting.frame_stale_seconds,
+                min_frames=settings.VAULT_ACTIVITY_MIN_FRAMES, person_seconds=settings.VAULT_ACTIVITY_CONFIRM_SECONDS,
+                tolerance=settings.VAULT_ACTIVITY_ROI_TOLERANCE)
+            self._wrist_monitor = None
+            self._workflow_monitor = None
+            if self._replay and self._config.workflow.enabled:
+                from app.services.vault_workflow import VaultWorkflowMonitor
+                self._workflow_monitor=VaultWorkflowMonitor(self._region_monitor,self._config.workflow,
+                    self._config.wrist_interaction.landmark_confidence)
+            if self._replay and self._config.wrist_interaction.enabled and 'vault_area_roi' in self._region_monitor.zones:
+                from app.services.vault_wrist_interaction import WristInteractionMonitor
+                self._wrist_monitor = WristInteractionMonitor(self._region_monitor, self._config.wrist_interaction)
+                self.close_pose_preview()
+            self._activity_session_id = str(uuid4())
+            self._activity_sequence = 0
+            self._activity_origin = self._clock()
+            self._activity_started = False
+            self._activity_source_id = profile['id']
+            self._monitoring_observation = {}
+            if self._counter:
+                self._counter.reset()
+
+    def configure_replay_activity(self, session_id, *, required_persons=2, simulated_authorization=None):
+        if not self._replay:
+            raise ValueError('Simulated authorization is only available to isolated replays')
+        with self._lock:
+            self._activity_session_id = session_id
+            self._activity_source_id = session_id
+            self._activity_origin = 1  # Existing replay clock is video timestamp + 1.
+            self._activity_auto_authorization = simulated_authorization is not False
+            self._activity_simulated_authorization = False
+            self._verified_count = 0
+            self._activity_started = False
+            self._activity_sequence = 0
+            self._ctx = VaultRoomContext(session_id=session_id, required_persons=required_persons, test_mode=True,
+                seconds_at_count={'0': 0.0, '1': 0.0, '2': 0.0, '3_plus': 0.0})
+            self._phase = 'ACCESS_ATTEMPT' if self._activity_auto_authorization else 'VAULT_SESSION'
+            self._phase_since = self._clock()
+            self._session_ref = None
+
+    def _activity_presence_confirmed(self):
+        monitor = self._region_monitor
+        return bool(monitor and monitor.person_emitted and len(monitor.person_ids) == 2
+            and self._counter.stable_count(self._clock()) == 2 and self._ctx.required_persons == 2)
+
+    def _activity_can_start(self):
+        if not self._activity_presence_confirmed():
+            return False
+        if self._replay:
+            return self._activity_simulated_authorization
+        return len({person['employee_id'] for person in self._ctx.employees}) >= 2 and self._verified_count >= 2
+
+    def _publish_activities(self, entries, timestamp, frame):
+        if not entries:
+            return
+        from app.services.vault_activity import ActivityEvent
+        from uuid import NAMESPACE_URL, uuid5
+        source = 'upload' if self._replay else 'cctv' if self._video_source in ('rtsp', 'cctv') else 'webcam'
+        source_id = self._activity_source_id or self._video_source
+        camera_id = (self._session_identity or self._zone_identity or {}).get('camera_id') or source_id
+        batch = []
+        for kind, description, metadata in entries:
+            self._activity_sequence += 1
+            batch.append(ActivityEvent(id=str(uuid5(NAMESPACE_URL, f'{self._activity_session_id}:{self._activity_sequence}:{kind}')),
+                type=kind, session_id=self._activity_session_id, camera_id=camera_id, source_id=source_id,
+                video_timestamp_seconds=max(0, timestamp-self._activity_origin), created_at=datetime.now(timezone.utc),
+                track_ids=metadata.get('track_ids', [metadata['track_id']] if 'track_id' in metadata else []),
+                person_count=metadata.get('count', 1), zone_id=metadata.get('region'), description=description,
+                source=source, replay=self._replay, test_mode=self._replay or bool(self._ctx.test_mode),
+                metadata={**metadata, 'profile_id': self._region_monitor.profile['id']}))
+        self._record_activity_write(batch, 'QUEUED')
+        self._jobs.put(('activity', (batch, frame.copy() if frame is not None else None)))
+
+    def _record_activity_write(self, events, status, *, error=None):
+        if not self._replay or not self._config.wrist_interaction.diagnostics:
+            return
+        with self._lock:
+            for event in events:
+                row=dict(id=event.id,type=event.type,session_id=event.session_id,source_id=event.source_id,
+                    track_ids=event.track_ids,zone_id=event.zone_id,video_timestamp_seconds=event.video_timestamp_seconds,
+                    status=status,evidence_reference=event.evidence_reference,error=error,
+                    status_updated_at=datetime.now(timezone.utc).isoformat())
+                self._activity_write_status[event.id]=row
+                logger.info('Vault replay activity persistence %s', row)
+            while len(self._activity_write_status)>500:
+                self._activity_write_status.pop(next(iter(self._activity_write_status)))
+
+    def _write_activity(self, data):
+        from app.services.vault_activity import ActivityStore
+        for event in ActivityStore().save_batch(*data):
+            self._record_activity_write([event], 'PERSISTED')
+            self._publish_alert_event({'id': event.id, 'type': 'activity.created', 'timestamp': event.created_at.isoformat(),
+                'data': event.model_dump(mode='json')})
 
     def stop(self, timeout=5):
         self._stop.set()
