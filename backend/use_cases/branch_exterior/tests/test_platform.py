@@ -39,6 +39,30 @@ def test_local_demo_creates_hierarchy_but_not_cameras_or_uploads(client, monkeyp
     assert remote.post("/api/platform/zones", json={"name": "Remote"}).status_code == 503
 
 
+def test_local_vite_token_allows_only_hierarchy_writes(client, monkeypatch, tmp_path):
+    monkeypatch.delenv("FEDBANK_PLATFORM_ADMIN_KEY")
+    monkeypatch.delenv("FEDBANK_PLATFORM_DEMO_WRITES", raising=False)
+    key_path = tmp_path / "local-demo.key"
+    key_path.write_text("local-test-token", encoding="ascii")
+    monkeypatch.setattr(platform, "LOCAL_DEMO_KEY_PATH", key_path)
+    local = TestClient(app, base_url="http://127.0.0.1:8011", client=("127.0.0.1", 50800))
+    headers = {"X-Platform-Admin-Key": "local-test-token"}
+    assert local.post("/api/platform/zones", json={"name": "Unauthenticated"}).status_code == 503
+    assert local.post("/api/platform/zones", json={"name": "Wrong token"}, headers={"X-Platform-Admin-Key": "wrong"}).status_code == 503
+    created = local.post("/api/platform/zones", json={"name": "East"}, headers=headers)
+    assert created.status_code == 201, created.text
+    city = local.post("/api/platform/cities", json={"zone_id": created.json()["id"], "name": "Bengaluru"}, headers=headers)
+    assert city.status_code == 201, city.text
+    branch = local.post("/api/platform/branches", json={"city_id": city.json()["id"], "name": "Main", "code": "C99127-01"}, headers=headers)
+    assert branch.status_code == 201, branch.text
+    camera = {"recorder": {"branch_id": branch.json()["id"], "host": "127.0.0.1"}, "cameras": [{"channel_no": 1, "name": "Door", "use_case": "face_mask"}]}
+    assert local.post("/api/platform/cameras/bulk", json=camera, headers=headers).status_code == 503
+    upload = {"branch_id": branch.json()["id"], "name": "test.mp4", "size": 100}
+    assert local.post("/api/platform/uploads", json=upload, headers=headers).status_code == 503
+    remote = TestClient(app, base_url="http://127.0.0.1:8011", client=("192.168.1.3", 50801))
+    assert remote.post("/api/platform/zones", json={"name": "Remote"}, headers=headers).status_code == 503
+
+
 def test_hierarchy_and_atomic_cameras(client):
     assert client.post("/api/platform/zones", json={"name": "South"}).status_code == 403
     zone = write(client, "/zones", {"name": "South"}).json()
