@@ -11,6 +11,7 @@ from app.db.models import Alert, AlertAudit
 
 @pytest.mark.parametrize('use_case,genuine,routine', [
     ('vault_monitoring', 'UNAUTHORIZED_ENTRY', 'PERSON_ENTERED'),
+    ('vault_monitoring', 'MOBILE_PHONE_DETECTED', 'PHONE_OBSERVED'),
     ('grill_gate', 'GATE_OPEN_TOO_LONG', 'GATE_OPENED'),
     ('branch_exterior', 'movement', 'person_detected'),
     ('face_mask', 'FACE_CONCEALMENT', 'ENTRY_LOG'),

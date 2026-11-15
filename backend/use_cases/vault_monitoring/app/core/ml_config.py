@@ -152,6 +152,7 @@ class VaultAlertEvidenceSettings(BaseModel):
     capture_excess_person: bool = True
     capture_session_expired: bool = True
     capture_count_mismatch: bool = False
+    capture_mobile_phone_detected: bool = True
     realert_seconds: int = Field(default=60, ge=1)
     max_per_alert: int = Field(default=3, ge=1)
     max_per_incident: int = Field(default=15, ge=1)
@@ -191,6 +192,15 @@ class VaultRoomDetectorSettings(BaseModel):
     cpu_threads: int = Field(default=4, ge=1)
 
 
+class VaultRoomMobilePhoneSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    confidence_threshold: float = Field(default=0.40, ge=0, le=1)
+    confirmation_seconds: float = Field(default=1.0, gt=0)
+    clear_seconds: float = Field(default=2.0, gt=0)
+    absence_gap_seconds: float = Field(default=1.5, gt=0)
+
+
 class VaultRoomTrackerSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     track_activation_threshold: float = Field(ge=0, le=1)
@@ -219,6 +229,7 @@ class VaultRoomCountingSettings(BaseModel):
     lock_countdown_seconds: float = Field(ge=0)
     detector: VaultRoomDetectorSettings
     tracker: VaultRoomTrackerSettings
+    mobile_phone: VaultRoomMobilePhoneSettings = Field(default_factory=VaultRoomMobilePhoneSettings)
 
     @field_validator("min_fps")
     @classmethod

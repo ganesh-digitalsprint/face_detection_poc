@@ -27,6 +27,7 @@ class SnapshotJob:
     event_frame: object | None = None
     detections: tuple = ()
     source_metadata: dict | None = None
+    managed_alert_types: tuple[str, ...] | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "source_metadata", deepcopy(self.source_metadata or {}))
@@ -57,10 +58,11 @@ class PersistentAlertWorker:
 
     def submit(self, snapshot: AlertSnapshot, *, session_ref=None, camera_id=None,
                event_at=None, source="VAULT_MONITORING", event_frame=None, detections=(),
-               source_metadata=None) -> bool:
+               source_metadata=None, managed_alert_types=None) -> bool:
         job = SnapshotJob(snapshot, session_ref, camera_id,
                           event_at or datetime.now(timezone.utc), source, event_frame,
-                          tuple(detections), source_metadata)
+                          tuple(detections), source_metadata,
+                          tuple(managed_alert_types) if managed_alert_types is not None else None)
         try:
             self._queue.put_nowait(job)
             return True
@@ -100,7 +102,8 @@ class PersistentAlertWorker:
         capture_types = {"UNAUTHORIZED_ENTRY": cfg.capture_unauthorized_entry,
                          "EXCESS_PERSON": cfg.capture_excess_person,
                          "SESSION_EXPIRED": cfg.capture_session_expired,
-                         "COUNT_MISMATCH": cfg.capture_count_mismatch}
+                         "COUNT_MISMATCH": cfg.capture_count_mismatch,
+                         "MOBILE_PHONE_DETECTED": cfg.capture_mobile_phone_detected}
         for event in events:
             if event.get("type") != "alert.created":
                 continue
@@ -159,17 +162,24 @@ class PersistentAlertWorker:
 
     def _persist(self, job: SnapshotJob):
         transitions = {t.alert_type: t for t in evaluate(job.snapshot)}
+        managed = set(job.managed_alert_types) if job.managed_alert_types is not None else None
+        if managed is not None:
+            transitions = {key: value for key, value in transitions.items() if key in managed}
         cfg = load_ml_config_file().vault_alerts
         events = []
         with self._session_factory() as db:
             keys = set(transitions)
-            keys.update(db.scalars(select(VaultAlertCondition.alert_type).where(
-                VaultAlertCondition.camera_id == job.camera_id,
-                VaultAlertCondition.active.is_(True))))
+            camera_conditions = select(VaultAlertCondition.alert_type).where(
+                VaultAlertCondition.camera_id == job.camera_id, VaultAlertCondition.active.is_(True))
+            if managed is not None:
+                camera_conditions = camera_conditions.where(VaultAlertCondition.alert_type.in_(managed))
+            keys.update(db.scalars(camera_conditions))
             if job.session_ref:
-                keys.update(db.scalars(select(VaultAlertCondition.alert_type).where(
-                    VaultAlertCondition.session_ref == job.session_ref,
-                    VaultAlertCondition.active.is_(True))))
+                session_conditions = select(VaultAlertCondition.alert_type).where(
+                    VaultAlertCondition.session_ref == job.session_ref, VaultAlertCondition.active.is_(True))
+                if managed is not None:
+                    session_conditions = session_conditions.where(VaultAlertCondition.alert_type.in_(managed))
+                keys.update(db.scalars(session_conditions))
             for alert_type in keys:
                 transition = transitions.get(alert_type)
                 discriminator = (transition.reason or "") if transition else ""
@@ -181,7 +191,8 @@ class PersistentAlertWorker:
                     db.add(cond); db.flush()
                 if transition:
                     if cond.clear_since is not None:
-                        if (_as_utc(job.event_at) - _as_utc(cond.clear_since)).total_seconds() >= cfg.episode_gap_seconds:
+                        episode_gap = 0 if alert_type == "MOBILE_PHONE_DETECTED" else cfg.episode_gap_seconds
+                        if (_as_utc(job.event_at) - _as_utc(cond.clear_since)).total_seconds() >= episode_gap:
                             cond.episode += 1
                             cond.operator_closed_episode = False
                         cond.clear_since = None
@@ -193,7 +204,8 @@ class PersistentAlertWorker:
                 else:
                     if cond.active and cond.clear_since is None:
                         cond.clear_since = job.event_at
-                    if cond.active and cond.clear_since and (_as_utc(job.event_at) - _as_utc(cond.clear_since)).total_seconds() >= cfg.clear_seconds:
+                    clear_seconds = 0 if alert_type == "MOBILE_PHONE_DETECTED" else cfg.clear_seconds
+                    if cond.active and cond.clear_since and (_as_utc(job.event_at) - _as_utc(cond.clear_since)).total_seconds() >= clear_seconds:
                         cond.active = False
                         # Keep persisted incidents active until an authorized operator closes them.
                         # cond.active still resets, preserving detection of later episodes.

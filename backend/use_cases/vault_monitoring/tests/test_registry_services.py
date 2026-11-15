@@ -69,14 +69,20 @@ def test_registry_assignments_are_exclusive_and_zone_keys_are_assignment_scoped(
         connection_ref="browser:terminal-a:gate-cam"), "test-operator")
     grill = service.create_assignment(db, CameraUseCaseAssignmentCreate(camera_id=grill_camera["id"], use_case="grill_gate",
         configuration={"source_id": grill_source["id"]}), "test-operator")
-    zone = service.create_zone(db, grill["id"], RegistryZoneCreate(zone_key="door", name="Door", zone_type="gate_trigger",
+    zone = service.create_zone(db, grill["id"], RegistryZoneCreate(zone_key="door", name="Door", zone_type="gate_approach",
         polygon=polygon, properties={"opaque": [1, 2]}), "test-operator")
     assert zone["polygon"] == polygon
     assert zone["zones_version"] == 1
     assert service.list_zones(db, grill["id"], enabled=True)[0]["zone_key"] == "door"
     with pytest.raises(service.RegistryError, match="already exists"):
-        service.create_zone(db, grill["id"], RegistryZoneCreate(zone_key="door", name="Duplicate", zone_type="gate_trigger",
+        service.create_zone(db, grill["id"], RegistryZoneCreate(zone_key="door", name="Duplicate", zone_type="gate_approach",
             polygon=polygon), "test-operator")
+    with pytest.raises(service.RegistryError, match="Unknown zone_type 'vault_area_roi'"):
+        service.create_zone(db, grill["id"], RegistryZoneCreate(zone_key="vault-zone", name="Foreign Vault zone",
+            zone_type="vault_area_roi", polygon=polygon), "test-operator")
+    with pytest.raises(service.RegistryError, match="Unknown zone_type 'gate_crossing'"):
+        service.create_zone(db, grill["id"], RegistryZoneCreate(zone_key="obsolete-line", name="Obsolete line",
+            zone_type="gate_crossing", polygon=polygon), "test-operator")
 
 
 def test_grill_gate_capture_source_is_assignment_scoped_and_internal(db, monkeypatch):

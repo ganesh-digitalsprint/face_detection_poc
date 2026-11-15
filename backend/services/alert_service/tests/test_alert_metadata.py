@@ -29,7 +29,7 @@ def test_metadata_survives_create_update_filters_and_replay(tmp_path, use_case, 
         refs.update(camera_id="camera-1", camera_name="Recorded camera name", assignment_id="assignment-1")
     if use_case == "vault_monitoring":
         refs.update(session_ref="public-session", registry_camera_id="registry-camera", location_id="location-1")
-    source_type = {"vault_monitoring": "COUNT_MISMATCH", "grill_gate": "GATE_OPEN_WITHOUT_CROSSING",
+    source_type = {"vault_monitoring": "MOBILE_PHONE_DETECTED", "grill_gate": "GATE_OPEN_WITHOUT_CROSSING",
         "branch_exterior": "anomaly", "face_mask": "FACE_CONCEALMENT"}[use_case]
     domain = {"lifecycle_owner": "source"}
     if use_case == "branch_exterior":

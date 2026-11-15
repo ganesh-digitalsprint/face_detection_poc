@@ -235,6 +235,7 @@ class VaultRoomCameraManager:
             last_process = -process_interval
             last_output = 0.0
             latest_tracks: list[dict] = []
+            latest_objects: list[dict] = []
             latest_poses: list[list[dict]] = []
             while not session.stop_event.is_set() or not session.raw_frames.empty():
                 if time.monotonic() - session.last_client_seen > 30:
@@ -278,6 +279,7 @@ class VaultRoomCameraManager:
                         last_process = time.monotonic()
                         if result.get("accepts_frames", True):
                             latest_tracks = result.get("tracks", [])
+                            latest_objects = result.get("mobile_phones", [])
                             pose = result.get("pose_preview") or {}
                             latest_poses = pose.get("poses", [])
                             session.pose_metrics = {
@@ -290,6 +292,7 @@ class VaultRoomCameraManager:
                             session.error = None
                         else:
                             latest_tracks = []
+                            latest_objects = []
                             pose = result.get("pose_preview") or {}
                             latest_poses = pose.get("poses", [])
                             session.pose_metrics = {
@@ -309,7 +312,7 @@ class VaultRoomCameraManager:
                             frame = newest
                     except queue.Empty:
                         pass
-                frame = self._annotate(frame, latest_tracks, latest_poses)
+                frame = self._annotate(frame, latest_tracks, latest_poses, latest_objects)
                 height, width = frame.shape[:2]
                 if width > 960:
                     preview_height = max(1, round(height * 960 / width))
@@ -406,7 +409,7 @@ class VaultRoomCameraManager:
             timeout_ms=settings.RTSP_READ_TIMEOUT_MS)
 
     @staticmethod
-    def _annotate(frame, tracks, poses=None):
+    def _annotate(frame, tracks, poses=None, objects=None):
         height, width = frame.shape[:2]
         for track in tracks:
             x1 = int(track["x"] * width)
@@ -416,6 +419,13 @@ class VaultRoomCameraManager:
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 190, 0), 2)
             cv2.putText(frame, f"Person {track['track_id']}", (x1, max(y1 - 8, 18)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 190, 0), 2)
+        for item in objects or ():
+            x1, y1, x2, y2 = item["bbox"]
+            x1, x2 = int(x1 * width), int(x2 * width)
+            y1, y2 = int(y1 * height), int(y2 * height)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 128, 255), 2)
+            cv2.putText(frame, f"Mobile phone {item.get('confidence', 0):.0%}",
+                (x1, max(y1 - 8, 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 128, 255), 2)
         if poses:
             from app.services.pose_preview import annotate_pose
             frame = annotate_pose(frame, poses)

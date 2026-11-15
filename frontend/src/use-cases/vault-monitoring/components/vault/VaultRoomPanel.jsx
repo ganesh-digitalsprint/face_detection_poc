@@ -11,7 +11,7 @@ import VaultActivityEvents from './VaultActivityEvents.jsx';
 const card = 'vault-card p-4 sm:p-5';
 const stateNames = { IDLE:'Idle', ENTRY_BUFFER:'Entering', ACTIVE:'Session active', EXPIRED_OPEN:'Expired', CLOSED:'Closed' };
 const mmss = (n) => `${String(Math.floor(Math.max(0, n ?? 0) / 60)).padStart(2,'0')}:${String(Math.max(0, n ?? 0) % 60).padStart(2,'0')}`;
-const ALERT_NAMES = { COUNT_MISMATCH:'Count mismatch', EXCESS_PERSON:'Excess person', UNAUTHORIZED_ENTRY:'Unauthorized entry', FEED_LOST:'Feed lost', SESSION_EXPIRED:'Session expired' };
+const ALERT_NAMES = { COUNT_MISMATCH:'Count mismatch', EXCESS_PERSON:'Excess person', UNAUTHORIZED_ENTRY:'Unauthorized entry', MOBILE_PHONE_DETECTED:'Mobile phone detected', FEED_LOST:'Feed lost', SESSION_EXPIRED:'Session expired' };
 const END_REASONS = { AUTO_LOCK_NO_ENTRY:'no one entered', AUTO_LOCK_ROOM_EMPTY:'the room was empty for 60 seconds', CLOSED_BY_BUTTON:'closed manually' };
 const localTime = (value) => value ? new Intl.DateTimeFormat(undefined, { hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(new Date(value)) : '—';
 const durationText = (seconds) => seconds == null ? 'ongoing' : `${Math.floor(seconds)} s`;

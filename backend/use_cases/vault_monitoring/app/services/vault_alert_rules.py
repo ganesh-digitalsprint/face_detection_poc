@@ -23,6 +23,7 @@ class AlertSnapshot:
     feed_lost: bool = False
     feed_stale: bool = False
     session_expired: bool = False
+    mobile_phone_detected: bool = False
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ _SEVERITY = {
     "EXCESS_PERSON": "HIGH", "UNAUTHORIZED_ENTRY": "CRITICAL",
     "CAMERA_FEED_STALE": "WARNING", "CAMERA_FEED_LOST": "HIGH",
     "SESSION_EXPIRED": "WARNING",
+    "MOBILE_PHONE_DETECTED": "HIGH",
 }
 
 _TERMINAL_REASONS = {
@@ -80,6 +82,8 @@ def evaluate(snapshot: AlertSnapshot, state=None, config=None) -> tuple[AlertTra
         result.append(AlertTransition("UNAUTHORIZED_ENTRY", "CRITICAL", snapshot.terminal_auth_failure))
     if snapshot.session_expired:
         result.append(AlertTransition("SESSION_EXPIRED", "WARNING"))
+    if snapshot.mobile_phone_detected:
+        result.append(AlertTransition("MOBILE_PHONE_DETECTED", _SEVERITY["MOBILE_PHONE_DETECTED"]))
 
     # Camera health is independent of access phase and has a camera-scoped key.
     if snapshot.feed_lost:

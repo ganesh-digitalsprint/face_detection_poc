@@ -89,6 +89,12 @@ vault_room:
       min_box_area_ratio: 0.01
       weights_path: null
       cpu_threads: 4
+    mobile_phone:
+      enabled: true
+      confidence_threshold: 0.40
+      confirmation_seconds: 1.0
+      clear_seconds: 2.0
+      absence_gap_seconds: 1.5
     tracker:
       track_activation_threshold: 0.4
       minimum_matching_threshold: 0.7
@@ -110,6 +116,7 @@ vault_alerts:
     capture_excess_person: true
     capture_session_expired: true
     capture_count_mismatch: false
+    capture_mobile_phone_detected: true
     realert_seconds: 60
     max_per_alert: 3
     max_per_incident: 15

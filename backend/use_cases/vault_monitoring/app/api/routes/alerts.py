@@ -108,7 +108,7 @@ def alert_summary(scope: Literal["active", "history", "all"] = "active", status_
 
 @router.get("/meta")
 def alert_meta(db: Session = Depends(get_db), operator: Operator = Depends(get_operator)):
-    return {"alert_types": ["COUNT_MISMATCH", "EXCESS_PERSON", "NO_ENTRY", "UNAUTHORIZED_ENTRY", "SESSION_EXPIRED", "CAMERA_FEED_STALE", "CAMERA_FEED_LOST"],
+    return {"alert_types": ["COUNT_MISMATCH", "EXCESS_PERSON", "NO_ENTRY", "UNAUTHORIZED_ENTRY", "SESSION_EXPIRED", "CAMERA_FEED_STALE", "CAMERA_FEED_LOST", "MOBILE_PHONE_DETECTED"],
         "severities": ["INFO", "WARNING", "HIGH", "CRITICAL"], "statuses": ["OPEN", "ACKNOWLEDGED", "RESOLVED", "DISMISSED"],
         "cameras": db.scalars(select(VaultRoomAlert.camera_id).where(VaultRoomAlert.camera_id.is_not(None)).distinct()).all(),
         "evidence_limits": {"max_bytes": 10485760, "allowed_mime_types": ["image/jpeg", "image/png", "image/webp"]},

@@ -42,11 +42,17 @@ class ReplayAlertSink:
         self.active: dict[str, dict] = {}
         self.lock = threading.RLock()
 
-    def submit(self, snapshot, *, event_at, event_frame=None, detections=(), **_kwargs):
+    def submit(self, snapshot, *, event_at, event_frame=None, detections=(),
+               managed_alert_types=None, source_metadata=None, camera_id=None, **_kwargs):
         facts = {item.alert_type: item for item in evaluate(snapshot)}
+        managed = set(managed_alert_types) if managed_alert_types is not None else None
+        if managed is not None:
+            facts = {key: value for key, value in facts.items() if key in managed}
         stamp = event_at.isoformat()
         with self.lock:
             for kind in list(self.active):
+                if managed is not None and kind not in managed:
+                    continue
                 if kind not in facts:
                     alert = self.active.pop(kind)
                     alert.update(status="RESOLVED", closed_at=stamp)
@@ -64,18 +70,30 @@ class ReplayAlertSink:
                 if event_frame is not None:
                     tracks = [dict(track_id=item["track_id"], x=item["bbox"][0], y=item["bbox"][1],
                         w=item["bbox"][2] - item["bbox"][0], h=item["bbox"][3] - item["bbox"][1])
-                        for item in detections]
-                    evidence_frame = VaultRoomCameraManager._annotate(event_frame.copy(), tracks)
+                        for item in detections if "track_id" in item]
+                    objects = [item for item in detections if item.get("label") == "cell phone"]
+                    evidence_frame = VaultRoomCameraManager._annotate(event_frame.copy(), tracks,
+                        objects=objects)
                     height, width = evidence_frame.shape[:2]
                     if max(height, width) > 1280:
                         scale = 1280 / max(height, width)
                         evidence_frame = cv2.resize(evidence_frame, (round(width * scale), round(height * scale)))
                     evidence = bool(cv2.imwrite(str(self.directory / f"{identifier}.jpg"), evidence_frame,
                         [cv2.IMWRITE_JPEG_QUALITY, 80]))
-                alert = dict(id=identifier, type=kind, severity=fact.severity, session_id=self.session_id, replay_mode=True,
-                    message=f"[REPLAY TEST] {kind.replace('_', ' ').title()}: "
-                            f"{snapshot.observed_count if snapshot.observed_count is not None else '?'} people; "
-                            f"{snapshot.required_persons} expected, {snapshot.verified_count} verified custodians.",
+                metadata = deepcopy(source_metadata or {})
+                if kind == "MOBILE_PHONE_DETECTED":
+                    confidence = metadata.get("mobile_phone_confidence")
+                    confidence_text = f" ({confidence:.0%} confidence)" if isinstance(confidence, (int, float)) else ""
+                    message = f"[REPLAY TEST] Mobile phone detected{confidence_text}."
+                else:
+                    message = f"[REPLAY TEST] {kind.replace('_', ' ').title()}: " \
+                        f"{snapshot.observed_count if snapshot.observed_count is not None else '?'} people; " \
+                        f"{snapshot.required_persons} expected, {snapshot.verified_count} verified custodians."
+                alert = dict(id=identifier, type=kind, title=kind.replace('_', ' ').title(),
+                    severity=fact.severity, session_id=self.session_id, replay_mode=True,
+                    source="vault_room_uploaded_video_replay", camera_id=camera_id,
+                    video_timestamp_seconds=metadata.get("video_timestamp_seconds"),
+                    metadata=metadata, detections=[deepcopy(item) for item in detections], message=message,
                     status="OPEN", created_at=stamp, evidence=evidence, test_mode=True)
                 self.alerts.append(alert)
                 self.active[kind] = alert
@@ -332,7 +350,8 @@ class VaultRoomReplayManager:
                         observation.get('confirmed_person_count'), observation.get('activity_engine_invoked'),
                         observation.get('generated_event_types'), observation.get('alert_input_count'), observation.get('entry_elapsed_seconds', 0))
                 tracks = result.get("tracks", [])
-                output = VaultRoomCameraManager._annotate(image.copy(), tracks)
+                output = VaultRoomCameraManager._annotate(image.copy(), tracks,
+                    objects=result.get("mobile_phones", []))
                 cv2.putText(output, "REPLAY TEST", (12, image.shape[0] - 16),
                     cv2.FONT_HERSHEY_SIMPLEX, .65, (0, 220, 255), 2)
                 okay, jpeg = cv2.imencode(".jpg", output, [cv2.IMWRITE_JPEG_QUALITY, 80])

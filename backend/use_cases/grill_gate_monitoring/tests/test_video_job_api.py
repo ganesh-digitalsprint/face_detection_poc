@@ -363,7 +363,8 @@ def test_named_zone_configuration_create_list_get_update_duplicate_delete(harnes
     config_id = created["id"]
     assert created["crossing_strategy"] == "three_zone"
     assert created["reference_frame"] == {"width": WIDTH, "height": HEIGHT}
-    assert created["zones"][2]["polygon"] == crossing_zones()[1]["polygon"]
+    assert [zone["zone_key"] for zone in created["zones"]] == ["gate", "approach", "interior"]
+    assert created["zones"][2]["polygon"] == crossing_zones()[2]["polygon"]
     assert [item["id"] for item in harness.client.get("/api/v1/grill-gate/zone-configurations", headers=HEADERS).json()["items"]] == [config_id]
     assert harness.client.get(f"/api/v1/grill-gate/zone-configurations/{config_id}", headers=HEADERS).json()["id"] == config_id
 
@@ -560,7 +561,7 @@ def test_config_locks_at_start_so_the_running_snapshot_cannot_change(harness):
     response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=config(zones=[]))
     assert response.status_code == 409 and response.json()["detail"]["code"] == "CONFIG_LOCKED"
     assert [zone["zone_key"] for zone in harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()["zones"]] == [
-        "gate", "approach", "corridor", "interior"]
+        "gate", "approach", "interior"]
     assert captured["snapshot"]["zone"]["zone_key"] == "gate"
 
 
@@ -1001,7 +1002,10 @@ def test_live_and_video_processors_share_no_state_and_tag_events_by_source():
     live_events, video_events = [], []
     live = make_processor(live_events.append)
     video = make_processor(video_events.append, camera="job", assignment="job")
-    assert live._crossing is not video._crossing and live._mesh is not video._mesh and live._status is not video._status
+    assert (live._three_zone_crossing is not video._three_zone_crossing
+            and live._mesh is not video._mesh
+            and live._alerts is not video._alerts
+            and live._status is not video._status)
     live._current_packet = SimpleNamespace(source_type="LIVE_CAMERA")
     video._current_packet = SimpleNamespace(source_type="UPLOADED_VIDEO", video_job_id="job-1", video_time_seconds=1.5, template_assignment_id=None)
     base = {"event_type": "CROSSING_COMPLETED", "camera_id": "c", "assignment_id": "a"}

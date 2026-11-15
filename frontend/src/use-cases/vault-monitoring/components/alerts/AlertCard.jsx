@@ -13,6 +13,7 @@ export const ALERT_TYPES = {
   SESSION_EXPIRED: { label: 'Session expired', icon: AlertTriangle },
   CAMERA_FEED_STALE: { label: 'Camera feed stale', icon: Camera },
   CAMERA_FEED_LOST: { label: 'Camera feed lost', icon: Camera },
+  MOBILE_PHONE_DETECTED: { label: 'Mobile phone detected', icon: ShieldAlert },
 };
 
 export const ACTION_LABELS = { acknowledge: 'Acknowledge', resolve: 'Resolve', dismiss: 'Discard' };

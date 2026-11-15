@@ -128,6 +128,23 @@ def test_vault_snapshot_metadata_maps_to_approved_common_alert_references():
     assert "password" not in json.dumps(payload).lower()
 
 
+def test_mobile_phone_alert_is_published_with_high_severity_and_attribution():
+    engine, factory = _database()
+    requests = []
+    adapter = _adapter(factory, lambda request: requests.append(request) or
+        httpx.Response(201, request=request))
+    alert = _alert(type="MOBILE_PHONE_DETECTED", severity="HIGH", metadata_json=SOURCE_METADATA)
+    alert_id = _enqueue(engine, adapter, alert)
+    assert adapter.dispatch_once() == 1
+    body = json.loads(requests[0].content)
+    assert body["source_event_id"] == alert_id
+    assert body["source_event_type"] == "MOBILE_PHONE_DETECTED"
+    assert body["severity"] == "HIGH"
+    assert body["resource_refs"]["branch_id"] == "branch-1"
+    assert body["resource_refs"]["camera_name"] == "Vault Room Camera"
+    engine.dispose()
+
+
 @pytest.mark.parametrize("metadata", [None, {}, {"reason": "legacy"}])
 def test_alerts_without_source_metadata_publish_unattributed(metadata):
     refs = build_payload(_alert(metadata_json=metadata))["resource_refs"]

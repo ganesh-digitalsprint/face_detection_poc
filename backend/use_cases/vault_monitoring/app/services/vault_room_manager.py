@@ -34,6 +34,8 @@ from app.core.zones import ZoneFile, ZoneMonitor
 from app.services.vault_zone_provider import VaultRoomZoneProvider
 
 logger = get_logger(__name__)
+STANDARD_ALERT_TYPES = ("NO_ENTRY", "COUNT_MISMATCH", "EXCESS_PERSON", "UNAUTHORIZED_ENTRY",
+    "SESSION_EXPIRED", "CAMERA_FEED_STALE", "CAMERA_FEED_LOST")
 
 
 class RoomObserver(Protocol):
@@ -55,6 +57,18 @@ class ActiveSessionInfo:
     remaining_seconds: int | None
     entry_buffer_remaining_seconds: int
     session_id: str
+
+
+@dataclass
+class _MobilePhoneState:
+    pending_since: float | None = None
+    last_seen: float | None = None
+    active: bool = False
+    last_submitted_at: float | None = None
+    detections: tuple[dict, ...] = ()
+    frame: object | None = None
+    source_metadata: dict | None = None
+    session_ref: str | None = None
 
 
 class VaultRoomSessionActiveError(RuntimeError):
@@ -80,6 +94,9 @@ class VaultRoomManager:
         if not hasattr(self._config, "counting"):
             self._config = SimpleNamespace(**vars(self._config), counting=get_vault_room_config().counting)
         self._counting = self._config.counting
+        self._mobile_phone = getattr(self._counting, "mobile_phone", SimpleNamespace(
+            enabled=False, confidence_threshold=.4, confirmation_seconds=1.0,
+            clear_seconds=2.0, absence_gap_seconds=1.5))
         self._detector = detector or (RfDetrPersonDetector(self._counting) if self._counting.enabled else None)
         self._tracker = tracker or (PersonTracker(self._counting) if self._counting.enabled else None)
         self._counter = counter or (StableCounter(window_seconds=self._counting.count_stable_seconds,
@@ -111,6 +128,7 @@ class VaultRoomManager:
         self._processing_ms: deque[float] = deque(maxlen=10)
         self._latest_tracks: list[dict] = []
         self._latest_frame = None
+        self._mobile_phone_states: dict[str, _MobilePhoneState] = {}
         self._latest_image_size = (640, 360)
         self._video_source = "browser"
         self._pose_preview = None
@@ -364,7 +382,7 @@ class VaultRoomManager:
                 detections=tuple(dict(track_id=t["track_id"],
                     bbox=[t["x"], t["y"], t["x"]+t["w"], t["y"]+t["h"]],
                     confidence=t["confidence"]) for t in self._latest_tracks),
-                source_metadata=source_metadata)
+                source_metadata=source_metadata, managed_alert_types=STANDARD_ALERT_TYPES)
             self._phase = "IDLE"
             self._phase_since = None
             self._access_session_contexts.pop(session_ref, None)
@@ -402,11 +420,13 @@ class VaultRoomManager:
             return deepcopy(context) if context is not None else None
 
     def _alert_source_metadata_locked(self, session_ref: str | None,
-                                      *, include_camera_source: bool = True) -> dict:
+                                      *, include_camera_source: bool = True,
+                                      camera_source_id: str | None = None) -> dict:
         """Snapshot attribution before queueing; never consult current UI branch state."""
         access = deepcopy(self._access_session_contexts.get(session_ref) or {}) if session_ref else {}
-        camera = deepcopy(self._camera_source_contexts.get(self._active_camera_source_id) or {}) \
-            if include_camera_source and self._active_camera_source_id else {}
+        selected_camera = camera_source_id or self._active_camera_source_id
+        camera = deepcopy(self._camera_source_contexts.get(selected_camera) or {}) \
+            if include_camera_source and selected_camera else {}
         if include_camera_source and not camera and self._last_camera_source_metadata:
             camera = deepcopy(self._last_camera_source_metadata)
         metadata = access or camera
@@ -423,6 +443,69 @@ class VaultRoomManager:
                 if identity.get(key) and not metadata.get(key):
                     metadata[key] = identity[key]
         return metadata
+
+    def _submit_mobile_phone_snapshot_locked(self, source_key: str, state: _MobilePhoneState,
+                                             now: float) -> None:
+        snapshot = AlertSnapshot("IDLE", None, None, mobile_phone_detected=state.active)
+        metadata = deepcopy(state.source_metadata or {})
+        if state.detections:
+            metadata["mobile_phone_confidence"] = max(item["confidence"] for item in state.detections)
+            metadata["mobile_phone_detected_at"] = self._utc_datetime(state.last_seen or now).isoformat()
+        if self._replay:
+            metadata.setdefault("source_type", "upload")
+            metadata.setdefault("replay_session_id", self._activity_session_id)
+            metadata["video_timestamp_seconds"] = max(
+                0, (state.last_seen or now) - self._activity_origin)
+        self._alert_worker.submit(snapshot, session_ref=state.session_ref, camera_id=source_key,
+            event_at=self._utc_datetime(state.last_seen or now),
+            event_frame=state.frame if state.active else None,
+            detections=state.detections if state.active else (), source_metadata=metadata,
+            managed_alert_types=("MOBILE_PHONE_DETECTED",))
+        state.last_submitted_at = now
+
+    def _observe_mobile_phones_locked(self, source_key: str, now: float, phones, frame) -> None:
+        if not self._mobile_phone.enabled:
+            return
+        state = self._mobile_phone_states.setdefault(source_key, _MobilePhoneState())
+        if phones:
+            if state.pending_since is None or (state.last_seen is not None and
+                    now - state.last_seen > self._mobile_phone.absence_gap_seconds):
+                state.pending_since = now
+                state.source_metadata = self._alert_source_metadata_locked(
+                    self._session_ref if self._phase != "IDLE" else None,
+                    camera_source_id=source_key)
+                state.session_ref = self._session_ref if self._phase != "IDLE" else None
+            state.last_seen = now
+            height, width = frame.shape[:2]
+            state.detections = tuple({"label": "cell phone", "class_id": item.class_id,
+                "bbox": [item.x1 / width, item.y1 / height, item.x2 / width, item.y2 / height],
+                "confidence": item.confidence, "source_id": source_key,
+                "detected_at": self._utc_datetime(now).isoformat()} for item in phones)
+            state.frame = frame.copy()
+            newly_confirmed = not state.active and now - state.pending_since >= self._mobile_phone.confirmation_seconds
+            if newly_confirmed:
+                state.active = True
+            touch_seconds = getattr(getattr(self._config, "vault_alerts", None),
+                "touch_interval_seconds", 5)
+            if state.active and (newly_confirmed or state.last_submitted_at is None or
+                    now - state.last_submitted_at >= touch_seconds):
+                self._submit_mobile_phone_snapshot_locked(source_key, state, now)
+            return
+        if state.active and state.last_seen is not None and now - state.last_seen >= self._mobile_phone.clear_seconds:
+            state.active = False
+            self._submit_mobile_phone_snapshot_locked(source_key, state, now)
+            state.pending_since = None
+            state.detections = ()
+            state.frame = None
+            self._mobile_phone_states.pop(source_key, None)
+        elif not state.active and state.last_seen is not None and \
+                now - state.last_seen > self._mobile_phone.absence_gap_seconds:
+            self._mobile_phone_states.pop(source_key, None)
+
+    def _expire_mobile_phone_states_locked(self, now: float) -> None:
+        for source_key, state in tuple(self._mobile_phone_states.items()):
+            if state.last_seen is not None and (state.active or state.pending_since is not None):
+                self._observe_mobile_phones_locked(source_key, now, (), None)
 
     def _ensure_ticker(self):
         if self._replay:
@@ -490,6 +573,7 @@ class VaultRoomManager:
                     self._finish_counted_lock()
                 self._publish(counted.events)
             self._submit_alert_snapshot_locked(count)
+            self._expire_mobile_phone_states_locked(self._clock())
 
     def _submit_alert_snapshot_locked(self, count):
         now = self._clock()
@@ -531,7 +615,7 @@ class VaultRoomManager:
         self._alert_worker.submit(snapshot, session_ref=session_ref,
             camera_id=self._video_source or "vault-room", event_at=event_at,
             event_frame=event_frame, detections=detections,
-            source_metadata=source_metadata)
+            source_metadata=source_metadata, managed_alert_types=STANDARD_ALERT_TYPES)
 
     def _publish_alert_event(self, event):
         with self._lock:
@@ -594,6 +678,7 @@ class VaultRoomManager:
             started = time.perf_counter()
             try:
                 detections = self._detector.detect(frame_bgr)
+                phone_detections = tuple(getattr(self._detector, "last_phone_detections", ()) or ())
             except Exception as exc:
                 if self._detector.status.get("status") == "unavailable":
                     raise VaultRoomDetectorUnavailableError("Person detector unavailable") from exc
@@ -669,6 +754,16 @@ class VaultRoomManager:
                     "h": (t.y2-t.y1) / frame_bgr.shape[0], "confidence": t.confidence} for t in tracks]
                 self._latest_image_size = (frame_bgr.shape[1], frame_bgr.shape[0])
                 self._latest_frame = frame_bgr.copy()
+                phone_source_key = source_id or source
+                self._observe_mobile_phones_locked(phone_source_key, completed_at,
+                    phone_detections, frame_bgr)
+                phone_state = self._mobile_phone_states.get(phone_source_key)
+                self._monitoring_observation["mobile_phone"] = {
+                    "detected": bool(phone_detections),
+                    "confirmed": bool(phone_state and phone_state.active),
+                    "count": len(phone_detections),
+                    "confidence_threshold": self._mobile_phone.confidence_threshold,
+                }
                 self._record_processing_locked(processing_ms, completed_at)
             height, width = frame_bgr.shape[:2]
             debug_snapshot = None
@@ -687,6 +782,7 @@ class VaultRoomManager:
                 "tracks": [{"track_id": t.track_id, "x": t.x1 / width, "y": t.y1 / height,
                     "w": (t.x2-t.x1) / width, "h": (t.y2-t.y1) / height, "confidence": t.confidence}
                     for t in tracks],
+                "mobile_phones": list(phone_state.detections) if phone_state else [],
                 "zones": zone_snapshot,
                 "processing_ms": round(processing_ms, 1),
                 "detector_status": self._detector.status.get("status", "ready"),
