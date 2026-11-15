@@ -28,6 +28,7 @@ class SnapshotJob:
     detections: tuple = ()
     source_metadata: dict | None = None
     managed_alert_types: tuple[str, ...] | None = None
+    result_callback: object | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "source_metadata", deepcopy(self.source_metadata or {}))
@@ -58,11 +59,12 @@ class PersistentAlertWorker:
 
     def submit(self, snapshot: AlertSnapshot, *, session_ref=None, camera_id=None,
                event_at=None, source="VAULT_MONITORING", event_frame=None, detections=(),
-               source_metadata=None, managed_alert_types=None) -> bool:
+               source_metadata=None, managed_alert_types=None, result_callback=None) -> bool:
         job = SnapshotJob(snapshot, session_ref, camera_id,
                           event_at or datetime.now(timezone.utc), source, event_frame,
                           tuple(detections), source_metadata,
-                          tuple(managed_alert_types) if managed_alert_types is not None else None)
+                          tuple(managed_alert_types) if managed_alert_types is not None else None,
+                          result_callback)
         try:
             self._queue.put_nowait(job)
             return True
@@ -82,10 +84,14 @@ class PersistentAlertWorker:
                         for event in events:
                             if self._publisher: self._publisher(event)
                         self._capture_new_alerts(events, job)
+                        if job.result_callback:
+                            job.result_callback(events, None)
                         break
-                    except Exception:
+                    except Exception as exc:
                         if attempt == 3:
                             logger.exception("Vault alert persistence exhausted retries")
+                            if job.result_callback:
+                                job.result_callback((), exc)
                         else:
                             time.sleep(.05 * (2 ** attempt))
             finally:
@@ -124,18 +130,17 @@ class PersistentAlertWorker:
             alert_id = event["entity"]["id"]
             def result_callback(aid, success, result, _alert_type=alert_type):
                 from app.db.database import session_scope
-                from app.db.models import VaultAuditEvent, VaultRoomAlert
+                from app.db.models import VaultRoomAlert
                 from app.services.vault_event_publisher import publish_alert_event
                 with session_scope() as db:
                     row = db.get(VaultRoomAlert, aid, with_for_update=True)
                     if row is None: return
-                    row.evidence_status = "CAPTURED" if success else "FAILED"
-                    row.row_version += 1
-                    from app.services.vault_alert_lifecycle import stage_lifecycle
-                    stage_lifecycle(db, row)
-                    db.add(VaultAuditEvent(id=str(uuid4()), action="EVIDENCE_CAPTURED" if success else "EVIDENCE_CAPTURE_FAILED",
-                        entity_type="alert", entity_id=aid, details={"evidence_id":result if success else None,
-                            "reason":None if success else result, "event_type":_alert_type}))
+                    expected = "CAPTURED" if success else "FAILED"
+                    if row.evidence_status != expected:
+                        row.evidence_status = expected
+                        row.row_version += 1
+                        from app.services.vault_alert_lifecycle import stage_lifecycle
+                        stage_lifecycle(db, row)
                     version, session_ref, incident_id = row.row_version, row.session_ref, row.incident_id
                 publish_alert_event("evidence.available" if success else "evidence.upload_failed",
                     entity_type="alert", entity_id=aid, entity_version=version,
@@ -213,21 +218,27 @@ class PersistentAlertWorker:
         return events
 
     def _rise(self, db, cond, severity, job, events):
-        dedup = f"{cond.alert_type}:{cond.session_ref or 'none'}:{cond.camera_id or 'none'}:{cond.discriminator}:{cond.episode}"
+        source_key = (job.source_metadata or {}).get("source_event_key")
+        dedup = f"{cond.alert_type}:uploaded:{source_key}" if source_key else \
+            f"{cond.alert_type}:{cond.session_ref or 'none'}:{cond.camera_id or 'none'}:{cond.discriminator}:{cond.episode}"
         prior = db.scalars(select(VaultRoomAlert).where(VaultRoomAlert.dedup_key == dedup)
             .order_by(VaultRoomAlert.created_at.desc())).first()
         now = job.event_at
-        if prior and prior.status in {"OPEN", "ACKNOWLEDGED"}:
+        if prior and (source_key or prior.status in {"OPEN", "ACKNOWLEDGED"}):
             cond.active_alert_id = prior.id
             self._touch(db, cond, job, 0)
             return
         metadata = deepcopy(job.source_metadata or {})
         if cond.discriminator:
             metadata["reason"] = cond.discriminator
+        confidence = metadata.get("mobile_phone_confidence")
+        message = (f"Mobile phone detected with {confidence:.0%} confidence."
+            if cond.alert_type == "MOBILE_PHONE_DETECTED" and isinstance(confidence, (int, float))
+            else cond.alert_type.replace("_", " ").title())
         alert = VaultRoomAlert(id=str(uuid4()), session_id=cond.session_ref or "", session_ref=cond.session_ref,
             camera_id=cond.camera_id, dedup_key=dedup, type=cond.alert_type, severity=severity,
             status="OPEN", title=cond.alert_type.replace("_", " ").title(),
-            message=cond.alert_type.replace("_", " ").title(), source=job.source,
+            message=message, source=job.source,
             opened_at=now, first_seen_at=now, last_seen_at=now, created_at=now, updated_at=now,
             observed_count=job.snapshot.observed_count, required_count=job.snapshot.required_persons,
             count_at_open=job.snapshot.observed_count, expected=job.snapshot.required_persons,
@@ -267,7 +278,10 @@ class PersistentAlertWorker:
             incident.updated_at = now; incident.row_version += 1
         events.append(self._event("alert.created", alert, job, {"alert_type": alert.type,
             "severity": severity, "incident_id": alert.incident_id}))
-        if self._alert_service_adapter is not None and self._alert_service_adapter.enabled:
+        # Persist the publication command with the source alert even when the
+        # remote service is temporarily unconfigured. Dispatch remains gated
+        # by adapter.enabled, so a later valid configuration can recover it.
+        if self._alert_service_adapter is not None:
             self._alert_service_adapter.enqueue(db, alert)
         if incident and incident_created:
             events.append(self._event("incident.created", incident, job, {"incident_number": incident.incident_number,

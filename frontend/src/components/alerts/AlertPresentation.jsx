@@ -36,14 +36,14 @@ export function SourceAlertDetail({ alert, onClose, children }) {
     <p className="text-sm text-[#55607A]">{useCaseLabel(alert.useCase)} &middot; {alertSourceLabel(alert)} &middot; {alert.status}</p>
     <p className="text-sm text-[#55607A]">{alert.summary}</p>
     <AlertEvidenceDetails alert={alert} />
-    <dl className="grid grid-cols-2 gap-3 text-xs"><div><dt>Occurred</dt><dd>{alertDate(alert.occurredAt)}</dd></div><div><dt>Alert type</dt><dd>{alert.sourceEventType}</dd></div><div><dt>Alert ID</dt><dd className="break-all">{alert.id}</dd></div><div><dt>Source event ID</dt><dd className="break-all">{alert.sourceEventId}</dd></div></dl>
+    <dl className="grid grid-cols-2 gap-3 text-xs"><div><dt>Occurred</dt><dd>{alertDate(alert.occurredAt)}</dd></div><div><dt>Alert type</dt><dd>{alert.sourceEventType}</dd></div><div><dt>Alert ID</dt><dd className="break-all">{alert.displayAlertId ?? alert.id}</dd></div><div><dt>Source event ID</dt><dd className="break-all">{alert.displaySourceEventId ?? alert.sourceEventId}</dd></div></dl>
     {alert.acknowledgementComment && <p className="text-sm text-slate-700">Acknowledgement comment: {alert.acknowledgementComment}</p>}
     {alert.acknowledgedAt && <p className="text-xs text-slate-500">Acknowledged: {alertDate(alert.acknowledgedAt)} ? {alert.acknowledgedBy}</p>}
     {alert.resolvedAt && <p className="text-xs text-slate-500">Resolved: {alertDate(alert.resolvedAt)} ? {alert.resolvedBy}</p>}
     {alert.dismissedAt && <p className="text-xs text-slate-500">Discarded: {alertDate(alert.dismissedAt)} ? {alert.dismissedBy}</p>}
     {alert.resolutionNote && <p className="text-sm text-slate-700">Reason: {alert.resolutionNote}</p>}
     {children}
-    <Link to={`/alerts?use_case=grill_gate&source_event_id=${encodeURIComponent(alert.sourceEventId || '')}`} className="block text-sm font-semibold text-[#34479B]">Open Alert Center &rsaquo;</Link>
+    {alert.sourceEventId && <Link to={`/alerts?use_case=${encodeURIComponent(alert.useCase || '')}&source_event_id=${encodeURIComponent(alert.sourceEventId)}`} className="block text-sm font-semibold text-[#34479B]">Open Alert Center &rsaquo;</Link>}
     <Link to={alertSourceLink(alert)} className="block text-sm text-[#34479B]">Open source monitoring &rsaquo;</Link>
   </section>;
 }

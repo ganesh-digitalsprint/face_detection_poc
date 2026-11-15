@@ -67,6 +67,7 @@ test('source navigation opens monitoring pages while centralized deep links rema
   assert.equal(alertSourceLink({useCase:'face_mask',sourceEventId:'id /?#'}),'/face-mask/live');
   assert.equal(faceMaskEventLink('id /?#'),'/alerts?source_event_id=id%20%2F%3F%23');
   assert.equal(alertSourceLink({useCase:'vault_monitoring'}),'/vault-access');
+  assert.equal(alertSourceLink({useCase:'vault_monitoring',sourceType:'uploaded_video'}),'/vault-access?view=room&source=upload');
   assert.equal(alertSourceLink({useCase:'branch_exterior'}),'/branch-exterior/live');
   assert.equal(alertSourceLink({useCase:'grill_gate',sourceEventId:'event',assignmentId:'assignment'}),'/grill-gate?view=live&assignment=assignment&alert=event');
 });

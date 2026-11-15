@@ -14,6 +14,7 @@ import time
 from uuid import uuid4
 import logging
 import json
+import hashlib
 
 import cv2
 
@@ -22,6 +23,7 @@ from app.core.ml_config import get_vault_room_config
 from app.services.vault_alert_rules import evaluate
 from app.services.vault_room_camera import VaultRoomCameraManager
 from app.services.vault_room_manager import VaultRoomBusyError, get_vault_room_manager
+from app.services.vault_source_context import build_source_context
 
 EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 TERMINAL = {"completed", "stopped", "error"}
@@ -33,14 +35,15 @@ class ReplayUploadTooLarge(ValueError):
 
 
 class ReplayAlertSink:
-    """Use the existing rule matrix, but never publish to a database or Alert Service."""
-    def __init__(self, directory: Path, session_id=None):
+    """Keep replay presentation local; persist only confirmed mobile-phone incidents."""
+    def __init__(self, directory: Path, session_id=None, *, persistent_worker=None):
         self.directory = directory
         self.session_id = session_id
         self.alerts: deque[dict] = deque(maxlen=100)
         self.events: deque[dict] = deque(maxlen=200)
         self.active: dict[str, dict] = {}
         self.lock = threading.RLock()
+        self.persistent_worker = persistent_worker
 
     def submit(self, snapshot, *, event_at, event_frame=None, detections=(),
                managed_alert_types=None, source_metadata=None, camera_id=None, **_kwargs):
@@ -54,6 +57,9 @@ class ReplayAlertSink:
                 if managed is not None and kind not in managed:
                     continue
                 if kind not in facts:
+                    if kind == "MOBILE_PHONE_DETECTED":
+                        # Detection state clears independently; the incident remains operator-managed.
+                        continue
                     alert = self.active.pop(kind)
                     alert.update(status="RESOLVED", closed_at=stamp)
                     self.events.append(dict(id=uuid4().hex, type="ALERT_CLOSED", severity="info",
@@ -94,11 +100,44 @@ class ReplayAlertSink:
                     source="vault_room_uploaded_video_replay", camera_id=camera_id,
                     video_timestamp_seconds=metadata.get("video_timestamp_seconds"),
                     metadata=metadata, detections=[deepcopy(item) for item in detections], message=message,
-                    status="OPEN", created_at=stamp, evidence=evidence, test_mode=True)
+                    status="OPEN", created_at=stamp, evidence=evidence,
+                    evidence_width=width if evidence else None, evidence_height=height if evidence else None,
+                    test_mode=True)
                 self.alerts.append(alert)
                 self.active[kind] = alert
                 self.events.append(dict(id=uuid4().hex, type="ALERT_OPENED", severity=fact.severity.lower(),
                     timestamp=stamp, message=alert["message"], data={"alert_type": kind}))
+
+        if self.persistent_worker is not None and (managed is None or "MOBILE_PHONE_DETECTED" in managed):
+            mobile = facts.get("MOBILE_PHONE_DETECTED")
+            metadata = deepcopy(source_metadata or {})
+            replay_id = metadata.get("replay_session_id") or self.session_id
+            video_time = metadata.get("video_timestamp_seconds")
+            if mobile and replay_id and isinstance(video_time, (int, float)):
+                # A replay session is one processing run and therefore one
+                # source-event namespace. The asset digest remains useful
+                # provenance, but must not collapse distinct runs (and their
+                # immutable branch snapshots) into an older incident.
+                metadata["source_event_key"] = f"{replay_id}:{video_time:.3f}"
+            annotated = event_frame
+            if mobile and event_frame is not None:
+                objects = [item for item in detections if item.get("label") == "cell phone"]
+                annotated = VaultRoomCameraManager._annotate(event_frame.copy(), [], objects=objects)
+
+            def persisted(events, error):
+                if error or not events:
+                    return
+                created = next((item for item in events if item.get("type") == "alert.created"), None)
+                if created:
+                    with self.lock:
+                        local = self.active.get("MOBILE_PHONE_DETECTED")
+                        if local:
+                            local["source_alert_id"] = created["entity"]["id"]
+
+            self.persistent_worker.submit(snapshot, session_ref=self.session_id, camera_id=camera_id,
+                event_at=event_at, source="VAULT_UPLOADED_VIDEO", event_frame=annotated if mobile else None,
+                detections=detections if mobile else (), source_metadata=metadata,
+                managed_alert_types=("MOBILE_PHONE_DETECTED",), result_callback=persisted)
 
     def stop(self, _timeout=5):
         pass
@@ -145,7 +184,7 @@ class VaultRoomReplayManager:
         self._janitor = threading.Thread(target=self._cleanup_loop, daemon=True, name="vault-replay-cleanup")
         self._janitor.start()
 
-    def upload(self, upload) -> ReplaySession:
+    def upload(self, upload, *, branch_id=None) -> ReplaySession:
         filename = Path((upload.filename or "video").replace("\\", "/")).name[:180]
         suffix = Path(filename).suffix.lower()
         if suffix not in EXTENSIONS:
@@ -162,12 +201,14 @@ class VaultRoomReplayManager:
             directory.mkdir()
             source = directory / f"source{suffix}"
             total = 0
+            digest = hashlib.sha256()
             with source.open("wb") as target:
                 while chunk := upload.file.read(1024 * 1024):
                     total += len(chunk)
                     if total > settings.MAX_VIDEO_UPLOAD_MB * 1024 * 1024:
                         raise ReplayUploadTooLarge(f"Video exceeds {settings.MAX_VIDEO_UPLOAD_MB} MB.")
                     target.write(chunk)
+                    digest.update(chunk)
             capture = cv2.VideoCapture(str(source))
             try:
                 fps = capture.get(cv2.CAP_PROP_FPS)
@@ -180,8 +221,12 @@ class VaultRoomReplayManager:
                     raise ValueError("Video has invalid FPS or frame-count metadata.")
                 if width * height > 16_777_216 or count / fps > 14_400:
                     raise ValueError("Video must be at most 16 megapixels and 4 hours long.")
+                asset_id = digest.hexdigest()
+                context = build_source_context(branch_id=branch_id, camera_name="Uploaded video",
+                    source_type="uploaded_video", source_id=f"upload:{asset_id}")
+                context.update(original_asset_id=asset_id, original_filename=filename)
                 metadata = dict(fps=fps, width=width, height=height, frame_count=int(count),
-                    duration=count / fps, size_bytes=total)
+                    duration=count / fps, size_bytes=total, source_context=context)
             finally:
                 capture.release()
             session = ReplaySession(directory.name, filename, directory, source, metadata)
@@ -216,7 +261,9 @@ class VaultRoomReplayManager:
             if any(item.status in {"processing", "paused", "starting"} for item in self._sessions.values()):
                 raise RuntimeError("Another replay is processing. Stop it first.")
             session.status = "starting"
-            session.sink = ReplayAlertSink(session.directory, session.session_id)
+            live = self._room_factory()
+            session.sink = ReplayAlertSink(session.directory, session.session_id,
+                persistent_worker=live._alert_worker)
             session.thread = threading.Thread(target=self._run, args=(session, required_persons, profile, simulated_authorization),
                 name=f"vault-replay-{session_id[:8]}", daemon=True)
             session.thread.start()
@@ -229,6 +276,21 @@ class VaultRoomReplayManager:
             alerts, alert_events = [], []
             if sink:
                 with sink.lock:
+                    source_ids = [item.get("source_alert_id") for item in sink.alerts
+                        if item.get("source_alert_id")]
+                    if source_ids:
+                        from sqlalchemy import select
+                        from app.db.database import session_scope
+                        from app.db.models import VaultRoomAlert
+                        with session_scope() as db:
+                            statuses = {row.id: row.status for row in db.scalars(
+                                select(VaultRoomAlert).where(VaultRoomAlert.id.in_(source_ids)))}
+                        for item in sink.alerts:
+                            if item.get("source_alert_id") in statuses:
+                                item["status"] = statuses[item["source_alert_id"]]
+                                if item["status"] in {"RESOLVED", "DISMISSED"} and \
+                                        sink.active.get(item["type"]) is item:
+                                    sink.active.pop(item["type"], None)
                     alerts = [dict(item) for item in sink.alerts]
                     alert_events = list(sink.events)
             base = f"/api/v1/vault-room/video-sessions/{session_id}"
@@ -292,6 +354,10 @@ class VaultRoomReplayManager:
             worker = self._room_factory().create_replay(clock=lambda: session.current_time + 1,
                 alert_worker=session.sink)
             session.worker = worker
+            context = deepcopy(session.metadata.get("source_context") or {})
+            source_id = context.get("source_id") or session.session_id
+            worker.bind_camera_source(source_id, source_type="uploaded_video",
+                camera_name=context.get("camera_name") or "Uploaded video", source_context=context)
             worker.configure_regions(profile if profile is not None else {'id': 'upload', 'zones': []})
             if hasattr(worker, 'configure_replay_activity'):
                 worker.configure_replay_activity(session.session_id, required_persons=required,
@@ -326,7 +392,7 @@ class VaultRoomReplayManager:
                 session.current_time = index / session.metadata["fps"]
                 while not session.stop_event.is_set():
                     try:
-                        result = worker.process_frame(image, source="replay")
+                        result = worker.process_frame(image, source="uploaded_video", source_id=source_id)
                         break
                     except VaultRoomBusyError:
                         session.stop_event.wait(.1)

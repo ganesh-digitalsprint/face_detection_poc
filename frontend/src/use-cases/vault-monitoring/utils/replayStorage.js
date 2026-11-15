@@ -37,3 +37,9 @@ export function restoredReplay(context) {
     metadata: null, state: {}, events: [], alerts: [], frame_sequence: 0,
     current_time: 0, processed_frames: 0, progress: 0, finalized: true } : null;
 }
+
+/** Activity rows use the immutable uploaded-asset identity, not the replay session id. */
+export function replayActivitySourceId(session, fallback = null) {
+  const value = session?.metadata?.source_context?.source_id;
+  return typeof value === 'string' && value.length <= 128 ? value : fallback;
+}

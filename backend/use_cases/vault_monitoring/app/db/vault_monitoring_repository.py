@@ -118,8 +118,6 @@ class VaultMonitoringRepository:
             raise InvalidAlertTransition("VERSION_CONFLICT")
         if new_status in {"RESOLVED", "DISMISSED"} and not (note and 1 <= len(note.strip()) <= 500):
             raise InvalidAlertTransition("NOTE_REQUIRED")
-        if new_status == "DISMISSED" and row.severity in {"HIGH", "CRITICAL"}:
-            raise InvalidAlertTransition("HIGH_SEVERITY_CANNOT_BE_DISMISSED")
         if new_status not in _ALERT_TRANSITIONS.get(row.status, set()):
             raise InvalidAlertTransition(f"Cannot transition alert from {row.status} to {new_status}")
         now = now or datetime.now(timezone.utc)

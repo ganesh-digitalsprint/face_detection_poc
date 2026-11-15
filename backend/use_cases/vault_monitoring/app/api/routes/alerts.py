@@ -21,8 +21,8 @@ class ActionBody(BaseModel):
     expected_version: int | None = Field(default=None, ge=1)
 
 def _actions(row):
-    if row.status == "OPEN": return ["acknowledge", "resolve"] + ([] if row.severity in {"HIGH", "CRITICAL"} else ["dismiss"])
-    if row.status == "ACKNOWLEDGED": return ["resolve"] + ([] if row.severity in {"HIGH", "CRITICAL"} else ["dismiss"])
+    if row.status == "OPEN": return ["acknowledge", "resolve", "dismiss"]
+    if row.status == "ACKNOWLEDGED": return ["resolve", "dismiss"]
     return []
 
 def _item(db, row):
@@ -31,6 +31,9 @@ def _item(db, row):
     metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
     source_metadata = {key: metadata.get(key) if isinstance(metadata.get(key), str) else None
         for key in SAFE_SOURCE_METADATA_FIELDS}
+    numeric_metadata = {key: metadata.get(key) if isinstance(metadata.get(key), (int, float)) else None
+        for key in ("video_timestamp_seconds", "mobile_phone_confidence", "mobile_phone_confirmation_seconds")}
+    detections = metadata.get("mobile_phone_detections") if isinstance(metadata.get("mobile_phone_detections"), list) else []
     return {"id": row.id, "alert_type": row.type, "severity": row.severity, "status": row.status,
         "title": row.title or row.type.replace("_", " ").title(), "message": row.message,
         "source": row.source, "session_ref": row.session_ref, "camera_id": row.camera_id,
@@ -40,8 +43,13 @@ def _item(db, row):
         "occurrence_count": row.occurrence_count, "created_at": row.created_at,
         "updated_at": row.updated_at, "evidence_count": len(evidence),
         "evidence_status": row.evidence_status, "primary_evidence_id": evidence[0].id if evidence else None,
-        "evidence_refs": [{"provider":"vault_monitoring", "id":item.id, "type":"snapshot"} for item in evidence],
-        "row_version": row.row_version, "allowed_actions": _actions(row), **source_metadata}
+        "evidence_refs": [{key:value for key,value in {"provider":"vault_monitoring", "id":item.id,
+            "type":"snapshot", "captured_at":item.captured_at, "width":item.width, "height":item.height,
+            "mime_type":item.mime_type}.items() if value is not None} for item in evidence],
+        "row_version": row.row_version, "allowed_actions": _actions(row),
+        "source_type": metadata.get("source_type"), "replay_session_id": metadata.get("replay_session_id"),
+        "original_asset_id": metadata.get("original_asset_id"), "mobile_phone_detections": detections,
+        **numeric_metadata, **source_metadata}
 
 def _cursor_encode(row, ceiling):
     payload = json.dumps([row.created_at.isoformat(), row.id, ceiling[0].isoformat(), ceiling[1]], separators=(",", ":")).encode()

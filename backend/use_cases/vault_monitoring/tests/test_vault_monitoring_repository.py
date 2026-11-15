@@ -35,6 +35,16 @@ def test_alert_transition_is_audited_and_dismissal_preserves_row(db):
         repo.transition_alert(alert.id, "RESOLVED")
 
 
+def test_high_mobile_phone_alert_can_be_manually_dismissed_with_reason(db):
+    repo = VaultMonitoringRepository(db)
+    alert = repo.create_alert(session_id="uploaded-session", alert_type="MOBILE_PHONE_DETECTED",
+                              severity="HIGH", message="Mobile phone detected")
+    repo.transition_alert(alert.id, "DISMISSED", actor_id="operator-1", note="Reviewed false positive")
+    db.commit()
+    row = db.get(VaultRoomAlert, alert.id)
+    assert row.status == "DISMISSED" and row.resolution_note == "Reviewed false positive"
+
+
 def test_manual_transition_and_publication_rollback_together(db):
     repo = VaultMonitoringRepository(db)
     alert = repo.create_alert(session_id='rollback-session', alert_type='COUNT_MISMATCH', severity='WARNING', message='Mismatch')

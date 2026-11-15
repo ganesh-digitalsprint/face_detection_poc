@@ -15,7 +15,11 @@ def current_payload(db, row):
     payload = build_payload(row)
     evidence = db.scalars(select(VaultEvidence).where(VaultEvidence.alert_id == row.id, VaultEvidence.available.is_(True))).all()
     payload.update(source_event_version=row.row_version, source_status=row.status,
-        evidence_refs=[{'provider':'vault_monitoring','id':item.id,'type':'snapshot'} for item in evidence])
+        evidence_refs=[{key:value for key,value in {
+            'provider':'vault_monitoring','id':item.id,'type':'snapshot',
+            'captured_at':item.captured_at.isoformat() if item.captured_at else None,
+            'width':item.width,'height':item.height,'mime_type':item.mime_type,
+        }.items() if value is not None} for item in evidence])
     payload['domain_data'].update(lifecycle_owner='source', lifecycle_actor_type='operator',
         source_status_changed_at=row.updated_at.replace(tzinfo=timezone.utc).isoformat() if row.updated_at.tzinfo is None else row.updated_at.isoformat(),
         resolution_note=row.resolution_note, evidence_status=row.evidence_status,

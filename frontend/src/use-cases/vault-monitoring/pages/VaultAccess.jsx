@@ -58,7 +58,7 @@ export default function VaultAccess() {
   const room = useVaultRoom();
   const roomCamera = useVaultRoomCamera(activeBranchId);
   const regions = useVaultRoomRegions(isRoom);
-  const replay = useVaultRoomReplay(regions.profileId, regions.ready);
+  const replay = useVaultRoomReplay(regions.profileId, regions.ready, activeBranchId);
   const roomCounting = useVaultCounting(roomCamera.videoRef, room.roomState, isRoom && roomCamera.kind === 'webcam',
     roomCamera.status === 'ready', room.refreshState, roomCamera.posePreview,
     roomCamera.sourceSession?.session_id ?? null);

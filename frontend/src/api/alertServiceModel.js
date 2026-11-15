@@ -207,7 +207,9 @@ export function normalizeGrillGateAlert(item) {
 
 export function alertSourceLink(alert) {
   if (alert.useCase === 'face_mask') return '/face-mask/live';
-  if (alert.useCase !== 'grill_gate') return { vault_monitoring: '/vault-access', branch_exterior: '/branch-exterior/live' }[alert.useCase];
+  if (alert.useCase === 'vault_monitoring') return alert.sourceType === 'uploaded_video'
+    ? '/vault-access?view=room&source=upload' : '/vault-access';
+  if (alert.useCase !== 'grill_gate') return { branch_exterior: '/branch-exterior/live' }[alert.useCase];
   const query = new URLSearchParams({ view: alert.videoJobId ? 'video' : 'live' });
   if (alert.videoJobId) query.set('job', alert.videoJobId);
   else if (alert.assignmentId) query.set('assignment', alert.assignmentId);

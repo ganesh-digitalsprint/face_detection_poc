@@ -15,11 +15,17 @@ test('vault-monitoring API modules export request functions', () => {
   }
 });
 
-test('normalizeAlert maps backend fields and defaults allowed actions', () => {
-  const a = alerts.normalizeAlert({ id: 'x', alert_type: 't', session_ref: 's' });
-  assert.equal(a.type, 't');
+test('normalizeAlert maps uploaded-video detection metadata and defaults allowed actions', () => {
+  const a = alerts.normalizeAlert({ id: 'x', alert_type: 'MOBILE_PHONE_DETECTED', session_ref: 's',
+    source_type:'uploaded_video',camera_name:'Uploaded video',video_timestamp_seconds:18.75,
+    mobile_phone_confidence:.781,mobile_phone_confirmation_seconds:1,
+    mobile_phone_detections:[{bbox:[.1,.2,.3,.4]}],branch_name:'Koramangala' });
+  assert.equal(a.type, 'MOBILE_PHONE_DETECTED');
   assert.equal(a.sessionRef, 's');
   assert.deepEqual(a.allowedActions, []);
+  assert.equal(a.sourceType,'uploaded_video'); assert.equal(a.cameraName,'Uploaded video');
+  assert.equal(a.videoTimestampSeconds,18.75); assert.equal(a.mobilePhoneConfidence,.781);
+  assert.deepEqual(a.mobilePhoneDetections,[{bbox:[.1,.2,.3,.4]}]); assert.equal(a.branchName,'Koramangala');
 });
 
 test('branch-exterior API resolves against the Branch base, not Vault', () => {
