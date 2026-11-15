@@ -245,7 +245,7 @@ export default function LiveMonitoringPage() {
           <div className="bx-card-title">Live alert ticker</div>
           <div className="bx-ticker">
             {ticker.length === 0 && <Empty icon="🕑" bare>Waiting for events...</Empty>}
-            {ticker.map((e) => <SourceIncidentCard key={e.id} event={e} useCase="branch_exterior" common={incidentStates.bySource[e.id]} thumbnailUrl={e.snapshot_path ? bxStorageUrl(e.snapshot_path) : undefined} onSelect={(id)=>navigate(`/alerts/branch?event=${encodeURIComponent(id)}`)} />)}
+            {ticker.map((e) => <SourceIncidentCard key={e.id} event={e} useCase="branch_exterior" common={incidentStates.bySource[e.id]} thumbnailUrl={e.snapshot_path ? bxStorageUrl(e.snapshot_path) : undefined} onSelect={(id)=>navigate(`/alerts?use_case=branch_exterior&source_event_id=${encodeURIComponent(id)}`)} />)}
           </div>
           <div className="bx-card-title" style={{ marginTop: 18 }}>What the AI watches for <span className="bx-muted" style={{ fontWeight: 400 }}>(incidents this video)</span></div>
           <div>

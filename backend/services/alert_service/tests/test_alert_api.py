@@ -383,6 +383,7 @@ def test_source_owns_lifecycle_and_can_publish_evidence_without_operator_dual_wr
         producer = {"Authorization": f"Bearer {token}"}
         assert client.get("/api/v1/producer", headers=producer).json()["use_case"] == use_case
         body = payload(source_event_id="source-owned", source_status="OPEN", severity="WARNING",
+            source_event_type='GATE_OPEN_TOO_LONG' if use_case == 'grill_gate' else 'COUNT_MISMATCH',
             evidence_refs=[{"provider": "grill_gate", "id": "opaque-id", "content_type": "image/jpeg",
                 "retrieval_path": "/api/v1/grill-gate/alerts/local-id/evidence/opaque-id?video_job_id=job"}])
         created = client.post("/api/v1/alerts", headers={**producer, "Idempotency-Key": "source-owned"}, json=body)

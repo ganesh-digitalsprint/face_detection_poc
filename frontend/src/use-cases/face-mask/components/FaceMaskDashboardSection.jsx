@@ -31,7 +31,7 @@ export default function FaceMaskDashboardSection() {
         <h3 style={{ margin: 0, fontWeight: 600 }}>Face Mask · entrances today</h3>
         <div className="bx-row bx-gap-8">
           <Link to="/face-mask/live" className="bx-btn bx-btn-sm">Live monitoring</Link>
-          <Link to="/alerts/face-mask" className="bx-btn bx-btn-sm">Events &amp; review</Link>
+          <Link to="/alerts?use_case=face_mask" className="bx-btn bx-btn-sm">Events &amp; review</Link>
           <button type="button" className="bx-btn bx-btn-sm" onClick={toggleTheme} aria-label="Toggle Face Mask panel theme">Theme</button>
         </div>
       </div>
@@ -66,7 +66,7 @@ export default function FaceMaskDashboardSection() {
       </PageState>
 
       <div className="bx-card" style={{ marginTop: 16 }}>
-        <div className="bx-card-title">Latest concealment events <Link to="/alerts/face-mask" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></div>
+        <div className="bx-card-title">Latest concealment events <Link to="/alerts?use_case=face_mask" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></div>
         <PageState loading={events.loading} error={events.error} data={events.data} onRetry={events.reload}
           isEmpty={(d) => d.items.length === 0} emptyIcon="🛡" emptyText="No concealment events yet.">
           <table className="bx-table">

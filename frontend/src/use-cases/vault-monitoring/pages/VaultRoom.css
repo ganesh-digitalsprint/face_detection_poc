@@ -121,6 +121,14 @@
 .activity-live-badge > span { width: 7px; height: 7px; border-radius: 50%; background: #16b98b; box-shadow: 0 0 0 3px #16b98b26; }
 .vault-activity-events { display: flex; flex: 1; flex-direction: column; min-width: 0; margin-top: 12px; }
 .activity-filter-pills { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+.activity-clear-confirm { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 10px 14px; margin-bottom: 14px; border-radius: 15px; background: #fce6e9; color: #df1935; font-size: 12px; }
+.activity-clear-confirm strong, .activity-clear-confirm span { display: block; }
+.activity-clear-confirm span { margin-top: 3px; }
+.activity-clear-buttons { display: flex; gap: 8px; margin-left: auto; }
+.activity-clear-buttons button { min-height: 32px; padding: 6px 14px; border-radius: 9px; font-weight: 700; }
+.activity-clear-cancel { border: 1px solid #e4e8f3; background: white; color: #df1935; }
+.activity-clear-submit { background: #d91431; color: white; }
+.activity-clear-submit:disabled { opacity: .5; cursor: not-allowed; }
 .activity-filter-pills button { min-height: 30px; padding: 4px 12px; border: 1px solid #e1e5f5; border-radius: 999px; color: #747da6; background: white; font-size: 12px; font-weight: 600; }
 .activity-filter-pills button[aria-pressed="true"] { border-color: #6b63ff; background: #eeedff; color: #5149e8; }
 .activity-filter-pills button:focus-visible,
@@ -321,3 +329,5 @@
   .vault-room-page .room-webcam-form > button { grid-column: 1; grid-row: 3; }
   .vault-room-page .room-camera-frame > [role="status"] { font-size: 12px; padding-inline: 8px; }
 }
+
+.activity-clear-buttons button:focus-visible { outline: 2px solid #5551df; outline-offset: 2px; }

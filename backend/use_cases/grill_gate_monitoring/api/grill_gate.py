@@ -50,6 +50,7 @@ from grill_gate_monitoring.services.assignment_readiness import missing_assignme
 from grill_gate_monitoring.services.diagnostics import log_diagnostic
 import cv2
 import httpx
+from fedbank_core.events.metadata import resolve_branch_metadata, safe_reference
 
 router = APIRouter(prefix="/api/v1/grill-gate", tags=["grill gate camera workers"],
                    dependencies=[Depends(get_operator)])
@@ -81,7 +82,9 @@ JOB_ERROR_MESSAGES = {
 @router.post("/videos", status_code=201)
 def upload_video(video: UploadFile, db: Db, caller: Caller,
                  template_assignment_id: str | None = Form(default=None),
-                 configuration: str | None = Form(default=None)):
+                 configuration: str | None = Form(default=None),
+                 branch_id: str | None = Form(default=None),
+                 camera_label: str | None = Form(default=None)):
     """Save an isolated uploaded-video job. Zones and calibration are optional here and can be set later.
 
     Processing does not begin until POST /videos/{job_id}/start.
@@ -122,8 +125,14 @@ def upload_video(video: UploadFile, db: Db, caller: Caller,
         frame = (metadata["width"], metadata["height"])
         snapshot = _config_call(normalize_config, raw_config, frame) if raw_config is not None else {}
         filename = Path(video.filename or "video").name
+        branch = resolve_branch_metadata(branch_id) if branch_id else {}
+        if branch_id and branch is None:
+            raise HTTPException(422, "Selected Branch Management branch was not found")
+        source_metadata = {**(branch or {}), "camera_name": safe_reference(camera_label) or "Uploaded video",
+                           "video_filename": filename, "source_type": "UPLOADED_VIDEO"}
         job_id = jobs.save(path, original_filename=filename, config=snapshot,
-                           template_assignment_id=template, metadata=metadata)
+                           template_assignment_id=template, metadata=metadata,
+                           source_metadata=source_metadata)
         return {"job_id": job_id, "filename": filename, "status": "UPLOADED"}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -188,6 +197,8 @@ def _job_dict(row, *, event_count: int | None = None, alert_count: int | None = 
     return {"job_id": str(row.id), "asset_job_id": row.asset_job_id,
         "zone_configuration_id": (row.config_snapshot or {}).get("zone_configuration_id"),
         "filename": row.original_filename, "status": row.status,
+        **{key: (row.config_snapshot or {}).get("source_metadata", {}).get(key) for key in
+           ("branch_id", "branch_code", "branch_name", "place_name", "region_name", "branch_manager", "camera_name")},
         "template_assignment_id": row.template_assignment_id, "frame_count": row.frame_count,
         "progress_seconds": row.progress_seconds, "error_code": row.error_code,
         "created_at": row.created_at, "started_at": row.started_at, "completed_at": row.completed_at,
@@ -371,8 +382,10 @@ def delete_zone_configuration(configuration_id: str, db: Db, caller: Caller):
 
 def _store_job_config(db: Session, row, config: dict) -> dict:
     # Conditional write: once a job has started, its configuration can no longer change.
+    source_metadata = dict((row.config_snapshot or {}).get("source_metadata") or {})
     stored = db.execute(update(GrillGateVideoJob).where(GrillGateVideoJob.id == row.id,
-        GrillGateVideoJob.status == "UPLOADED").values(config_snapshot={**config, "video": job_video(row)}))
+        GrillGateVideoJob.status == "UPLOADED").values(config_snapshot={**config, "video": job_video(row),
+            "source_metadata": source_metadata}))
     db.commit()
     if stored.rowcount != 1:
         raise HTTPException(409, detail={"code": "CONFIG_LOCKED", "message": "This job has started, so its configuration is locked"})
@@ -704,6 +717,7 @@ def _reconcile_final_open_timer(db, job, payload):
     at = (job.started_at + timedelta(seconds=payload.video_timestamp_seconds)
           if job.started_at and payload.video_timestamp_seconds is not None
           else job.completed_at or datetime.now(timezone.utc))
+    source_metadata = dict((job.config_snapshot or {}).get("source_metadata") or {})
     row = persist_command(db, {"action": "create", "source_event_id": source_id, "capture_evidence": True, "payload": {
         "source_event_type": "GATE_OPEN_TOO_LONG", "source_event_version": 1,
         "occurred_at": at.isoformat(), "last_seen_at": at.isoformat(),
@@ -714,7 +728,7 @@ def _reconcile_final_open_timer(db, job, payload):
                         "timer_cycle_id": payload.timer_cycle_id,
                         "open_without_crossing_seconds": payload.elapsed_seconds,
                         "gate_open_duration_seconds": payload.elapsed_seconds,
-                        "configured_threshold_seconds": threshold}}})
+                        "configured_threshold_seconds": threshold, **source_metadata}}})
     db.commit()
     return {"alert_evaluated": True, "alert_raised": row is not None, "timer_cycle_id": payload.timer_cycle_id, "alert_id": str(row.id) if row else None}
 

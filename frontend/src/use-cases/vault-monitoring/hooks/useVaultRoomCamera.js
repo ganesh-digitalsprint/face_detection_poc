@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from '../../../api/client.js';
-import { getRoomCameraSession, startRoomRtspCamera, stopPosePreview, stopRoomCameraSession } from '../api/vaultRoom.js';
+import { getRoomCameraSession, startRoomBrowserSource, startRoomRtspCamera, stopPosePreview,
+  stopRoomBrowserSource, stopRoomCameraSession } from '../api/vaultRoom.js';
 
 const INITIAL = { kind: null, status: 'idle', error: null, cctvSession: null, tracking: false,
-  name: null, posePreview: false, poseMetrics: null };
+  name: null, posePreview: false, poseMetrics: null, sourceSession: null };
 const absoluteStreamUrl = (url) => `${String(API_BASE_URL || '').replace(/\/$/, '')}${url}`;
 
-export default function useVaultRoomCamera() {
+export default function useVaultRoomCamera(branchId = null) {
   const videoRef = useRef(null);
   const imgRef = useRef(null);
   const sessionRef = useRef(null);
   const streamRef = useRef(null);
+  const browserSessionRef = useRef(null);
   const operationRef = useRef(0);
   const connectInFlightRef = useRef(false);
   const mountedRef = useRef(true);
@@ -27,6 +29,16 @@ export default function useVaultRoomCamera() {
   const stop = useCallback(async () => {
     operationRef.current += 1;
     releaseLocalStream();
+    const browserSession = browserSessionRef.current;
+    browserSessionRef.current = null;
+    if (browserSession) {
+      try {
+        await stopRoomBrowserSource(browserSession.session_id);
+      } catch (error) {
+        setCamera((current) => ({ ...current, status: 'error', error: error?.message || 'Could not stop the browser camera session.' }));
+        return false;
+      }
+    }
     const session = sessionRef.current;
     if (session) {
       setCamera((current) => ({ ...current, status: 'stopping', error: null }));
@@ -59,9 +71,16 @@ export default function useVaultRoomCamera() {
         return;
       }
       streamRef.current = stream;
+      const sourceSession = await startRoomBrowserSource(name, branchId);
+      if (!mountedRef.current || operation !== operationRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        await stopRoomBrowserSource(sourceSession.session_id).catch(() => {});
+        return;
+      }
+      browserSessionRef.current = sourceSession;
       // Keep the user's opt-in choice after the local camera finishes starting.
       // Counting reads this state to decide whether to request pose landmarks.
-      setCamera({ ...INITIAL, kind: 'webcam', name, status: 'ready', posePreview });
+      setCamera({ ...INITIAL, kind: 'webcam', name, status: 'ready', posePreview, sourceSession });
     } catch (error) {
       if (!mountedRef.current || operation !== undefined && operation !== operationRef.current) return;
       releaseLocalStream();
@@ -72,7 +91,7 @@ export default function useVaultRoomCamera() {
     } finally {
       connectInFlightRef.current = false;
     }
-  }, [releaseLocalStream, stop]);
+  }, [branchId, releaseLocalStream, stop]);
 
   const startRtsp = useCallback(async (name, url, posePreview = false) => {
     if (connectInFlightRef.current) return;
@@ -82,7 +101,7 @@ export default function useVaultRoomCamera() {
       if (!await stop()) return;
       operation = operationRef.current;
       setCamera({ ...INITIAL, kind: 'cctv', name, status: 'connecting' });
-      const session = await startRoomRtspCamera(name, url, posePreview);
+      const session = await startRoomRtspCamera(name, url, posePreview, branchId);
       if (!mountedRef.current || operation !== operationRef.current) {
         await stopRoomCameraSession(session.session_id).catch(() => {});
         return;
@@ -97,7 +116,7 @@ export default function useVaultRoomCamera() {
     } finally {
       connectInFlightRef.current = false;
     }
-  }, [stop]);
+  }, [branchId, stop]);
 
   useEffect(() => {
     if (camera.kind !== 'webcam' || camera.status !== 'ready' || !videoRef.current || !streamRef.current) return;
@@ -137,6 +156,9 @@ export default function useVaultRoomCamera() {
       const session = sessionRef.current;
       sessionRef.current = null;
       if (session) stopRoomCameraSession(session.session_id).catch(() => {});
+      const browserSession = browserSessionRef.current;
+      browserSessionRef.current = null;
+      if (browserSession) stopRoomBrowserSource(browserSession.session_id).catch(() => {});
       if (posePreviewRef.current) stopPosePreview().catch(() => {});
     };
   }, [releaseLocalStream]);

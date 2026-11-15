@@ -35,7 +35,8 @@ const targetFps = (value) => {
 };
 
 /** Sequentially uploads the already-mounted shared video only while the room view can count. */
-export default function useVaultCounting(videoRef, roomState, enabled, cameraReady, refreshRoomState, posePreview = false) {
+export default function useVaultCounting(videoRef, roomState, enabled, cameraReady, refreshRoomState,
+  posePreview = false, sourceSessionId = null) {
   const [result, setResult] = useState(INITIAL);
   const [activity, setActivity] = useState(0);
   const [retryToken, setRetryToken] = useState(0);
@@ -133,7 +134,7 @@ export default function useVaultCounting(videoRef, roomState, enabled, cameraRea
         const requestStarted = performance.now();
         setResult((current) => ({ ...current, status: 'busy', error: null }));
         try {
-          const frame = await analyzeVaultFrame(blob, controller.signal, posePreview);
+          const frame = await analyzeVaultFrame(blob, controller.signal, posePreview, sourceSessionId);
           const completedAt = performance.now();
           if (runId.current !== id) return;
           failures = 0;
@@ -195,7 +196,7 @@ export default function useVaultCounting(videoRef, roomState, enabled, cameraRea
     loop();
     return cancel;
   }, [enabled, cameraReady, roomState?.accepts_frames, roomState?.state,
-    roomState?.detector_status, videoRef, activity, retryToken, refreshRoomState, posePreview]);
+    roomState?.detector_status, videoRef, activity, retryToken, refreshRoomState, posePreview, sourceSessionId]);
 
   const retry = useCallback(() => {
     setResult(INITIAL);

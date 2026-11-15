@@ -61,11 +61,11 @@ function ActivityDialog({ title, onClose, children }) {
   </dialog>, document.body);
 }
 
-export default function VaultActivityEvents({ feed, status, replay }) {
+export default function VaultActivityEvents({ feed, status, replay, confirmClear = false, onCancelClear }) {
   const [category, setCategory] = useState('All');
   const [selected, setSelected] = useState(null);
   const [logOpen, setLogOpen] = useState(false);
-  useEffect(() => { setCategory('All'); setSelected(null); setLogOpen(false); }, [feed.key]);
+  useEffect(() => { setCategory('All'); setSelected(null); setLogOpen(false); onCancelClear?.(); }, [feed.key]);
   const filtered = feed.items.filter((event) => category === 'All' || activityCategory(event.type) === category);
   const completed = ['completed', 'stopped', 'error'].includes(status);
   const close = () => { setSelected(null); setLogOpen(false); };
@@ -89,6 +89,10 @@ export default function VaultActivityEvents({ feed, status, replay }) {
   </>;
   return <div className="vault-activity-events">
     <div role="group" aria-label="Activity event category" className="activity-filter-pills">{ACTIVITY_CATEGORIES.map((item) => <button type="button" key={item} aria-pressed={category === item} onClick={() => setCategory(item)}>{item}</button>)}</div>
+    {confirmClear && <div className="activity-clear-confirm" role="group" aria-label="Confirm clearing activity events" onKeyDown={(event) => { if (event.key === 'Escape') onCancelClear(); }}>
+      <div><strong>Clear all {feed.items.length} displayed {feed.items.length === 1 ? 'event' : 'events'}?</strong><span>Clears this view only. Saved history is kept.</span></div>
+      <div className="activity-clear-buttons"><button type="button" className="activity-clear-cancel" onClick={onCancelClear}>Cancel</button><button type="button" className="activity-clear-submit" disabled={!feed.items.length} onClick={() => { feed.clearEvents(); onCancelClear(); setSelected(null); setLogOpen(false); }}>Clear events</button></div>
+    </div>}
     {timeline()}
     {completed && feed.sessionId && <p className="activity-completed" role="status">{status === 'completed' ? 'Processing complete' : status === 'stopped' ? 'Processing stopped' : 'Processing ended with an error'} · {feed.total} recorded {feed.total === 1 ? 'event' : 'events'}</p>}
     <button type="button" className="activity-text-button activity-open-log" onClick={() => setLogOpen(true)}>Open Event Log ›</button>

@@ -15,10 +15,11 @@ import {
 } from '../videoZoneConfigurationSelection.js';
 import { useAuthorizedJpeg } from '../hooks/useSourceData.js';
 import {
-  jobCanCancel, jobCanStart, jobErrorMessage, jobIsActive, validateVideoFile, videoJobStatus,
+  gateUploadBranchId, jobCanCancel, jobCanStart, jobErrorMessage, jobIsActive, validateVideoFile, videoJobStatus,
 } from '../videoJobModel.js';
 import { CrossingEventsPanel, GateStatePanel, MeshPanel, MonitoringStats, PreviewStage, TimelinePanel } from './MonitoringPanels.jsx';
 import { btnGhost, btnPrimary, Card, ErrorNote, Pill } from './ui.jsx';
+import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
 
 const ACCEPT = 'video/mp4,video/x-msvideo,video/avi,.mp4,.avi';
 const stamp = (iso) => (iso ? new Date(iso).toLocaleString() : '—');
@@ -186,6 +187,8 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
   const [actionError, setActionError] = useState('');
   const [fileError, setFileError] = useState('');
   const [zoneConfigurations, setZoneConfigurations] = useState([]);
+  const activeScope = useOptionalActiveBranch()?.scope;
+  const activeBranchId = gateUploadBranchId(activeScope);
   const uploading = upload.phase === 'uploading';
 
   useEffect(() => {
@@ -203,7 +206,8 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
     const assignmentAlerts = assignmentItem?.assignment?.configuration?.grill_gate_alerts;
     const initialConfiguration = assignmentAlerts && Object.keys(assignmentAlerts).length
       ? { alert_configuration: assignmentAlerts } : null;
-    const saved = await upload.upload(file, initialConfiguration, `${file.name}:${file.size}:${file.lastModified}`);
+    const saved = await upload.upload(file, initialConfiguration, `${file.name}:${file.size}:${file.lastModified}`,
+      { branchId: activeBranchId, cameraLabel: file.cameraLabel || null });
     if (!saved) return;
     if (replacing) {
       try {

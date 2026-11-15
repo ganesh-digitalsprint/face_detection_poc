@@ -1,0 +1,32 @@
+.alert-center .center-filters.alert-filter-toolbar { display: block; padding: 12px 14px; border: 1px solid #e3e7f4; border-radius: 18px; background: white; }
+.alert-filter-top { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-bottom: 10px; border-bottom: 1px solid #f0f2f8; }
+.alert-filter-tabs { position: relative; display: inline-grid; grid-template-columns: repeat(3, 1fr); width: 282px; flex-shrink: 0; gap: 0; padding: 3px; background: #f0f2fa; border-radius: 12px; }
+.alert-center .center-filters .alert-filter-tabs { gap: 0; }
+.alert-center .alert-filter-tabs [role=tab] { display: inline-flex; justify-content: center; align-items: center; gap: 8px; min-height: 30px; padding: 6px 18px; border-radius: 9px; font-size: 12px; font-weight: 500; color: #263b83; }
+.alert-center .center-filters .alert-filter-tabs [role=tab] { position: relative; z-index: 1; background: transparent; box-shadow: none; font-weight: 600; transition: color 120ms ease; }
+.alert-center .center-filters .alert-filter-tabs [aria-selected=true] { color: white; }
+.alert-filter-slider { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3); border-radius: 9px; background: #353da6; box-shadow: 0 1px 3px #2e369b1a; transform: translateX(calc(var(--scope-index) * 100%)); transition: transform 180ms cubic-bezier(.2,.8,.2,1); pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .alert-filter-slider { transition: none; } }
+.alert-filter-search { display: flex; align-items: center; gap: 9px; flex: 0 1 370px; min-width: 180px; padding: 0 13px; border: 1px solid #dfe4f2; border-radius: 12px; color: #5c6c9c; }
+.alert-center .alert-filter-search input { min-height: 37px; width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 12px; outline: 0; }
+.alert-filter-search:focus-within { outline: 2px solid #777de5; outline-offset: 1px; }
+.alert-filter-search input::placeholder { color: #929ab2; }
+.alert-filter-bottom { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding-top: 10px; }
+.alert-filter-chip { position: relative; display: inline-flex; align-items: center; gap: 7px; min-height: 34px; max-width: 100%; padding: 0 12px; border: 1px solid #dce1f0; border-radius: 999px; background: white; color: #23335b; font-size: 12px; white-space: nowrap; }
+.alert-filter-chip > span:first-child { font-size: 11px; color: #5a6c9d; }
+.alert-center .alert-filter-chip select { min-height: 32px; max-width: 175px; border: 0; border-radius: 0; background: transparent; padding: 0; appearance: none; font-size: 12px; color: #132951; cursor: pointer; }
+.alert-filter-chip:focus-within { outline: 2px solid #777de5; outline-offset: 1px; }
+.alert-filter-chip > svg { pointer-events: none; }
+.alert-filter-branch { color: #303ab4; background: #eef0ff; border-color: #d2d7ff; }
+.alert-filter-branch > span:first-child { color: #6570d5; }
+.alert-filter-branch strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.alert-filter-branch button { display: grid; place-items: center; width: 16px; height: 24px; }
+.alert-filter-clear { padding: 6px; color: #303ab4; font-size: 12px; white-space: nowrap; }
+.alert-filter-clear:focus-visible, .alert-filter-tabs button:focus-visible { outline: 2px solid #777de5; outline-offset: 2px; }
+.alert-filter-dates { position: relative; }
+.alert-filter-dates summary { list-style: none; cursor: pointer; }
+.alert-filter-dates summary::-webkit-details-marker { display: none; }
+.alert-filter-date-panel { position: absolute; z-index: 20; top: calc(100% + 8px); right: 0; width: 285px; padding: 14px; border: 1px solid #dce1f0; border-radius: 14px; box-shadow: 0 8px 24px #18244818; background: white; }
+.alert-filter-date-panel label { display: grid; gap: 5px; margin-bottom: 10px; font-size: 12px; color: #5a6c9d; }
+.alert-center .alert-filter-date-panel input { width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid #dce1f0; font-size: 12px; }
+@media (max-width: 650px) { .alert-filter-top { flex-wrap: wrap; gap: 10px; } .alert-filter-search { flex: 1 1 100%; } .alert-filter-date-panel { position: static; width: min(285px, 78vw); margin-top: 8px; } }

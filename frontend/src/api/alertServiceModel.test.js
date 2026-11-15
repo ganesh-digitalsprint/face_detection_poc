@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  availableActions, buildAlertParams, buildLifecycleBody, describeServiceError, isStaleConflict, matchesStatus,
+  alertDetailLocationFields, availableActions, buildAlertParams, buildLifecycleBody, describeServiceError, isStaleConflict, matchesStatus,
   mergeById, normalizeServiceAlert, replaceAlert, useCaseLabel,
 } from './alertServiceModel.js';
 
@@ -34,8 +34,40 @@ test('normalizing tolerates missing optional fields', () => {
   assert.deepEqual(alert.allowedActions, []);
   assert.equal(alert.occurrenceCount, 1);
   assert.equal(alert.branchId, null);
+  assert.equal(alert.branchCode, null);
   assert.equal(alert.cameraName, null);
   assert.equal(alert.sourceId, null);
+  assert.equal(alert.placeName, null);
+  assert.equal(alert.regionName, null);
+  assert.equal(alert.branchManager, null);
+});
+
+test('normalizes configured Gate branch metadata for the alert detail page', () => {
+  const alert = normalizeServiceAlert(raw({ use_case: 'grill_gate', resource_refs: {
+    camera_id: 'gate-camera', camera_name: 'Entrance camera', branch_id: 'branch-1',
+    branch_code: 'C99127-01', branch_name: 'Koramangala', place_name: 'Bengaluru', region_name: 'South',
+    branch_manager: 'Configured manager' } }));
+  assert.equal(alert.cameraName, 'Entrance camera');
+  assert.equal(alert.branchName, 'Koramangala');
+  assert.equal(alert.branchCode, 'C99127-01');
+  assert.equal(alert.placeName, 'Bengaluru');
+  assert.equal(alert.regionName, 'South');
+  assert.equal(alert.branchManager, 'Configured manager');
+  assert.deepEqual(Object.fromEntries(alertDetailLocationFields(alert)), {
+    'Camera name': 'Entrance camera', Branch: 'Koramangala', 'Branch code': 'C99127-01', Place: 'Bengaluru',
+    Region: 'South', 'Branch manager': 'Configured manager',
+  });
+});
+
+test('normalizes Vault snapshot metadata for all centralized detail fields', () => {
+  const alert = normalizeServiceAlert(raw({ use_case: 'vault_monitoring', resource_refs: {
+    camera_id: 'vault-camera', camera_name: 'Vault Room Camera', branch_id: 'branch-1',
+    branch_code: 'C99127-01', branch_name: 'Koramangala', place_name: 'Bengaluru', region_name: 'South',
+    branch_manager: 'Existing Manager' } }));
+  assert.deepEqual(Object.fromEntries(alertDetailLocationFields(alert)), {
+    'Camera name': 'Vault Room Camera', Branch: 'Koramangala', 'Branch code': 'C99127-01', Place: 'Bengaluru',
+    Region: 'South', 'Branch manager': 'Existing Manager',
+  });
 });
 
 test('normalization retains nested references and detailed Branch subtypes for old and new responses', () => {

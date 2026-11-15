@@ -19,7 +19,7 @@ def test_latest_source_state_retry_and_review_mapping(tmp_path, use_case):
         producer_credentials={"source": {"use_case": use_case, "producer": "test-producer"}},
         operator_credentials={"operator": {"actor_id": "op", "use_cases": [use_case]}},
         notification_webhook_url=""), start_notification_worker=False)
-    current = dict(schema_version=1, source_event_id="source-1", source_event_type="anomaly",
+    current = dict(schema_version=1, source_event_id="source-1", source_event_type="movement" if use_case == 'branch_exterior' else 'FACE_CONCEALMENT',
         source_event_version=1, category="security", occurred_at="2026-11-13T01:00:00Z",
         first_seen_at="2026-11-13T01:00:00Z", last_seen_at="2026-11-13T01:00:00Z",
         severity="high", title="Source alert", summary="Review source",
@@ -72,7 +72,7 @@ def test_delete_retains_history_and_missing_source_cannot_resurrect(tmp_path):
         producer_credentials={"source": {"use_case": "branch_exterior", "producer": "branch"}},
         operator_credentials={"operator": {"actor_id": "op", "use_cases": ["branch_exterior"]}},
         notification_webhook_url=""), start_notification_worker=False)
-    payload = dict(schema_version=1, source_event_id="deleted", source_event_type="anomaly",
+    payload = dict(schema_version=1, source_event_id="deleted", source_event_type="movement",
         source_event_version=1, category="security", occurred_at="2026-11-13T01:00:00Z",
         severity="high", title="Alert", summary="Review", source_status="open",
         resource_refs={}, domain_data={"lifecycle_owner": "source"}, evidence_refs=[])

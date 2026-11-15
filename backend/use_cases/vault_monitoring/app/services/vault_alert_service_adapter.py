@@ -13,13 +13,13 @@ from typing import Callable
 from uuid import uuid4
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session, object_session
 from uuid import UUID
 
 from app.db.database import session_scope
 from app.db.models.vault_room import VaultAuditEvent, VaultRoomAlert
-from fedbank_core.events.metadata import enrich_resource_refs
+from fedbank_core.events.classification import is_security_alert
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,11 @@ RETRY = "ALERT_SERVICE_PUBLICATION_RETRY"
 SUCCEEDED = "ALERT_SERVICE_PUBLICATION_SUCCEEDED"
 FAILED = "ALERT_SERVICE_PUBLICATION_FAILED"
 STATE_ACTIONS = (QUEUED, RETRY, SUCCEEDED, FAILED)
+SOURCE_METADATA_KEYS = (
+    "branch_id", "branch_code", "branch_name", "place_name", "region_name",
+    "branch_manager", "camera_name", "registry_camera_id", "assignment_id",
+    "source_id", "source_type", "location_id", "location_name",
+)
 
 
 def _utc(value: datetime) -> datetime:
@@ -89,8 +94,7 @@ def build_payload(alert: VaultRoomAlert) -> dict:
 def _resource_refs(alert):
     refs = {key: value for key, value in {"camera_id": _safe_reference(alert.camera_id, 128),
         "session_ref": _safe_reference(alert.session_ref, 36)}.items() if value}
-    for key in ("branch_id", "branch_name", "camera_name", "registry_camera_id", "assignment_id",
-                "source_id", "source_type", "location_id", "location_name"):
+    for key in SOURCE_METADATA_KEYS:
         value = (alert.metadata_json or {}).get(key)
         if isinstance(value, str) and (value := _safe_reference(value, 128)):
             refs[key] = value
@@ -106,15 +110,29 @@ def _resource_refs(alert):
             return db.get(model, identifier)
         # Archived sessions contain explicit registry identities. A location is
         # deliberately not treated as a platform branch.
-        sessions = db.scalars(select(VaultRoomSession).where(
-            VaultRoomSession.session_ref == alert.session_ref).limit(2)).all() if alert.session_ref else []
+        # Legacy archives may predate the optional registry-reference columns.
+        # Project only columns actually deployed; loading the whole ORM model
+        # would fail the transaction before camera/assignment fallbacks can run.
+        sessions = []
+        if alert.session_ref:
+            columns = db.info.get('vault_alert_session_columns')
+            if columns is None:
+                columns = {column['name'] for column in inspect(db.connection()).get_columns('vault_room_sessions')}
+                db.info['vault_alert_session_columns'] = columns
+            names = [key for key in ('assignment_id', 'location_id', 'camera_id') if key in columns]
+            if names:
+                sessions = db.execute(select(*(getattr(VaultRoomSession, key) for key in names)).where(
+                    VaultRoomSession.session_ref == alert.session_ref).limit(2)).mappings().all()
         if len(sessions) == 1:
             summary = sessions[0]
             for key in ("assignment_id", "location_id"):
-                if getattr(summary, key):
-                    refs.setdefault(key, str(getattr(summary, key)))
-            if summary.camera_id:
-                refs.setdefault("registry_camera_id", str(summary.camera_id))
+                if summary.get(key):
+                    refs.setdefault(key, str(summary[key]))
+            if summary.get('camera_id'):
+                refs.setdefault("registry_camera_id", str(summary['camera_id']))
+        assignment = by_uuid(CameraUseCaseAssignment, refs.get("assignment_id"))
+        if assignment:
+            refs.setdefault('registry_camera_id', str(assignment.camera_id))
         camera = by_uuid(RegistryCamera, refs.get("registry_camera_id") or refs.get("camera_id"))
         if camera:
             if name := _safe_reference(camera.name, 128):
@@ -124,12 +142,13 @@ def _resource_refs(alert):
         if location:
             if name := _safe_reference(location.name, 128):
                 refs.setdefault("location_name", name)
-        assignment = by_uuid(CameraUseCaseAssignment, refs.get("assignment_id"))
         if assignment:
             source_id = _safe_reference((assignment.configuration or {}).get("source_id"), 128)
             if source_id:
                 refs.setdefault("source_id", source_id)
-    return enrich_resource_refs("vault_monitoring", refs)
+    # VaultRoomAlert.metadata_json is the immutable attribution snapshot. Do not
+    # supplement it from the current Branch Management state during publication.
+    return refs
 
 
 def _category(alert_type: str) -> str:
@@ -167,6 +186,11 @@ class VaultAlertServiceAdapter:
 
     def enqueue(self, db: Session, alert: VaultRoomAlert) -> None:
         payload = build_payload(alert)
+        eligibility = {**payload, 'domain_data': {**payload['domain_data'],
+            **{key: (alert.metadata_json or {}).get(key) for key in ('replay', 'replay_mode', 'simulated')},
+            'source': alert.source or ''}}
+        if not is_security_alert('vault_monitoring', eligibility):
+            return
         db.add(VaultAuditEvent(
             id=str(uuid4()),
             action=QUEUED,

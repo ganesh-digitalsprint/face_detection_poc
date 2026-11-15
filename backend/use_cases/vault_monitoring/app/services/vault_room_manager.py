@@ -100,6 +100,10 @@ class VaultRoomManager:
         self._monitoring_observation = {}
         self._zone_identity: dict | None = None
         self._session_identity: dict | None = None
+        self._access_session_contexts: dict[str, dict] = {}
+        self._camera_source_contexts: dict[str, dict] = {}
+        self._active_camera_source_id: str | None = None
+        self._last_camera_source_metadata: dict | None = None
         self._zones_status = {"source": "file", "status": "not_loaded", "zone_count": 0,
                               "last_loaded_at": None, "error": None}
         self._inference_slot = threading.Semaphore(1)
@@ -320,15 +324,19 @@ class VaultRoomManager:
                                       "last_loaded_at": now, "error": "Zone configuration could not be loaded; retaining the last valid snapshot."}
             self._zone_monitor.reset()
 
-    def on_access_attempt_started(self, session_ref: str, required_persons: int):
+    def on_access_attempt_started(self, session_ref: str, required_persons: int,
+                                  *, source_context: dict | None = None):
         """Open the monitoring gate; this does not grant access or unlock the door."""
         self._load_zone_snapshot()
         with self._lock:
+            if self._session_ref and self._session_ref != session_ref:
+                self._access_session_contexts.pop(self._session_ref, None)
             self._phase = "ACCESS_ATTEMPT"
             self._session_ref = session_ref
             self._ctx = replace(self._ctx, required_persons=required_persons)
             self._verified_count = 0
             self._session_identity = dict(self._zone_identity) if self._zone_identity else None
+            self._access_session_contexts[session_ref] = deepcopy(source_context or {})
             self._phase_since = self._clock()
             self._shortfall_since = self._unauthorized_since = None
             self._tracker.reset(); self._counter.reset(); self._last_frame_at = None
@@ -348,14 +356,73 @@ class VaultRoomManager:
             snap = AlertSnapshot("ACCESS_ATTEMPT", self._ctx.required_persons, count,
                 self._verified_count, stable=count is not None, no_entry_elapsed=True,
                 shortfall_elapsed=True, terminal_auth_failure=reason)
+            source_metadata = self._alert_source_metadata_locked(session_ref,
+                include_camera_source=False)
             self._alert_worker.submit(snap, session_ref=session_ref, camera_id=self._video_source,
                 event_at=self._utc_datetime(self._last_frame_at) if self._last_frame_at is not None else self._now().utc,
                 event_frame=self._latest_frame,
                 detections=tuple(dict(track_id=t["track_id"],
                     bbox=[t["x"], t["y"], t["x"]+t["w"], t["y"]+t["h"]],
-                    confidence=t["confidence"]) for t in self._latest_tracks))
+                    confidence=t["confidence"]) for t in self._latest_tracks),
+                source_metadata=source_metadata)
             self._phase = "IDLE"
             self._phase_since = None
+            self._access_session_contexts.pop(session_ref, None)
+
+    def access_session_context(self, session_ref: str) -> dict | None:
+        with self._lock:
+            context = self._access_session_contexts.get(session_ref)
+            return deepcopy(context) if context is not None else None
+
+    def bind_camera_source(self, source_id: str, *, source_type: str,
+                           camera_name: str, source_context: dict | None = None) -> dict:
+        """Bind one immutable camera context for its source lifetime."""
+        context = {**deepcopy(source_context or {}), "source_id": source_id,
+            "source_type": source_type, "camera_name": camera_name}
+        with self._lock:
+            existing = self._camera_source_contexts.get(source_id)
+            if existing is not None and existing != context:
+                raise ValueError("Camera source context is already bound")
+            self._camera_source_contexts[source_id] = context
+            self._active_camera_source_id = source_id
+            self._last_camera_source_metadata = None
+            return deepcopy(context)
+
+    def release_camera_source(self, source_id: str) -> None:
+        with self._lock:
+            context = self._camera_source_contexts.pop(source_id, None)
+            if self._active_camera_source_id == source_id:
+                self._last_camera_source_metadata = deepcopy(context) if context else None
+                self._active_camera_source_id = None
+
+    def camera_source_context(self, source_id: str | None = None) -> dict | None:
+        with self._lock:
+            identifier = source_id or self._active_camera_source_id
+            context = self._camera_source_contexts.get(identifier) if identifier else None
+            return deepcopy(context) if context is not None else None
+
+    def _alert_source_metadata_locked(self, session_ref: str | None,
+                                      *, include_camera_source: bool = True) -> dict:
+        """Snapshot attribution before queueing; never consult current UI branch state."""
+        access = deepcopy(self._access_session_contexts.get(session_ref) or {}) if session_ref else {}
+        camera = deepcopy(self._camera_source_contexts.get(self._active_camera_source_id) or {}) \
+            if include_camera_source and self._active_camera_source_id else {}
+        if include_camera_source and not camera and self._last_camera_source_metadata:
+            camera = deepcopy(self._last_camera_source_metadata)
+        metadata = access or camera
+        if access and camera:
+            for key in ("camera_name", "source_id", "source_type", "registry_camera_id",
+                        "assignment_id", "location_id", "location_name"):
+                if camera.get(key) is not None:
+                    metadata[key] = camera[key]
+        identity = self._session_identity if session_ref else self._zone_identity
+        if identity:
+            if identity.get("camera_id") and not metadata.get("registry_camera_id"):
+                metadata["registry_camera_id"] = identity["camera_id"]
+            for key in ("assignment_id", "location_id"):
+                if identity.get(key) and not metadata.get(key):
+                    metadata[key] = identity[key]
+        return metadata
 
     def _ensure_ticker(self):
         if self._replay:
@@ -459,9 +526,12 @@ class VaultRoomManager:
             bbox=[t["x"], t["y"], t["x"] + t["w"], t["y"] + t["h"]],
             confidence=t["confidence"]) for t in self._latest_tracks) if event_frame is not None else ()
         event_at = self._utc_datetime(self._last_frame_at) if event_frame is not None and self._last_frame_at is not None else now_utc
-        self._alert_worker.submit(snapshot, session_ref=self._session_ref if phase != "IDLE" else None,
+        session_ref = self._session_ref if phase != "IDLE" else None
+        source_metadata = self._alert_source_metadata_locked(session_ref)
+        self._alert_worker.submit(snapshot, session_ref=session_ref,
             camera_id=self._video_source or "vault-room", event_at=event_at,
-            event_frame=event_frame, detections=detections)
+            event_frame=event_frame, detections=detections,
+            source_metadata=source_metadata)
 
     def _publish_alert_event(self, event):
         with self._lock:
@@ -494,6 +564,8 @@ class VaultRoomManager:
         try:
             arrival = self._clock()
             with self._lock:
+                if source_id in self._camera_source_contexts:
+                    self._active_camera_source_id = source_id
                 allowed_states = (ENTRY_BUFFER, ACTIVE, EXPIRED_OPEN)
                 accepts = self._replay or self._phase == "ACCESS_ATTEMPT" or self._ctx.state in allowed_states or (
                     self._ctx.state == "IDLE" and self._counting.idle_monitoring_enabled
@@ -652,6 +724,8 @@ class VaultRoomManager:
         self._jobs.put(("summary", self._summary_db_row(summary)))
         if not self._replay:
             self._discard_dual(ctx.dual_control_session_id)
+        if self._session_ref:
+            self._access_session_contexts.pop(self._session_ref, None)
         self._phase = "IDLE"
         self._session_ref = None
         self._phase_since = None
@@ -679,6 +753,8 @@ class VaultRoomManager:
             self._jobs.put(("summary", self._summary_db_row(self._summary)))
             if not self._replay:
                 self._discard_dual(before.dual_control_session_id)
+            if self._session_ref:
+                self._access_session_contexts.pop(self._session_ref, None)
             self._phase = "IDLE"
             self._session_ref = None
             self._phase_since = None

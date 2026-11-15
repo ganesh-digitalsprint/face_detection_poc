@@ -109,3 +109,11 @@ def test_active_recovery_includes_alert_creates_still_in_local_outbox(tmp_path):
     assert service_client.calls[0][1]["params"]["use_case"] == "grill_gate"
     assert service_client.calls[0][1]["params"]["assignment_id"] == "assignment-1"
     assert service_client.calls[0][1]["params"]["camera_id"] == "cam-1"
+
+
+def test_routine_gate_event_cannot_enter_publication_queue(tmp_path):
+    from grill_gate_monitoring.services.alert_publisher import GrillGateAlertPublisher
+    publisher = GrillGateAlertPublisher('http://common', 'test-producer', outbox_dir=tmp_path)
+    assert publisher.submit({'action':'create', 'source_event_id':'event-only',
+        'payload':{'source_event_type':'GATE_OPENED', 'category':'security'}}) is False
+    assert publisher._queue.empty()

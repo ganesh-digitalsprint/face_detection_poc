@@ -27,6 +27,7 @@ from app.core.paths import ALERT_OUTBOX_DIR
 from fedbank_core.events.source_sync import deliver_current
 from fedbank_core.events.metadata import enrich_resource_refs
 from fedbank_core.events.evidence import media_path, evidence_metadata
+from fedbank_core.events.classification import is_security_alert
 from app.schemas.event import Event
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,8 @@ def build_payload(event: Event) -> dict:
             "confidence": float(event.confidence),
             "track_ids": [int(t) for t in event.track_ids][:50],
             **({"kind": kind} if kind else {}),
+            **{key: value for key in ('override', 'zone_alert', 'source') if (value := _safe_reference(event.meta.get(key), 128))},
+            **{key: True for key in ('simulated', 'replay', 'replay_mode') if event.meta.get(key) is True},
         },
         "evidence_refs": [],
     }
@@ -123,7 +126,11 @@ def build_sync_payload(event: Event) -> dict:
 async def load_committed_payload(event_id: str):
     from app.db.init_db import get_db
     event = await get_db().events.get(event_id)
-    return build_sync_payload(event) if event else None
+    if event:
+        payload = build_sync_payload(event)
+        if is_security_alert('branch_exterior', payload):
+            return payload
+    return None
 
 
 async def publish_committed(event: Event | None, *, deleted=False):
@@ -203,7 +210,7 @@ class AlertPublisher:
 
     async def enqueue(self, event: Event, *, deleted=False, historical=False) -> bool:
         """Persist the delivery job. Returns False when disabled or already queued."""
-        if not self.enabled:
+        if not self.enabled or not is_security_alert('branch_exterior', build_payload(event)):
             return False
         try:
             return await asyncio.to_thread(self._enqueue_sync, event, deleted, historical)
@@ -257,6 +264,9 @@ class AlertPublisher:
         return len(due)
 
     async def _deliver(self, path: Path, state: dict) -> None:
+        if not is_security_alert('branch_exterior', state['payload']):
+            path.unlink(missing_ok=True)
+            return
         attempt = int(state.get("attempt", 0)) + 1
         try:
             async with self._client_factory(timeout=self._timeout, follow_redirects=False) as client:

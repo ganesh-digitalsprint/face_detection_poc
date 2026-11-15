@@ -30,7 +30,7 @@ function AlertCard({ alert, variant = 'row', onSelect, onAction, pending = false
   const [confirmAction, setConfirmAction] = useState(null);
   const shared = { ...alert, useCase: 'vault_monitoring', summary: alert.message || alert.title,
     sourceEventId: alert.id, sourceEventType: alert.type, occurredAt: alert.createdAt };
-  const openDetail = () => onSelect ? onSelect(alert) : navigate(`/alerts/vault?scope=${['RESOLVED','DISMISSED'].includes(alert.status) ? 'history' : 'active'}&alert=${encodeURIComponent(alert.id)}`);
+  const openDetail = () => onSelect ? onSelect(alert) : navigate(`/alerts?use_case=vault_monitoring&source_event_id=${encodeURIComponent(alert.id)}`);
   if (variant !== 'drawer') return <CompactAlertCard alert={shared} thumbnailUrl={thumbnailUrl} onSelect={openDetail} />;
   const permitted = { OPEN:['acknowledge','resolve','dismiss'], ACKNOWLEDGED:['resolve','dismiss'] }[alert.status] || [];
   const actions = (alert.allowedActions || []).filter((action) => permitted.includes(action));

@@ -59,7 +59,7 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
     finally { setPending(false); if (scopeRef.current === atScope) feed.refresh(); }
   };
   return <section className="vault-card p-4 sm:p-5" aria-label="Grill Gate alerts">
-    <header className="mb-3 flex items-center justify-between gap-3"><h2 className="font-bold text-[#0F1B3D]">{status === 'ACTIVE' ? 'Active Alerts' : 'Alert History'}</h2><Link to="/alerts/all?use_case=grill_gate" className="text-xs font-semibold text-[#34479B]">View all &rsaquo;</Link></header>
+    <header className="mb-3 flex items-center justify-between gap-3"><h2 className="font-bold text-[#0F1B3D]">{status === 'ACTIVE' ? 'Active Alerts' : 'Alert History'}</h2><Link to="/alerts?use_case=grill_gate" className="text-xs font-semibold text-[#34479B]">View all &rsaquo;</Link></header>
     <div className="mb-3 flex gap-2" role="tablist" aria-label="Grill Gate alert status">{['ACTIVE','HISTORY'].map((value) => <button type="button" key={value} role="tab" aria-selected={status === value} onClick={() => { setStatus(value); setSelectedId(''); }} className={`rounded-lg px-3 py-2 text-xs font-semibold ${status === value ? 'bg-[#34479B] text-white' : 'border border-[#E3E7F0] text-[#55607A]'}`}>{value === 'ACTIVE' ? 'Active' : 'History'}{adapter.count(value) != null ? ` (${adapter.count(value)})` : ''}</button>)}<button type="button" onClick={feed.refresh} className="ml-auto text-xs text-[#34479B]">Refresh</button></div>
     {!assignmentId && !jobId && <p className="text-sm text-[#55607A]">Select a camera or uploaded video to load alerts.</p>}
     {feed.error && <p role="alert" className="mb-3 text-sm text-red-800">Could not refresh persisted alerts. Existing records remain visible. {feed.error.message} <button onClick={feed.refresh} className="underline">Retry</button></p>}
@@ -75,6 +75,6 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
     {notice && <p role="status" className="mt-3 text-sm text-[#55607A]">{notice}</p>}
     {feed.hasMore && <button type="button" onClick={feed.loadMore} disabled={feed.loading} className="mt-3 text-sm font-semibold text-[#34479B]">Load more alerts</button>}
     {feed.stale && <p className="mt-2 text-xs text-[#55607A]">New updates available. <button onClick={feed.refresh} className="underline">Reload</button></p>}
-    <Link to="/alerts/all?use_case=grill_gate" className="mt-3 block text-sm font-semibold text-[#34479B]">Open Alert Center &rsaquo;</Link>
+    <Link to="/alerts?use_case=grill_gate" className="mt-3 block text-sm font-semibold text-[#34479B]">Open Alert Center &rsaquo;</Link>
   </section>;
 }

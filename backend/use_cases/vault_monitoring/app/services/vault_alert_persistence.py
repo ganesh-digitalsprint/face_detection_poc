@@ -1,5 +1,6 @@
 ﻿"""Bounded persistence worker for stabilized monitoring snapshots."""
 from __future__ import annotations
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import logging, queue, threading, time
@@ -25,6 +26,10 @@ class SnapshotJob:
     source: str = "VAULT_MONITORING"
     event_frame: object | None = None
     detections: tuple = ()
+    source_metadata: dict | None = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "source_metadata", deepcopy(self.source_metadata or {}))
 
 class PersistentAlertWorker:
     def __init__(self, *, max_pending=256, publisher=None, session_factory=session_scope,
@@ -51,9 +56,11 @@ class PersistentAlertWorker:
         self._thread.join(timeout)
 
     def submit(self, snapshot: AlertSnapshot, *, session_ref=None, camera_id=None,
-               event_at=None, source="VAULT_MONITORING", event_frame=None, detections=()) -> bool:
+               event_at=None, source="VAULT_MONITORING", event_frame=None, detections=(),
+               source_metadata=None) -> bool:
         job = SnapshotJob(snapshot, session_ref, camera_id,
-                          event_at or datetime.now(timezone.utc), source, event_frame, tuple(detections))
+                          event_at or datetime.now(timezone.utc), source, event_frame,
+                          tuple(detections), source_metadata)
         try:
             self._queue.put_nowait(job)
             return True
@@ -202,6 +209,9 @@ class PersistentAlertWorker:
             cond.active_alert_id = prior.id
             self._touch(db, cond, job, 0)
             return
+        metadata = deepcopy(job.source_metadata or {})
+        if cond.discriminator:
+            metadata["reason"] = cond.discriminator
         alert = VaultRoomAlert(id=str(uuid4()), session_id=cond.session_ref or "", session_ref=cond.session_ref,
             camera_id=cond.camera_id, dedup_key=dedup, type=cond.alert_type, severity=severity,
             status="OPEN", title=cond.alert_type.replace("_", " ").title(),
@@ -210,7 +220,7 @@ class PersistentAlertWorker:
             observed_count=job.snapshot.observed_count, required_count=job.snapshot.required_persons,
             count_at_open=job.snapshot.observed_count, expected=job.snapshot.required_persons,
             occurrence_count=1, row_version=1, evidence_status="NONE",
-            metadata_json={"reason": cond.discriminator} if cond.discriminator else {})
+            metadata_json=metadata)
         db.add(alert); db.flush(); cond.active_alert_id = alert.id; cond.last_touch_at = now
         db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_CREATED", entity_type="alert", entity_id=alert.id,
             details={"alert_type": alert.type, "severity": severity, "dedup_key": dedup}))

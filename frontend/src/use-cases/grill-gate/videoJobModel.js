@@ -21,6 +21,9 @@ export const VIDEO_JOB_STATUS = {
 };
 export const videoJobStatus = (status) => VIDEO_JOB_STATUS[status] ?? { label: String(status || 'Unknown'), tone: 'idle' };
 
+/** Only a globally selected canonical branch can scope a new upload. City/zone scopes remain unassigned. */
+export const gateUploadBranchId = (scope) => scope?.type === 'branch' && scope.id ? scope.id : null;
+
 const ACTIVE = new Set(['QUEUED', 'PROCESSING', 'CANCEL_REQUESTED']);
 const TERMINAL = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
 export const jobIsActive = (job) => ACTIVE.has(job?.status);

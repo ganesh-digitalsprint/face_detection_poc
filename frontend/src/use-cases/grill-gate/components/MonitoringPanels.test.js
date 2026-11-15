@@ -27,6 +27,7 @@ test('monitoring panels handle missing snapshots and the uploaded video forwards
     // The nested GateStatePanel must receive monitoring, not split monitor/ing props.
     assert.match(html,/aria-current="true"/);
     assert.match(html,/FULLY OPEN/);
+    assert.doesNotMatch(html,/Branch for uploaded-video alerts/);
     const { default: OpenWithoutCrossingCard } = await server.ssrLoadModule('/src/use-cases/grill-gate/components/OpenWithoutCrossingCard.jsx');
     const recorded=render(OpenWithoutCrossingCard,{gateState:'UNKNOWN',monitoring:{source:'video',gateSessionId:'video:job-1',finalTimer:true,timerRecorded:false,recordedTimerDisplay:{source:'alert',elapsedSeconds:336.341,thresholdSeconds:3,videoTimeSeconds:19.7}}});
     assert.match(recorded,/05:36/);assert.match(recorded,/00:03/);assert.match(recorded,/336.341/);assert.match(recorded,/Recorded alert duration/);

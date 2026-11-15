@@ -15,6 +15,8 @@ export const VAULT_VIEW = Object.freeze({
 
 export const WINDOW_WARNING_SECONDS = 30;
 
+export const vaultActiveBranchId = (scope) => scope?.type === 'branch' && scope.id ? scope.id : null;
+
 /** @param {object} vault state returned by useVaultAccess */
 export function deriveVaultView(vault) {
   const { phase, ended, result, handoffPending } = vault;

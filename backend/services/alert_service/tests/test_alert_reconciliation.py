@@ -23,7 +23,7 @@ def test_historical_reconciliation_is_read_only_by_default_and_idempotent(tmp_pa
     app=create_app(Settings(database_url=f"sqlite:///{(tmp_path/'common.db').as_posix()}",
         producer_credentials={'producer':{'use_case':use_case,'producer':'original-source'}},
         operator_credentials={'operator':{'actor_id':'test','use_cases':[use_case]}},notification_webhook_url='http://unused.invalid/notifications'),start_notification_worker=False)
-    value=dict(schema_version=1,source_event_id='persisted-history',source_event_type='anomaly' if use_case=='branch_exterior' else 'FACE_CONCEALMENT',
+    value=dict(schema_version=1,source_event_id='persisted-history',source_event_type='movement' if use_case=='branch_exterior' else 'FACE_CONCEALMENT',
         source_event_version=1,severity='high',title='Historical alert',summary='Stored source record',
         occurred_at='2026-10-01T01:00:00Z',source_status=status,resource_refs={'camera_id':'original-camera'},
         domain_data={'lifecycle_owner':'source','resolution_note':'Original review'},evidence_refs=[])

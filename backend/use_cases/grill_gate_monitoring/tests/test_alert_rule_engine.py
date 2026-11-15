@@ -252,7 +252,10 @@ def test_uploaded_video_alert_is_scoped_to_job_and_carries_video_time():
         lambda command: sent.append(command) or True,
         config=GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=1),
         source_context={"source_type": "UPLOADED_VIDEO", "video_job_id": "job-123",
-                        "template_assignment_id": "template-9"})
+                        "template_assignment_id": "template-9", "camera_name": "Uploaded video",
+                        "branch_id": "branch-1", "branch_code": "C99127-01", "branch_name": "Koramangala",
+                        "place_name": "Bengaluru", "region_name": "South",
+                        "branch_manager": "Existing Manager"})
     rule.on_crossing_activity(0, True, T0)
     rule.on_gate_transition("OPEN", T0)
     rule.update_source_context(video_time_seconds=12.5)
@@ -261,5 +264,11 @@ def test_uploaded_video_alert_is_scoped_to_job_and_carries_video_time():
     assert payload["resource_refs"] == {"video_job_id": "job-123",
                                         "template_assignment_id": "template-9"}
     assert payload["domain_data"]["video_time_seconds"] == 12.5
+    assert payload["domain_data"]["camera_name"] == "Uploaded video"
+    assert payload["domain_data"]["branch_code"] == "C99127-01"
+    assert payload["domain_data"]["branch_name"] == "Koramangala"
+    assert payload["domain_data"]["place_name"] == "Bengaluru"
+    assert payload["domain_data"]["region_name"] == "South"
+    assert payload["domain_data"]["branch_manager"] == "Existing Manager"
     assert "camera_id" not in payload["resource_refs"]
     assert "assignment_id" not in payload["resource_refs"]

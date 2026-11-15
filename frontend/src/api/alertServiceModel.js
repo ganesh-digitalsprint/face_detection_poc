@@ -1,7 +1,5 @@
 // Pure helpers for the Alert Service (Contract v1, docs/alert-service-contract.md).
 // No browser or network access here so the logic can be unit tested with `node --test`.
-import { faceMaskEventLink } from '../layouts/routes.js';
-
 export const STATUSES = ['OPEN', 'ACKNOWLEDGED', 'RESOLVED', 'DISMISSED'];
 export const SEVERITIES = ['CRITICAL', 'HIGH', 'WARNING', 'INFO'];
 export const ACTIVE_STATUSES = ['OPEN', 'ACKNOWLEDGED'];
@@ -21,6 +19,19 @@ export const LIFECYCLE = {
 };
 
 export const useCaseLabel = (useCase) => USE_CASE_LABELS[useCase] || useCase || 'Unknown source';
+
+export function alertDetailLocationFields(alert) {
+  const refs = alert.resourceRefs || {};
+  const domain = alert.domainData || {};
+  return [
+    ['Camera name', alert.cameraName || refs.camera_name],
+    ['Branch', alert.branchName || refs.branch_name],
+    ['Branch code', alert.branchCode || refs.branch_code],
+    ['Place', alert.placeName || refs.place_name || domain.place_name || alert.locationName || refs.location_name || alert.zoneName],
+    ['Region', alert.regionName || refs.region_name || domain.region_name],
+    ['Branch manager', alert.branchManager || refs.branch_manager || domain.branch_manager],
+  ];
+}
 
 /** Convert an Alert Service alert record into the view model used by the UI. */
 export function normalizeServiceAlert(item) {
@@ -69,7 +80,11 @@ export function normalizeServiceAlert(item) {
     cameraId: item.camera_id || refs.camera_id || null,
     cameraName,
     branchId: item.branch_id || refs.branch_id || null,
+    branchCode: item.branch_code || refs.branch_code || null,
     branchName: item.branch_name || refs.branch_name || null,
+    placeName: item.place_name || refs.place_name || item.domain_data?.place_name || null,
+    regionName: item.region_name || refs.region_name || item.domain_data?.region_name || null,
+    branchManager: item.branch_manager || refs.branch_manager || item.domain_data?.branch_manager || null,
     registryCameraId: item.registry_camera_id || refs.registry_camera_id || null,
     sourceId: item.source_id || refs.source_id || null,
     sourceType: item.source_type || refs.source_type || null,
@@ -191,8 +206,8 @@ export function normalizeGrillGateAlert(item) {
 }
 
 export function alertSourceLink(alert) {
-  if(alert.useCase==='face_mask')return alert.sourceEventId ? faceMaskEventLink(alert.sourceEventId) : '/alerts/face-mask';
-  if (alert.useCase !== 'grill_gate') return { vault_monitoring: '/alerts/vault', branch_exterior: '/alerts/branch' }[alert.useCase];
+  if (alert.useCase === 'face_mask') return '/face-mask/live';
+  if (alert.useCase !== 'grill_gate') return { vault_monitoring: '/vault-access', branch_exterior: '/branch-exterior/live' }[alert.useCase];
   const query = new URLSearchParams({ view: alert.videoJobId ? 'video' : 'live' });
   if (alert.videoJobId) query.set('job', alert.videoJobId);
   else if (alert.assignmentId) query.set('assignment', alert.assignmentId);

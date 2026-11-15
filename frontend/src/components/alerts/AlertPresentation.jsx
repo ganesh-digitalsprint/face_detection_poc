@@ -11,18 +11,20 @@ export function AlertBadge({ children }) {
   return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone[children] || 'bg-slate-100 text-slate-700'}`}>{children}</span>;
 }
 
-export function AlertCard({ alert, selected, onSelect }) {
-  return <CompactAlertCard alert={alert} selected={selected} onSelect={onSelect} />;
+export function AlertCard({ alert, selected, onSelect, showMetadata = false }) {
+  return <CompactAlertCard alert={alert} selected={selected} onSelect={onSelect} showMetadata={showMetadata} />;
 }
 
-export function AlertEvidenceDetails({ alert }) {
-  const [index, setIndex] = useState(0);
-  useEffect(() => setIndex(0), [alert.id, alert.evidenceRefs?.length]);
+export function AlertEvidenceDetails({ alert, evidenceIndex, onEvidenceIndexChange }) {
+  const [localIndex, setLocalIndex] = useState(0);
+  const index = evidenceIndex ?? localIndex;
+  const setIndex = onEvidenceIndexChange || setLocalIndex;
+  useEffect(() => setLocalIndex(0), [alert.id, alert.evidenceRefs?.length]);
   const metadata = grillAlertMetadata(alert);
   const snapshots = snapshotRefs(alert);
   return <>
     <AlertSnapshot alert={alert} large evidenceIndex={index} />
-    {snapshots.length > 1 && <div className="flex flex-wrap gap-2">{snapshots.map((ref, i) => <button type="button" key={ref.id || i} onClick={() => setIndex(i)} aria-pressed={index === i} className="rounded border px-3 py-2 text-xs">Snapshot {i + 1}</button>)}</div>}
+    {evidenceIndex == null && snapshots.length > 1 && <div className="flex flex-wrap gap-2">{snapshots.map((ref, i) => <button type="button" key={ref.id || i} onClick={() => setIndex(i)} aria-pressed={index === i} className="rounded border px-3 py-2 text-xs">Snapshot {i + 1}</button>)}</div>}
     {snapshots[index]?.captured_at && <p className="text-xs text-[#55607A]">Snapshot captured at {alertDate(snapshots[index].captured_at)}</p>}
     {metadata.length > 0 && <dl className="grid grid-cols-2 gap-3 border-t border-[#E3E7F0] pt-3 text-xs sm:grid-cols-3">{metadata.map(([label,value]) => <div key={label}><dt className="text-[#69758F]">{label}</dt><dd className="mt-1 font-bold text-[#0F1B3D]">{String(value)}{['Observed duration','Threshold'].includes(label) ? ' s' : ''}</dd></div>)}</dl>}
   </>;
@@ -41,7 +43,7 @@ export function SourceAlertDetail({ alert, onClose, children }) {
     {alert.dismissedAt && <p className="text-xs text-slate-500">Discarded: {alertDate(alert.dismissedAt)} ? {alert.dismissedBy}</p>}
     {alert.resolutionNote && <p className="text-sm text-slate-700">Reason: {alert.resolutionNote}</p>}
     {children}
-    <Link to={`/alerts/all?use_case=grill_gate&source_event_id=${encodeURIComponent(alert.sourceEventId || '')}`} className="block text-sm font-semibold text-[#34479B]">Open Alert Center &rsaquo;</Link>
+    <Link to={`/alerts?use_case=grill_gate&source_event_id=${encodeURIComponent(alert.sourceEventId || '')}`} className="block text-sm font-semibold text-[#34479B]">Open Alert Center &rsaquo;</Link>
     <Link to={alertSourceLink(alert)} className="block text-sm text-[#34479B]">Open source monitoring &rsaquo;</Link>
   </section>;
 }

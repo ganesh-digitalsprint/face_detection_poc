@@ -63,10 +63,11 @@ test('pending clips remain pending and per-evidence access errors exclude only m
   const partial=await createEvidenceResolver({...api(),vault:async()=>({evidence_refs:[{id:'missing',type:'snapshot'},{id:'snapshot',type:'snapshot'}],evidence_count:2})})({useCase:'vault_monitoring',sourceEventId:'event'});
   assert.equal(partial.snapshotCount,1);assert.equal(partial.evidenceRefs[0].id,'snapshot');
 });
-test('Face Mask uses the existing detail deep link and other source navigation stays stable',()=>{
-  assert.equal(alertSourceLink({useCase:'face_mask',sourceEventId:'id /?#'}),faceMaskEventLink('id /?#'));
-  assert.equal(alertSourceLink({useCase:'vault_monitoring'}),'/alerts/vault');
-  assert.equal(alertSourceLink({useCase:'branch_exterior'}),'/alerts/branch');
+test('source navigation opens monitoring pages while centralized deep links remain available',()=>{
+  assert.equal(alertSourceLink({useCase:'face_mask',sourceEventId:'id /?#'}),'/face-mask/live');
+  assert.equal(faceMaskEventLink('id /?#'),'/alerts?source_event_id=id%20%2F%3F%23');
+  assert.equal(alertSourceLink({useCase:'vault_monitoring'}),'/vault-access');
+  assert.equal(alertSourceLink({useCase:'branch_exterior'}),'/branch-exterior/live');
   assert.equal(alertSourceLink({useCase:'grill_gate',sourceEventId:'event',assignmentId:'assignment'}),'/grill-gate?view=live&assignment=assignment&alert=event');
 });
 test('current and legacy paths use existing static media mounts without escaping source storage',()=>{

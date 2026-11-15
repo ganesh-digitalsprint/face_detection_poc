@@ -191,7 +191,7 @@ export default function LiveMonitoring() {
             {cam && st.status === 'DONE' && (
               <div className="bx-hint" style={{ margin: '0 16px 10px' }}>
                 <b>Finished.</b> {st.frames_read} frames analysed, <b>{st.events_found}</b> concealment event{st.events_found === 1 ? '' : 's'} found.
-                {st.events_found > 0 && <> <Link to="/alerts/face-mask">Review them</Link>.</>}
+                {st.events_found > 0 && <> <Link to="/alerts?use_case=face_mask">Review them</Link>.</>}
               </div>
             )}
             {cam && st.notice && <div className="bx-diag" role="status" style={{ margin: '0 16px 10px' }}>{st.notice}. <Link to={`/regions?use_case=face_mask&camera=${cam.id}`}>Set it now</Link>.</div>}
@@ -215,7 +215,7 @@ export default function LiveMonitoring() {
           </div>
 
           <div className="bx-card">
-            <div className="bx-card-title">Concealment events <Link to="/alerts/face-mask" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></div>
+            <div className="bx-card-title">Concealment events <Link to="/alerts?use_case=face_mask" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></div>
             <div className="bx-ticker">
               {events.error && !events.data && <ServiceDown error={events.error} onRetry={events.reload} />}
               {events.data && events.data.items.length === 0 && <Empty icon="🕑" bare>No concealment events yet.</Empty>}

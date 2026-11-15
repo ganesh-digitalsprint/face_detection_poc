@@ -101,15 +101,21 @@ def test_vault_manual_status_and_retry_survive_outbox_restart(common,tmp_path):
         with factory() as db:yield db
     app.dependency_overrides[get_db]=session;app.dependency_overrides[get_operator]=lambda:Operator('reviewer','Reviewer')
     identifier=str(uuid4());now=datetime.now(timezone.utc)
+    metadata={'branch_id':'branch-1','branch_code':'C99127-01','branch_name':'Koramangala',
+        'place_name':'Bengaluru','region_name':'South','branch_manager':'Existing Manager',
+        'camera_name':'Vault Room Camera','source_id':'room-source','source_type':'rtsp'}
     with factory() as db:
-        row=VaultRoomAlert(id=identifier,session_id='test-session',type='COUNT_MISMATCH',severity='WARNING',status='OPEN',title='Count mismatch',message='One person, two required',opened_at=now,first_seen_at=now,last_seen_at=now,created_at=now,updated_at=now,row_version=1,evidence_status='NONE')
+        row=VaultRoomAlert(id=identifier,session_id='test-session',type='COUNT_MISMATCH',severity='WARNING',status='OPEN',title='Count mismatch',message='One person, two required',opened_at=now,first_seen_at=now,last_seen_at=now,created_at=now,updated_at=now,row_version=1,evidence_status='NONE',metadata_json=metadata)
         db.add(row);db.flush();adapter.enqueue(db,row)
     adapter.dispatch_once()
     mirrored=client.get('/api/v1/alerts',params={'source_event_id':identifier}).json()['items'][0]
+    for key,value in metadata.items():assert mirrored[key]==value
     with TestClient(app) as source:
         ack=source.post(f'/api/v1/alerts/{identifier}/acknowledge',json={'expected_version':1});assert ack.status_code==200
         adapter.dispatch_once()
-        assert client.get('/api/v1/alerts/'+mirrored['id']).json()['status']=='ACKNOWLEDGED'
+        acknowledged=client.get('/api/v1/alerts/'+mirrored['id']).json()
+        assert acknowledged['status']=='ACKNOWLEDGED'
+        for key,value in metadata.items():assert acknowledged[key]==value
         resolved=source.post(f'/api/v1/alerts/{identifier}/resolve',json={'expected_version':2,'note':'Reviewed'});assert resolved.status_code==200
         def offline(request):raise httpx.ConnectError('offline',request=request)
         adapter._client_factory=lambda **kw:httpx.Client(transport=httpx.MockTransport(offline),**kw)
@@ -127,6 +133,7 @@ def test_vault_manual_status_and_retry_survive_outbox_restart(common,tmp_path):
             assert delivery.action==DELIVERED and delivery.details['payload']==payload
         final=client.get('/api/v1/alerts/'+mirrored['id']).json()
         assert final['status']=='RESOLVED' and final['resolved_by']=='reviewer'
+        for key,value in metadata.items():assert final[key]==value
         assert len(client.get('/api/v1/alerts',params={'source_event_id':identifier}).json()['items'])==1
     engine.dispose()
 
@@ -151,19 +158,30 @@ def test_vault_count_last_seen_and_evidence_completion_are_mirrored(common, tmp_
     adapter = VaultAlertServiceAdapter(base, 'vault-test', session_factory=factory)
     worker = PersistentAlertWorker(session_factory=factory, alert_service_adapter=adapter)
     at = datetime.now(timezone.utc)
+    metadata={'branch_id':'branch-1','branch_code':'C99127-01','branch_name':'Koramangala',
+        'place_name':'Bengaluru','region_name':'South','branch_manager':'Existing Manager',
+        'camera_name':'Vault Room Camera','source_id':'room-source','source_type':'browser_webcam'}
     job = SnapshotJob(AlertSnapshot('VAULT_SESSION', 2, 1, 2, stable=True),
-        'session', 'camera', at, event_frame=np.full((24,32,3), 73, np.uint8))
+        'session', 'camera', at, event_frame=np.full((24,32,3), 73, np.uint8),
+        source_metadata=metadata)
     events = worker._persist(job)
     adapter.dispatch_once()
     identifier = events[0]['entity']['id']
     first = client.get('/api/v1/alerts', params={'source_event_id': identifier}).json()['items'][0]
+    for key,value in metadata.items():assert first[key]==value
+    assert first['id'] in {item['id'] for item in client.get('/api/v1/alerts',
+        params={'use_case':'vault_monitoring','branch_id':'branch-1'}).json()['items']}
+    assert first['id'] not in {item['id'] for item in client.get('/api/v1/alerts',
+        params={'use_case':'vault_monitoring','branch_id':'branch-2'}).json()['items']}
     worker._persist(SnapshotJob(AlertSnapshot('VAULT_SESSION', 1, 2, 2, stable=True),
-        'session', 'camera', at+timedelta(seconds=10)))
+        'session', 'camera', at+timedelta(seconds=10),
+        source_metadata={**metadata,'branch_id':'branch-2','branch_name':'Changed later'}))
     adapter.dispatch_once()
     updated = client.get('/api/v1/alerts/'+first['id']).json()
     assert updated['domain_data']['observed_count'] == 2
     assert datetime.fromisoformat(updated['last_seen_at']) == at+timedelta(seconds=10)
     assert updated['status'] == 'OPEN'
+    for key,value in metadata.items():assert updated[key]==value
     config = load_ml_config_file().model_copy(deep=True)
     config.vault_alerts.evidence.enabled = True
     config.vault_alerts.evidence.capture_count_mismatch = True
@@ -185,6 +203,7 @@ def test_vault_count_last_seen_and_evidence_completion_are_mirrored(common, tmp_
     assert final['domain_data']['evidence_status'] == 'CAPTURED'
     assert final['evidence_refs'][0]['id'] == evidence_id
     assert final['status'] == 'OPEN'
+    for key,value in metadata.items():assert final[key]==value
     assert len(client.get('/api/v1/alerts', params={'source_event_id':identifier}).json()['items']) == 1
     engine.dispose()
 

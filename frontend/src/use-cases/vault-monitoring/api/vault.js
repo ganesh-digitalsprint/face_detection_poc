@@ -6,9 +6,11 @@ export const getVaultAuthenticationConfig = () =>
   client.get('/api/v1/vault-authentication/config').then((r) => r.data);
 
 // -> { session_ref, challenge, status, required_persons, test_mode, expires_at, remaining_seconds }
-export const startLivenessSession = (requiredPersons = null) =>
+export const startLivenessSession = (requiredPersons = null, { branchId = null, cameraLabel = null } = {}) =>
   client.post('/api/v1/vault-authentication/start',
-    requiredPersons == null ? undefined : { required_persons: requiredPersons })
+    { ...(requiredPersons == null ? {} : { required_persons: requiredPersons }),
+      ...(branchId ? { branch_id: branchId } : {}),
+      ...(cameraLabel ? { camera_label: cameraLabel } : {}) })
     .then((r) => r.data);
 
 // Backend field name is `frame`.

@@ -85,6 +85,7 @@ class VaultRoomCameraSession:
     camera_index: int | None = None
     pose_preview: bool = False
     pose_metrics: dict | None = None
+    source_context: dict = field(default_factory=dict)
     status: str = "connecting"
     error: str | None = None
     created_at: float = field(default_factory=time.monotonic)
@@ -110,23 +111,34 @@ class VaultRoomCameraManager:
         self._session: VaultRoomCameraSession | None = None
         self._stopped_ids: deque[str] = deque(maxlen=128)
 
-    def start_rtsp(self, name: str, url: str, *, pose_preview: bool = False) -> VaultRoomCameraSession:
+    def start_rtsp(self, name: str, url: str, *, pose_preview: bool = False,
+                   source_context: dict | None = None) -> VaultRoomCameraSession:
         url = validate_rtsp_url(url)
-        return self._start("rtsp", name, url, pose_preview=pose_preview)
+        return self._start("rtsp", name, url, pose_preview=pose_preview,
+            source_context=source_context)
 
-    def start_webcam(self, name: str, camera_index: int | None = None, *, pose_preview: bool = False) -> VaultRoomCameraSession:
+    def start_webcam(self, name: str, camera_index: int | None = None, *, pose_preview: bool = False,
+                     source_context: dict | None = None) -> VaultRoomCameraSession:
         index = settings.WEBCAM_INDEX if camera_index is None else camera_index
         if index < 0:
             raise ValueError("Camera index must be zero or greater.")
-        return self._start("webcam", name, "", camera_index=int(index), pose_preview=pose_preview)
+        return self._start("webcam", name, "", camera_index=int(index), pose_preview=pose_preview,
+            source_context=source_context)
 
     def _start(self, source_type: str, name: str, url: str, *, camera_index: int | None = None,
-               pose_preview: bool = False) -> VaultRoomCameraSession:
+               pose_preview: bool = False, source_context: dict | None = None) -> VaultRoomCameraSession:
         with self._lock:
             if self._session and self._session.status not in {"failed", "stopped"}:
                 raise RuntimeError("A Vault Room camera is already connected. Disconnect it before starting another.")
             session = VaultRoomCameraSession(uuid.uuid4().hex, name.strip()[:80] or "Vault Room Camera", url,
-                source_type=source_type, camera_index=camera_index, pose_preview=pose_preview)
+                source_type=source_type, camera_index=camera_index, pose_preview=pose_preview,
+                source_context=dict(source_context or {}))
+            manager = self._room_manager or __import__(
+                "app.services.vault_room_manager", fromlist=["get_vault_room_manager"]
+            ).get_vault_room_manager()
+            session.source_context = manager.bind_camera_source(session.session_id,
+                source_type=source_type, camera_name=session.name,
+                source_context=session.source_context)
             self._session = session
             session.thread = threading.Thread(target=self._run, args=(session,),
                 name=f"vault-room-camera-{session.session_id[:8]}", daemon=True)
@@ -160,6 +172,10 @@ class VaultRoomCameraManager:
                 session.url = ""
                 self._session = None
                 self._stopped_ids.append(session_id)
+        manager = self._room_manager or __import__(
+            "app.services.vault_room_manager", fromlist=["get_vault_room_manager"]
+        ).get_vault_room_manager()
+        manager.release_camera_source(session_id)
         return True
 
     def stop_all(self) -> None:
@@ -174,7 +190,7 @@ class VaultRoomCameraManager:
                 "camera_index": session.camera_index,
                 "status": session.status, "error": session.error,
                 "last_frame_at": session.last_frame_at, "pose_preview": session.pose_preview,
-                "pose_metrics": session.pose_metrics}
+                "pose_metrics": session.pose_metrics, "source_context": dict(session.source_context)}
 
     def stream(self, session_id: str):
         session = self.get(session_id)
@@ -241,10 +257,12 @@ class VaultRoomCameraManager:
                     try:
                         if session.pose_preview:
                             result = manager.process_frame(
-                                frame, source=session.source_type, include_pose=True
+                                frame, source=session.source_type, include_pose=True,
+                                source_id=session.session_id
                             )
                         else:
-                            result = manager.process_frame(frame, source=session.source_type)
+                            result = manager.process_frame(frame, source=session.source_type,
+                                source_id=session.session_id)
                     except VaultRoomBusyError:
                         pass  # Drop this count sample; capture continues with only the newest frame.
                     except VaultRoomDetectorUnavailableError as exc:
@@ -322,6 +340,7 @@ class VaultRoomCameraManager:
                     "app.services.vault_room_manager", fromlist=["get_vault_room_manager"]
                 ).get_vault_room_manager()
                 manager.close_pose_preview()
+            manager.release_camera_source(session.session_id)
 
     def _capture_latest(self, session: VaultRoomCameraSession) -> None:
         capture = None

@@ -39,9 +39,13 @@ def test_public_metadata_preserves_typed_source_references(video, alert_type, tm
     evidence = [{'id':snapshot_id, 'storage_id':snapshot_id, 'provider':'grill_gate', 'type':'snapshot',
         'retrieval_path':f'/api/v1/grill-gate/alerts/{local_id}/evidence/{snapshot_id}?'
             + ('video_job_id='+job_id if video else 'assignment_id='+assignment_id)}]
-    domain = {'source_id':'source-reference', 'branch_id':'explicit-branch', 'branch_name':'Explicit branch'}
+    domain = {'source_id':'source-reference', 'branch_id':'explicit-branch', 'branch_name':'Explicit branch',
+              'branch_code':'C99127-01',
+              'place_name':'Configured place', 'region_name':'Configured region',
+              'branch_manager':'Configured manager'}
     if video:
-        domain.update(template_assignment_id=template_id, camera_id=job_id)
+        domain.update(template_assignment_id=template_id, camera_id=job_id,
+                      camera_name='Uploaded video', video_filename='gate.mp4')
     row = GrillGateAlert(id=local_id, source_event_id=source_id, source_event_version=1,
         source_event_type=alert_type, camera_id=None if video else camera_id,
         camera_name=None if video else 'Gate camera', assignment_id=None if video else assignment_id,
@@ -52,10 +56,16 @@ def test_public_metadata_preserves_typed_source_references(video, alert_type, tm
     assert first['source_event_id'] == source_id and first['source_event_type'] == alert_type
     assert first['resource_refs']['source_id'] == 'source-reference'
     assert first['resource_refs']['branch_id'] == 'explicit-branch'
+    assert first['resource_refs']['branch_code'] == 'C99127-01'
+    assert first['resource_refs']['place_name'] == 'Configured place'
+    assert first['resource_refs']['region_name'] == 'Configured region'
+    assert first['resource_refs']['branch_manager'] == 'Configured manager'
     assert first['evidence_refs'] == evidence
     if video:
         assert first['resource_refs']['video_job_id'] == job_id
         assert first['resource_refs']['template_assignment_id'] == template_id
+        assert first['resource_refs']['camera_name'] == 'Uploaded video'
+        assert first['resource_refs']['video_filename'] == 'gate.mp4'
         assert 'camera_id' not in first['resource_refs']
     else:
         assert first['resource_refs']['camera_id'] == camera_id
@@ -274,6 +284,10 @@ def test_final_video_reconciliation_stages_publication_and_captures_real_evidenc
         db.add(GrillGateVideoJob(id=job_id, original_filename="final.avi", storage_path=str(path),
             status="COMPLETED", progress_seconds=6, completed_at=T0, config_snapshot={
                 "alert_configuration": {"gate_open_enabled": True, "max_gate_open_seconds": 4},
+                "source_metadata": {"source_type": "UPLOADED_VIDEO", "camera_name": "Uploaded video",
+                    "branch_id": "branch-1", "branch_code": "C99127-01", "branch_name": "Koramangala", "place_name": "Bengaluru",
+                    "region_name": "South", "branch_manager": "Existing Manager",
+                    "video_filename": "final.avi"},
                 "final_status": {"gate_state": "FULLY_OPEN", "open_without_crossing_seconds": 4,
                     "open_without_crossing_threshold_seconds": 4}}))
         db.commit()
@@ -288,8 +302,15 @@ def test_final_video_reconciliation_stages_publication_and_captures_real_evidenc
     with h.factory() as db:
         row = db.get(GrillGateAlert, response.json()["alert_id"])
         assert row.evidence_refs[0]["video_timestamp_seconds"] == 6
+        assert row.domain_data["branch_name"] == "Koramangala"
         assert db.scalar(select(func.count()).select_from(VaultAuditEvent)) == 1
-        assert db.scalar(select(VaultAuditEvent)).details["payload"]["evidence_refs"]
+        published = db.scalar(select(VaultAuditEvent)).details["payload"]
+        assert published["evidence_refs"]
+        assert published["resource_refs"]["camera_name"] == "Uploaded video"
+        assert published["resource_refs"]["branch_code"] == "C99127-01"
+        assert published["resource_refs"]["place_name"] == "Bengaluru"
+        assert published["resource_refs"]["region_name"] == "South"
+        assert published["resource_refs"]["branch_manager"] == "Existing Manager"
 
 
 def test_mesh_gap_does_not_report_recovery():

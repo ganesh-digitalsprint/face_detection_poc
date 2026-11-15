@@ -26,6 +26,7 @@ from app.services.dual_control import get_dual_control_session_manager
 from app.services.vault_authentication import VaultAuthenticationService
 from app.services.vault_room_manager import VaultRoomSessionActiveError, get_vault_room_manager
 from app.services.vault_event_publisher import publish_alert_event
+from app.services.vault_source_context import build_source_context
 
 router = APIRouter(prefix="/api/v1/vault-authentication", tags=["vault authentication"])
 logger = get_logger(__name__)
@@ -48,8 +49,14 @@ def start_session(
 ) -> LivenessSessionResponse:
     """Create a dual-control window and its first independent liveness challenge."""
     try:
+        source_context = build_source_context(
+            branch_id=body.branch_id if body is not None else None,
+            camera_name=(body.camera_label if body is not None else None) or "Entrance Camera",
+            source_type="entrance_camera",
+        )
         liveness, session = service.start(
-            body.required_persons if body is not None else None
+            body.required_persons if body is not None else None,
+            source_context=source_context,
         )
     except VaultRoomSessionActiveError as exc:
         info = exc.info
@@ -68,7 +75,8 @@ def start_session(
         db.add(VaultSession(id=session.session_ref, required_persons=session.required_persons,
             started_at=session.started_at, expires_at=session.expires_at))
         db.add(VaultAuditEvent(id=str(uuid4()), action="SESSION_STARTED", entity_type="session",
-            entity_id=session.session_ref, details={"required_persons": session.required_persons}))
+            entity_id=session.session_ref, details={"required_persons": session.required_persons,
+                "source_context": source_context}))
     return LivenessSessionResponse(
         session_ref=session.session_ref,
         challenge=liveness.challenge.value,

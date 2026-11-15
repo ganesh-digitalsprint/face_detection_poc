@@ -21,6 +21,8 @@ def test_metadata_survives_create_update_filters_and_replay(tmp_path, use_case, 
         operator_credentials={"operator": {"actor_id": "op", "use_cases": [use_case]}},
         notification_webhook_url=""), start_notification_worker=False)
     refs = {"branch_id": "branch-1", "branch_name": "Known branch", "source_id": "source-7"}
+    if use_case in {"grill_gate", "vault_monitoring"}:
+        refs.update(branch_code="C99127-01", place_name="Bengaluru", region_name="South", branch_manager="Known manager")
     if video:
         refs.update(video_job_id="job-1", template_assignment_id="template-1")
     else:
@@ -64,6 +66,11 @@ def test_metadata_survives_create_update_filters_and_replay(tmp_path, use_case, 
         for key, value in refs.items():
             if key in row:
                 assert row[key] == value
+        listed_row = client.get('/api/v1/alerts', headers=operator,
+            params={'use_case': use_case}).json()['items'][0]
+        if use_case in {'grill_gate', 'vault_monitoring'}:
+            for key in ('branch_code', 'place_name', 'region_name', 'branch_manager'):
+                assert row[key] == listed_row[key] == refs[key]
         if video:
             assert row['camera_id'] is None and row['camera_name'] is None
         if use_case == 'branch_exterior':

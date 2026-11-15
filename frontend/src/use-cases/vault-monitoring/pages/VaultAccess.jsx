@@ -22,7 +22,8 @@ import useVaultAccess from '../hooks/useVaultAccess.js';
 import useVaultRoom from '../hooks/useVaultRoom.js';
 import useVaultRoomCamera from '../hooks/useVaultRoomCamera.js';
 import useVaultCounting from '../hooks/useVaultCounting.js';
-import { VAULT_VIEW, activeSlot, deriveVaultView, handoffSubject } from '../utils/vaultView.js';
+import { VAULT_VIEW, activeSlot, deriveVaultView, handoffSubject, vaultActiveBranchId } from '../utils/vaultView.js';
+import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
 import './VaultRoom.css';
 import { readVaultUi, saveVaultUi, vaultUiFromSearch } from '../utils/replayStorage.js';
 
@@ -31,6 +32,8 @@ const segment = (active) => `inline-flex min-h-11 items-center justify-center ga
 
 /** Both panels keep one CameraPreview/video mounted, so switching views never touches the stream. */
 export default function VaultAccess() {
+  const activeScope = useOptionalActiveBranch()?.scope;
+  const activeBranchId = vaultActiveBranchId(activeScope);
   const camera = useCameraSource();
   const [initialUi] = useState(readVaultUi);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -53,12 +56,13 @@ export default function VaultAccess() {
   const [previewHost] = useState(() => document.createElement('div'));
   const [fullscreenError, setFullscreenError] = useState('');
   const room = useVaultRoom();
-  const roomCamera = useVaultRoomCamera();
+  const roomCamera = useVaultRoomCamera(activeBranchId);
   const regions = useVaultRoomRegions(isRoom);
   const replay = useVaultRoomReplay(regions.profileId, regions.ready);
   const roomCounting = useVaultCounting(roomCamera.videoRef, room.roomState, isRoom && roomCamera.kind === 'webcam',
-    roomCamera.status === 'ready', room.refreshState, roomCamera.posePreview);
-  const vault = useVaultAccess(camera, isRoom, room);
+    roomCamera.status === 'ready', room.refreshState, roomCamera.posePreview,
+    roomCamera.sourceSession?.session_id ?? null);
+  const vault = useVaultAccess(camera, isRoom, room, activeBranchId);
   const view = deriveVaultView(vault);
   const slot = activeSlot(vault, view);
   const running = RUNNING_VIEWS.includes(view);

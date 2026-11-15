@@ -1,23 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
-import { ALERT_TABS, LEGACY_REDIRECTS, MOVED_BRANCH_PAGES, bxPageKey, redirectTarget, showsBranchChrome } from './routes.js';
+import { ALERTS_BASE, LEGACY_REDIRECTS, MOVED_BRANCH_PAGES, bxPageKey, redirectTarget, showsBranchChrome } from './routes.js';
 import { linkTargets, NAV_SECTIONS } from './navConfig.js';
 
-test('legacy alert URLs redirect to their tab', () => {
-  assert.equal(redirectTarget('/vault-alerts'), '/alerts/vault');
-  assert.equal(redirectTarget('/alert-center'), '/alerts/all');
-  assert.equal(redirectTarget('/branch-exterior/dashboard'), '/alerts/branch');
+test('legacy alert URLs redirect to the centralized Alert Center', () => {
+  assert.equal(redirectTarget('/vault-alerts'), '/alerts?use_case=vault_monitoring');
+  assert.equal(redirectTarget('/alert-center'), '/alerts');
+  assert.equal(redirectTarget('/branch-exterior/dashboard'), '/alerts?use_case=branch_exterior');
+  assert.equal(redirectTarget('/alerts/face-mask'), '/alerts?use_case=face_mask');
 });
 
 test('redirects keep the query string and hash, and tolerate a trailing slash', () => {
-  assert.equal(redirectTarget('/vault-alerts', '?scope=history'), '/alerts/vault?scope=history');
-  assert.equal(redirectTarget('/alert-center/', '?status=OPEN'), '/alerts/all?status=OPEN');
-  assert.equal(redirectTarget('/branch-exterior/dashboard', '?event=42', '#x'), '/alerts/branch?event=42#x');
+  assert.equal(redirectTarget('/vault-alerts', '?scope=history'), '/alerts?scope=history&use_case=vault_monitoring');
+  assert.equal(redirectTarget('/alert-center/', '?status=OPEN'), '/alerts?status=OPEN');
+  assert.equal(redirectTarget('/branch-exterior/dashboard', '?event=42', '#x'), '/alerts?use_case=branch_exterior&source_event_id=42#x');
 });
 
 test('non-legacy URLs are not redirected (incident detail and Branch pages keep their URLs)', () => {
-  for (const p of ['/vault-alerts/incidents/7', '/alerts/vault', '/branch-exterior/live', '/settings', '/']) {
+  for (const p of ['/vault-alerts/incidents/7', '/alerts', '/branch-exterior/live', '/settings', '/']) {
     assert.equal(redirectTarget(p, '?a=1'), null, p);
   }
 });
@@ -31,25 +32,22 @@ test('moved Branch pages redirect from /branch-exterior and keep ?camera= and ot
   }
 });
 
-test('every redirect lands on an alerts tab or a moved Branch page, and every tab is a distinct /alerts path', () => {
-  const tabs = ALERT_TABS.map((t) => t.to);
-  assert.equal(new Set(tabs).size, tabs.length);
-  for (const [, to] of LEGACY_REDIRECTS) assert.ok(tabs.includes(to) || MOVED_BRANCH_PAGES.includes(to) || to === '/regions', to);
+test('every alert redirect lands on the one Alert Center route', () => {
+  for (const [, to] of LEGACY_REDIRECTS) assert.ok(to === ALERTS_BASE || MOVED_BRANCH_PAGES.includes(to) || to === '/regions', to);
   const sources = LEGACY_REDIRECTS.map(([from]) => from);
   assert.equal(new Set(sources).size, sources.length);
   for (const [, to] of LEGACY_REDIRECTS) assert.ok(!sources.includes(to), `redirect loop: ${to}`);
 });
 
 test('Branch header controls show only where BxLayout is mounted', () => {
-  for (const p of ['/branch-exterior/live', '/branch-exterior', '/alerts/branch', '/alerts/branch/', '/guards', '/settings']) assert.ok(showsBranchChrome(p), p);
+  for (const p of ['/branch-exterior/live', '/branch-exterior', '/guards', '/settings']) assert.ok(showsBranchChrome(p), p);
   // /regions is the common Regions & Zones page: it is not rendered inside BxLayout.
-  for (const p of ['/regions', '/alerts/vault', '/alerts/all', '/alerts', '/branch-exteriors', '/regionsx', '/vault-access', '/registration/employees']) {
+  for (const p of ['/regions', '/alerts', '/branch-exteriors', '/regionsx', '/vault-access', '/registration/employees']) {
     assert.ok(!showsBranchChrome(p), p);
   }
 });
 
-test('BxLayout sub-bar key: Branch events tab is the old dashboard; Branch pages keep their segment', () => {
-  assert.equal(bxPageKey('/alerts/branch'), 'dashboard');
+test('BxLayout sub-bar key follows Branch monitoring routes', () => {
   assert.equal(bxPageKey('/guards'), 'guards');
   assert.equal(bxPageKey('/settings'), 'settings');
   assert.equal(bxPageKey('/branch-exterior/system-check'), 'system-check');

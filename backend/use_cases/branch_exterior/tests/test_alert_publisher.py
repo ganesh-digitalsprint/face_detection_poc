@@ -107,7 +107,7 @@ def test_committed_repository_updates_retry_and_deletion(tmp_path, monkeypatch):
             client_factory=lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(handler), **kw))
         monkeypatch.setattr(module, 'get_alert_publisher', lambda: publisher)
         try:
-            event = await repos.events.create(EventCreate(camera_id='cam', scenario='anomaly', severity='medium'))
+            event = await repos.events.create(EventCreate(camera_id='cam', scenario='anomaly', severity='medium', meta={'kind':'weapon'}))
             await publisher.dispatch_once()
             assert remote['source_event_id'] == event.id and len(writes) == 1
             fail_update[0] = True
@@ -201,7 +201,7 @@ def test_branch_historical_reconciliation_reuses_current_database_and_publisher(
         monkeypatch.setattr(module,'get_alert_publisher',lambda:publisher)
         publisher.enabled=False
         try:
-            row=await repos.events.create(EventCreate(camera_id='historic-camera',scenario='anomaly',severity='high'))
+            row=await repos.events.create(EventCreate(camera_id='historic-camera',scenario='anomaly',severity='high',meta={'kind':'weapon'}))
             row=await repos.events.review(row.id,'closed','Original review')
             publisher.enabled=True
             assert publisher.pending_count()==0
@@ -216,6 +216,21 @@ def test_branch_historical_reconciliation_reuses_current_database_and_publisher(
             assert creates==[row.id]
         finally:await repos.disconnect()
     run(scenario())
+
+
+@pytest.mark.parametrize('kind', ['running', 'jumping', 'group', 'fallen'])
+def test_routine_context_never_enters_outbox_or_historical_reconciliation(tmp_path, kind):
+    service = FakeService()
+    publisher = AlertPublisher('http://common', 'producer', outbox_dir=tmp_path/'outbox',
+        client_factory=lambda **kw:httpx.AsyncClient(transport=httpx.MockTransport(service.handler), **kw))
+    event = make_event(scenario='anomaly', meta={'kind':kind})
+    assert run(publisher.enqueue(event)) is False
+    assert publisher.pending_count() == 0 and service.requests == []
+    # Legacy queued snapshots must also be discarded before HTTP publication.
+    path = tmp_path/'legacy.json'
+    path.write_text(json.dumps({'payload':build_payload(event)}))
+    run(publisher._deliver(path, {'payload':build_payload(event)}))
+    assert not path.exists() and service.requests == []
 
 
 def test_disabled_publisher_writes_nothing_and_never_calls_the_service(tmp_path):

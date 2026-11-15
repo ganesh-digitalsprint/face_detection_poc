@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 import httpx
+from fedbank_core.events.classification import is_security_alert
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,8 @@ class GrillGateAlertPublisher:
             self._thread.start()
 
     def submit(self, command: dict) -> bool:
+        if command.get('action') == 'create' and not is_security_alert('grill_gate', command.get('payload') or {}):
+            return False
         if not self.enabled:
             if not self._disabled_warned:
                 logger.warning("Grill Gate alert condition recorded without publication; Alert Service is not configured")

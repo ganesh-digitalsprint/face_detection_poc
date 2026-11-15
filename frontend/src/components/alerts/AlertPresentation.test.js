@@ -22,12 +22,12 @@ test('shared cards and detail render real metadata, source links, and unavailabl
     const localPage=renderToStaticMarkup(createElement(MemoryRouter,{ initialEntries:['/grill-gate?status=HISTORY'] },createElement(LocalAlerts,{assignmentId:'gate-1'})));
     assert.match(localPage,/Alert History/);assert.match(localPage,/Loading alerts/);
     const { default: AlertCenter, ServiceAlertDetail } = await server.ssrLoadModule('/src/pages/AlertCenter.jsx');
-    const center=renderToStaticMarkup(createElement(MemoryRouter,{initialEntries:['/alerts/all?use_case=grill_gate']},createElement(AlertCenter)));
+    const center=renderToStaticMarkup(createElement(MemoryRouter,{initialEntries:['/alerts?use_case=grill_gate']},createElement(AlertCenter)));
     for (const text of ['Grill Gate Monitoring','Active','History','Filter by evidence','Alert Center']) assert.ok(center.includes(text),text);
     const videoAlert={...alert,videoJobId:'video-source-1',domainData:{...alert.domainData,video_time_seconds:19.7,gate_open_duration_seconds:336.341}};
     const commonDetail=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(ServiceAlertDetail,{alert:videoAlert,audit:{rows:[],loading:false,error:''},actionsEnabled:true,onClose:()=>{}})));
     for (const text of ['HIGH','ACKNOWLEDGED','video-source-1','336.341','19.7','Occurred','No captured snapshot is attached']) assert.ok(commonDetail.includes(text),text);
-    assert.doesNotMatch(commonDetail,/>Acknowledge</);
+    assert.match(commonDetail, /data-action="ACKNOWLEDGED" disabled/);
 
     const commented = {...videoAlert, acknowledgementComment:'Checked the captured snapshot', acknowledgedAt:'2026-11-12T01:00:00Z', acknowledgedBy:'reviewer'};
     const commonComment=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(ServiceAlertDetail,{alert:commented,audit:{rows:[],loading:false,error:''},actionsEnabled:true})));
@@ -63,7 +63,10 @@ test('shared cards and detail render real metadata, source links, and unavailabl
       const common = renderToStaticMarkup(createElement(MemoryRouter,null,createElement(ServiceAlertDetail, {
         alert:{...alert,status,sourceAllowedActions:['ACKNOWLEDGED','RESOLVED','DISMISSED']},audit:{rows:[],loading:false,error:''},actionsEnabled:true,onAction:()=>{},
       })));
-      for (const label of ['Acknowledge','Resolve','Discard']) assert.equal(common.includes(`>${label}</button>`), expected.includes(label),`Common ${status} ${label}`);
+      for (const [target,label] of [['ACKNOWLEDGED','Acknowledge'],['RESOLVED','Resolve'],['DISMISSED','Discard']]) {
+        assert.match(common, new RegExp(`>${label}</button>`));
+        assert.equal(new RegExp(`data-action="${target}" disabled`).test(common), !expected.includes(label), `Common ${status} ${label} permission`);
+      }
     }
     const { default: Confirmation } = await server.ssrLoadModule('/src/components/alerts/LifecycleConfirmation.jsx');
     for (const [target,label] of [['ACKNOWLEDGED','Acknowledge'],['RESOLVED','Resolve'],['DISMISSED','Discard']]) {

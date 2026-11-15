@@ -62,6 +62,20 @@ function Test-AlertCredentialsMap {
     } catch { return $false }
 }
 
+function Test-AlertProducerRegistration {
+    param([string]$Value, [string]$Token, [string]$UseCase, [string]$Producer)
+    if ([string]::IsNullOrWhiteSpace($Value) -or [string]::IsNullOrWhiteSpace($Token)) { return $false }
+    try {
+        $parsed = $Value | ConvertFrom-Json -ErrorAction Stop
+        foreach ($item in @($parsed.PSObject.Properties)) {
+            if ($item.Name -eq $Token) {
+                return $item.Value.use_case -eq $UseCase -and $item.Value.producer -eq $Producer
+            }
+        }
+    } catch { return $false }
+    return $false
+}
+
 function Assert-PythonEnvironment {
     param(
         [string]$Label,
@@ -188,6 +202,7 @@ try {
     }
     $vaultEnv = Get-LauncherEnvFile -Path $vaultEnvPath
     $branchEnv = Get-LauncherEnvFile -Path $branchEnvPath
+    $faceMaskEnv = if ($faceMaskEnabled) { Get-LauncherEnvFile -Path (Join-Path $faceMaskDir '.env') } else { @{} }
     $frontendEnv = Get-LauncherEnvFile -Path $frontendEnvPath
     $frontendLocalEnv = Get-LauncherEnvFile -Path (Join-Path $frontendDir '.env.local')
 
@@ -233,13 +248,52 @@ try {
         $processValue = [Environment]::GetEnvironmentVariable($name, 'Process')
         if (-not [string]::IsNullOrEmpty($processValue)) { $callerAlertEnv[$name] = $processValue }
     }
+    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $callerAlertEnv -Name 'ALERT_DATABASE_URL'))) {
+        $callerAlertEnv['ALERT_DATABASE_URL'] = Get-LauncherAlertDatabaseUrl -VaultDatabaseUrl $databaseUrl
+    }
+    $alertDatabase = Get-LauncherUrlParts -Value (Get-LauncherEnvValue -Values $callerAlertEnv -Name 'ALERT_DATABASE_URL') `
+        -AllowedSchemes @('postgresql','postgresql+psycopg')
+    if ($null -eq $alertDatabase -or [string]::IsNullOrWhiteSpace($alertDatabase.Path.Trim('/'))) {
+        throw 'ALERT_DATABASE_URL must point to a PostgreSQL database for centralized Common Alerts storage.'
+    }
     $effectiveVaultEnv = @{}
     foreach ($key in $vaultEnv.Keys) { $effectiveVaultEnv[$key] = $vaultEnv[$key] }
     foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN','GRILL_GATE_ALERT_SERVICE_TOKEN','ALERT_SERVICE_OPERATOR_TOKEN')) {
         $processValue = [Environment]::GetEnvironmentVariable($name, 'Process')
         if (-not [string]::IsNullOrEmpty($processValue)) { $effectiveVaultEnv[$name] = $processValue }
     }
-    $localAlerts = Get-LauncherGrillGateEnvironment -VaultValues $effectiveVaultEnv -BranchValues $branchEnv -AlertValues $callerAlertEnv
+    $effectiveBranchEnv = @{}
+    foreach ($key in $branchEnv.Keys) { $effectiveBranchEnv[$key] = $branchEnv[$key] }
+    $effectiveFaceMaskEnv = @{}
+    foreach ($key in $faceMaskEnv.Keys) { $effectiveFaceMaskEnv[$key] = $faceMaskEnv[$key] }
+    $localAlertBaseUrl = Get-LauncherEnvValue -Values $effectiveVaultEnv -Name 'ALERT_SERVICE_BASE_URL'
+    if ([string]::IsNullOrWhiteSpace($localAlertBaseUrl)) { $localAlertBaseUrl = 'http://127.0.0.1:8012' }
+    $existingAlertOperatorKey = Get-ValueFromMaps -Maps @($frontendEnv, $frontendLocalEnv) -Name 'ALERT_SERVICE_OPERATOR_TOKEN'
+    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveVaultEnv -Name 'ALERT_SERVICE_OPERATOR_TOKEN')) -and
+        -not [string]::IsNullOrWhiteSpace($existingAlertOperatorKey)) {
+        $effectiveVaultEnv['ALERT_SERVICE_OPERATOR_TOKEN'] = $existingAlertOperatorKey
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveVaultEnv -Name 'GRILL_GATE_ALERT_SERVICE_TOKEN'))) {
+        $existingGateKey = Get-LauncherEnvValue -Values $effectiveVaultEnv -Name 'CLOUDINARY_API_KEY'
+        if (-not [string]::IsNullOrWhiteSpace($existingGateKey)) { $effectiveVaultEnv['GRILL_GATE_ALERT_SERVICE_TOKEN'] = $existingGateKey }
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveVaultEnv -Name 'ALERT_SERVICE_TOKEN'))) {
+        $existingVaultKey = Get-LauncherEnvValue -Values $effectiveVaultEnv -Name 'VAULT_ROOM_API_KEY'
+        if (-not [string]::IsNullOrWhiteSpace($existingVaultKey)) { $effectiveVaultEnv['ALERT_SERVICE_TOKEN'] = $existingVaultKey }
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveBranchEnv -Name 'ALERT_SERVICE_TOKEN'))) {
+        $existingBranchKey = Get-LauncherEnvValue -Values $effectiveBranchEnv -Name 'FEDBANK_PLATFORM_ADMIN_KEY'
+        if (-not [string]::IsNullOrWhiteSpace($existingBranchKey)) { $effectiveBranchEnv['ALERT_SERVICE_TOKEN'] = $existingBranchKey }
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveFaceMaskEnv -Name 'ALERT_SERVICE_TOKEN'))) {
+        if (-not [string]::IsNullOrWhiteSpace($existingAlertOperatorKey)) { $effectiveFaceMaskEnv['ALERT_SERVICE_TOKEN'] = $existingAlertOperatorKey }
+    }
+    foreach ($values in @($effectiveVaultEnv, $effectiveBranchEnv, $effectiveFaceMaskEnv)) {
+        if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $values -Name 'ALERT_SERVICE_BASE_URL'))) {
+            $values['ALERT_SERVICE_BASE_URL'] = $localAlertBaseUrl
+        }
+    }
+    $localAlerts = Get-LauncherGrillGateEnvironment -VaultValues $effectiveVaultEnv -BranchValues $effectiveBranchEnv -AlertValues $callerAlertEnv -FaceMaskValues $effectiveFaceMaskEnv
     $callerAlertEnv = $localAlerts.AlertEnvironment
     $vaultScopedEnv = $localAlerts.VaultEnvironment
     foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN','ALERT_SERVICE_OPERATOR_TOKEN')) {
@@ -247,7 +301,7 @@ try {
     }
     $effectiveVaultEnv['GRILL_GATE_ALERT_SERVICE_TOKEN'] = $vaultScopedEnv['GRILL_GATE_ALERT_SERVICE_TOKEN']
     $effectiveVaultEnv['ALERT_SERVICE_BASE_URL'] = $vaultScopedEnv['ALERT_SERVICE_BASE_URL']
-    Write-Host 'PASS  Local Grill Gate producer provisioned automatically in child environments' -ForegroundColor Green
+    Write-Host 'PASS  Local Common Alerts producer registrations reuse existing configured PoC keys' -ForegroundColor Green
     $producerCredentials = Get-LauncherEnvValue -Values $callerAlertEnv -Name 'ALERT_PRODUCER_CREDENTIALS'
     $operatorCredentials = Get-LauncherEnvValue -Values $callerAlertEnv -Name 'ALERT_OPERATOR_CREDENTIALS'
     if (-not (Test-AlertCredentialsMap -Value $producerCredentials -Kind producer -RequiredUseCase 'grill_gate')) { Add-LauncherWarning 'Alert Service has no valid Grill Gate producer registration; Grill Gate alert publication requires a producer token mapped to use_case=grill_gate and producer=grill-gate-monitoring.' }
@@ -258,8 +312,29 @@ try {
             Add-LauncherWarning "Vault $name is unset; $purpose is unavailable. Configure it in backend/use_cases/vault_monitoring/.env."
         }
     }
+    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveVaultEnv -Name 'ALERT_SERVICE_TOKEN'))) {
+        Add-LauncherWarning 'Vault ALERT_SERVICE_TOKEN is unset; Vault alert publication is disabled.'
+    }
     foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN')) {
-        if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $branchEnv -Name $name))) { Add-LauncherWarning "Branch $name is unset; Branch alert publication is disabled."; break }
+        if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveBranchEnv -Name $name))) { Add-LauncherWarning "Branch $name is unset; Branch alert publication is disabled." }
+    }
+    if ($faceMaskEnabled) {
+        foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN')) {
+            if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveFaceMaskEnv -Name $name))) { Add-LauncherWarning "Face Mask $name is unset; Face Mask alert publication is disabled." }
+        }
+    }
+    $producerChecks = @(
+        @{ Label='Vault'; UseCase='vault_monitoring'; Producer='vault-monitoring'; Token=(Get-LauncherEnvValue -Values $effectiveVaultEnv -Name 'ALERT_SERVICE_TOKEN') },
+        @{ Label='Branch'; UseCase='branch_exterior'; Producer='branch-exterior-monitoring'; Token=(Get-LauncherEnvValue -Values $effectiveBranchEnv -Name 'ALERT_SERVICE_TOKEN') },
+        @{ Label='Face Mask'; UseCase='face_mask'; Producer='face-mask-monitoring'; Token=(Get-LauncherEnvValue -Values $effectiveFaceMaskEnv -Name 'ALERT_SERVICE_TOKEN') }
+    )
+    foreach ($check in $producerChecks) {
+        if (-not (Test-AlertProducerRegistration -Value $producerCredentials -Token $check.Token -UseCase $check.UseCase -Producer $check.Producer)) {
+            Add-LauncherWarning "$($check.Label) producer registration is missing or does not match its service token; configure ALERT_PRODUCER_CREDENTIALS in backend\services\alert_service\.env and the matching ALERT_SERVICE_TOKEN in the producer .env."
+        }
+        if (-not (Test-AlertCredentialsMap -Value $operatorCredentials -Kind operator -RequiredUseCase $check.UseCase)) {
+            Add-LauncherWarning "Alert Service operator credentials do not permit $($check.UseCase); its alerts will not be visible in the Alert Center."
+        }
     }
     $proxyToken = Get-ValueFromMaps -Maps @($frontendEnv, $frontendLocalEnv) -Name 'ALERT_SERVICE_OPERATOR_TOKEN'
     if ([string]::IsNullOrWhiteSpace($proxyToken) -and [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ALERT_SERVICE_OPERATOR_TOKEN','Process'))) { Add-LauncherWarning 'Frontend Alert Center proxy token is not configured; set ALERT_SERVICE_OPERATOR_TOKEN in frontend\.env.local.' }
@@ -296,6 +371,22 @@ try {
 
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
     $branchScopedEnv = @{}
+    foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN')) {
+        $value = Get-LauncherEnvValue -Values $effectiveBranchEnv -Name $name
+        if (-not [string]::IsNullOrWhiteSpace($value)) { $branchScopedEnv[$name] = $value }
+    }
+    $faceMaskScopedEnv = @{}
+    foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN')) {
+        $value = Get-LauncherEnvValue -Values $effectiveFaceMaskEnv -Name $name
+        if (-not [string]::IsNullOrWhiteSpace($value)) { $faceMaskScopedEnv[$name] = $value }
+    }
+    # Platform routes use os.environ, which Pydantic's .env loading does not populate.
+    foreach ($name in @('FEDBANK_PLATFORM_ADMIN_KEY','FEDBANK_PLATFORM_FERNET_KEY')) {
+        $value = Get-LauncherEnvValue -Values $branchEnv -Name $name
+        $processValue = [Environment]::GetEnvironmentVariable($name, 'Process')
+        if (-not [string]::IsNullOrWhiteSpace($processValue)) { $value = $processValue }
+        if (-not [string]::IsNullOrWhiteSpace($value)) { $branchScopedEnv[$name] = $value }
+    }
     if ($DemoPlatformWrites) { $branchScopedEnv.FEDBANK_PLATFORM_DEMO_WRITES = '1' }
     $launchSpecs = @(
         @{ Service = 'Alert Service'; Exe = $alertPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8012'); Cwd = $alertDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8012'; Uri = 'http://127.0.0.1:8012/health'; Timeout = $AlertTimeoutSeconds; Env = $callerAlertEnv },
@@ -304,7 +395,7 @@ try {
         @{ Service = 'Frontend'; Exe = $nodeCommand.Source; Args = @('node_modules/vite/bin/vite.js','--host','127.0.0.1'); Cwd = $frontendDir; Marker = 'vite/bin/vite.js --host 127.0.0.1'; Uri = 'http://127.0.0.1:3000/'; Timeout = $FrontendTimeoutSeconds; Env = @{} }
     )
     if ($faceMaskEnabled) {
-        $faceMaskSpec = @{ Service = 'Face Mask Monitoring'; Exe = $faceMaskPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8014'); Cwd = $faceMaskDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8014'; Uri = 'http://127.0.0.1:8014/api/health'; Timeout = $FaceMaskTimeoutSeconds; Env = @{} }
+        $faceMaskSpec = @{ Service = 'Face Mask Monitoring'; Exe = $faceMaskPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8014'); Cwd = $faceMaskDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8014'; Uri = 'http://127.0.0.1:8014/api/health'; Timeout = $FaceMaskTimeoutSeconds; Env = $faceMaskScopedEnv }
         # Keep Frontend last: Alert, Vault, Branch, Face Mask, Frontend.
         $launchSpecs = @($launchSpecs[0..2]) + @($faceMaskSpec) + @($launchSpecs[3])
     }

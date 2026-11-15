@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Alert, AlertAudit, IdempotencyRecord, NotificationOutbox, utcnow
 from app.services.alert_manager import TRANSITIONS, allowed_actions
+from fedbank_core.events.classification import is_security_alert
 
 
 class Conflict(Exception):
@@ -97,6 +98,8 @@ def _source_count(payload, default=1):
 
 def ingest(db: Session, *, use_case: str, producer: str, payload: dict, severity: str,
            idempotency_key: str, request_id: str, notification_enabled: bool) -> tuple[Alert, bool]:
+    if not is_security_alert(use_case, payload):
+        raise Conflict('NOT_SECURITY_ALERT', 'Routine or unclassified events cannot enter Common Alerts')
     canonical = dict(payload)
     encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
     request_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -213,6 +216,8 @@ def ingest(db: Session, *, use_case: str, producer: str, payload: dict, severity
 
 def update_source(db: Session, *, use_case: str, producer: str, source_event_id: str, expected: int,
                   payload: dict, severity: str, request_id: str) -> Alert:
+    if not is_security_alert(use_case, payload):
+        raise Conflict('NOT_SECURITY_ALERT', 'Routine or unclassified events cannot enter Common Alerts')
     alert = db.scalar(select(Alert).where(Alert.use_case == use_case, Alert.producer == producer,
                                            Alert.source_event_id == source_event_id))
     if not alert:
@@ -309,7 +314,8 @@ def alert_dict(alert: Alert) -> dict:
     return {"id": alert.id, "schema_version": alert.schema_version, "use_case": alert.use_case,
             **{key: refs.get(key) for key in ("branch_id", "branch_name", "camera_id", "camera_name",
                 "assignment_id", "video_job_id", "template_assignment_id", "session_ref", "source_id",
-                "source_type", "registry_camera_id", "location_id", "location_name", "zone_id", "zone_name")},
+                "source_type", "registry_camera_id", "location_id", "location_name", "zone_id", "zone_name",
+                "branch_code", "place_name", "region_name", "branch_manager")},
             "source_event_subtype": subtype, "display_event_type": subtype or alert.source_event_type,
             "evidence_count": len(evidence),
             "snapshot_count": sum(ref.get('type') == 'snapshot' for ref in evidence),

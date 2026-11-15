@@ -225,8 +225,12 @@ export default function VaultRoomPanel({ room, onRetry, activityContext }) {
   const activityFeed = useVaultActivityEvents({ ...activityContext,
     sessionId: room.replay ? room.replay.session_id : room.roomState?.session_id,
     replay: Boolean(room.replay), liveEvents: room.events });
+  const [clearActivityKey, setClearActivityKey] = useState(null);
   const activity = { total: activityFeed.total, loading: activityFeed.loading, refresh: activityFeed.refresh,
-    connected: room.connection === 'live', content: <VaultActivityEvents key={activityFeed.key} feed={activityFeed} status={room.replay?.status} replay={Boolean(room.replay)} /> };
+    canClear: activityFeed.items.length > 0,
+    requestClear: () => setClearActivityKey(activityFeed.key),
+    connected: room.connection === 'live', content: <VaultActivityEvents key={activityFeed.key} feed={activityFeed} status={room.replay?.status} replay={Boolean(room.replay)}
+      confirmClear={clearActivityKey === activityFeed.key} onCancelClear={() => setClearActivityKey(null)} /> };
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [sessionsError, setSessionsError] = useState(null);
@@ -299,3 +303,4 @@ export function VaultRoomCloseAction({ room }) {
     <CloseDialog open={showDialog} onCancel={cancelClose} onConfirm={confirmClose} closing={room.closing} triggerRef={closeTrigger} roomState={room.roomState} />
   </>;
 }
+// @refresh reset
