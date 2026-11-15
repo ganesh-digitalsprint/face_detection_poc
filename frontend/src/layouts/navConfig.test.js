@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  NAV_SECTIONS, formatBadge, isItemActive, linkTargets, openGroupIds, pathMatches, visibleSections,
+  NAV_SECTIONS, formatBadge, isItemActive, linkTargets, navigationTarget, openGroupIds, pathMatches, visibleSections,
 } from './navConfig.js';
 
 const allItems = NAV_SECTIONS.flatMap((s) => s.items).flatMap((i) => [i, ...(i.children ?? [])]);
@@ -21,7 +21,7 @@ test('every item is a link, a group of links, or a disabled "soon" placeholder',
 });
 
 test('every pre-redesign menu URL is still reachable', () => {
-  const targets = linkTargets(NAV_SECTIONS);
+  const targets = linkTargets(NAV_SECTIONS).map((target) => target.split('?')[0]);
   for (const url of [
     '/', '/registration/employees', '/vault-access', '/alerts',
     '/branch-exterior/live', '/regions', '/branch-exterior/brief',
@@ -68,10 +68,37 @@ test('Gate & Mesh links to the Grill Gate page', () => {
 });
 
 test('groups open by default flag or when a child route is active', () => {
-  assert.deepEqual(openGroupIds(NAV_SECTIONS, '/video'), ['vault-access']);
-  assert.deepEqual(openGroupIds(NAV_SECTIONS, '/alerts/all'), ['vault-access']);
+  assert.deepEqual(openGroupIds(NAV_SECTIONS, '/video'), []);
+  assert.deepEqual(openGroupIds(NAV_SECTIONS, '/alerts/all'), []);
   assert.ok(openGroupIds(NAV_SECTIONS, '/branch-exterior/live').includes('branch-exterior'));
   assert.ok(openGroupIds(NAV_SECTIONS, '/live/cctv').includes('live'));
+});
+
+test('Vault Monitoring reuses query-based submenus and has exactly one active child', () => {
+  const group = byId('vault-access');
+  assert.equal(group.label, 'Vault Monitoring');
+  assert.deepEqual(group.children.map((child) => child.label), ['Entrance Camera', 'Vault Room Camera', 'Zones & Regions']);
+  for (const view of ['entrance', 'room', 'zones']) {
+    const search = `?view=${view}&source=upload`;
+    assert.equal(group.children.filter((child) => isItemActive(child, '/vault-access', search)).length, 1);
+    assert.ok(isItemActive(byId(`vault-${view}`), '/vault-access', search));
+    assert.ok(openGroupIds(NAV_SECTIONS, '/vault-access', search).includes('vault-access'));
+  }
+});
+
+test('legacy Vault URL follows saved view, and submenu navigation preserves query state', () => {
+  const previous = globalThis.localStorage;
+  try {
+    globalThis.localStorage = { getItem: () => JSON.stringify({ view: 'room', source: 'upload' }) };
+    assert.ok(isItemActive(byId('vault-room'), '/vault-access'));
+    assert.ok(!isItemActive(byId('vault-entrance'), '/vault-access'));
+    assert.ok(isItemActive(byId('vault-entrance'), '/vault-access', '?view=entrance'));
+    const target = navigationTarget(byId('vault-zones'), '/vault-access', '?view=room&source=upload&camera=42');
+    const params = new URLSearchParams(target.split('?')[1]);
+    assert.equal(params.get('view'), 'zones'); assert.equal(params.get('source'), 'upload'); assert.equal(params.get('camera'), '42');
+    assert.equal(navigationTarget(byId('vault-room'), '/alerts', '?scope=history'), '/vault-access?view=room');
+    assert.equal(navigationTarget(byId('gate-mesh-video'), '/grill-gate', '?unrelated=1'), '/grill-gate?view=video');
+  } finally { if (previous === undefined) delete globalThis.localStorage; else globalThis.localStorage = previous; }
 });
 
 test('Liveness Test appears only when the dev flag is on', () => {

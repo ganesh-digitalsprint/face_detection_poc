@@ -73,6 +73,8 @@ class LivenessSessionResponse(BaseModel):
 
 class StartVaultAuthenticationRequest(BaseModel):
     required_persons: Literal[1, 2] | None = None
+    branch_id: str | None = Field(default=None, min_length=1, max_length=128)
+    camera_label: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 class VaultAuthenticationConfig(BaseModel):

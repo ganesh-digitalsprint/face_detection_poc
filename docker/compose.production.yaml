@@ -30,7 +30,7 @@ services:
     environment:
       ALERT_DATABASE_URL: postgresql+psycopg://fedbank:${POSTGRES_PASSWORD}@postgres:5432/alert_service
       ALERT_PRODUCER_CREDENTIALS: >-
-        {"${VAULT_ALERT_PRODUCER_TOKEN:?Set a unique vault producer token}":{"use_case":"vault_monitoring","producer":"vault-monitoring"},"${BRANCH_ALERT_PRODUCER_TOKEN:?Set a unique branch producer token}":{"use_case":"branch_exterior","producer":"branch-exterior-monitoring"},"${GRILL_GATE_ALERT_PRODUCER_TOKEN:?Set a unique grill gate producer token}":{"use_case":"grill_gate","producer":"grill-gate-monitoring"}}
+        {"${VAULT_ALERT_PRODUCER_TOKEN:?Set a unique vault producer token}":{"use_case":"vault_monitoring","producer":"vault-monitoring"},"${BRANCH_ALERT_PRODUCER_TOKEN:?Set a unique branch producer token}":{"use_case":"branch_exterior","producer":"branch-exterior-monitoring"},"${GRILL_GATE_ALERT_PRODUCER_TOKEN:?Set a unique grill gate producer token}":{"use_case":"grill_gate","producer":"grill-gate-monitoring"},"${FACE_MASK_ALERT_PRODUCER_TOKEN:?Set a unique face mask producer token}":{"use_case":"face_mask","producer":"face-mask-monitoring"}}
       ALERT_OPERATOR_CREDENTIALS: >-
         {"${ALERT_SERVICE_OPERATOR_TOKEN:?Set an operator token}":{"actor_id":"production-operator","use_cases":["*"]}}
     depends_on:

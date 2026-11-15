@@ -13,6 +13,8 @@ from app.db.vault_monitoring_repository import InvalidAlertTransition, VaultMoni
 from app.services.vault_event_publisher import publish_alert_event
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["vault alerts"])
+SAFE_SOURCE_METADATA_FIELDS = ("branch_id", "branch_code", "branch_name", "place_name",
+    "region_name", "branch_manager", "camera_name")
 
 class ActionBody(BaseModel):
     note: str | None = Field(default=None, min_length=1, max_length=500)
@@ -26,6 +28,9 @@ def _actions(row):
 def _item(db, row):
     evidence = db.scalars(select(VaultEvidence).where(VaultEvidence.alert_id == row.id, VaultEvidence.available.is_(True))).all()
     incident = db.get(VaultIncident, row.incident_id) if row.incident_id else None
+    metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
+    source_metadata = {key: metadata.get(key) if isinstance(metadata.get(key), str) else None
+        for key in SAFE_SOURCE_METADATA_FIELDS}
     return {"id": row.id, "alert_type": row.type, "severity": row.severity, "status": row.status,
         "title": row.title or row.type.replace("_", " ").title(), "message": row.message,
         "source": row.source, "session_ref": row.session_ref, "camera_id": row.camera_id,
@@ -35,7 +40,8 @@ def _item(db, row):
         "occurrence_count": row.occurrence_count, "created_at": row.created_at,
         "updated_at": row.updated_at, "evidence_count": len(evidence),
         "evidence_status": row.evidence_status, "primary_evidence_id": evidence[0].id if evidence else None,
-        "row_version": row.row_version, "allowed_actions": _actions(row)}
+        "evidence_refs": [{"provider":"vault_monitoring", "id":item.id, "type":"snapshot"} for item in evidence],
+        "row_version": row.row_version, "allowed_actions": _actions(row), **source_metadata}
 
 def _cursor_encode(row, ceiling):
     payload = json.dumps([row.created_at.isoformat(), row.id, ceiling[0].isoformat(), ceiling[1]], separators=(",", ":")).encode()
@@ -102,11 +108,24 @@ def alert_summary(scope: Literal["active", "history", "all"] = "active", status_
 
 @router.get("/meta")
 def alert_meta(db: Session = Depends(get_db), operator: Operator = Depends(get_operator)):
-    return {"alert_types": ["COUNT_MISMATCH", "EXCESS_PERSON", "NO_ENTRY", "UNAUTHORIZED_ENTRY", "SESSION_EXPIRED", "CAMERA_FEED_STALE", "CAMERA_FEED_LOST"],
+    return {"alert_types": ["COUNT_MISMATCH", "EXCESS_PERSON", "NO_ENTRY", "UNAUTHORIZED_ENTRY", "SESSION_EXPIRED", "CAMERA_FEED_STALE", "CAMERA_FEED_LOST", "MOBILE_PHONE_DETECTED"],
         "severities": ["INFO", "WARNING", "HIGH", "CRITICAL"], "statuses": ["OPEN", "ACKNOWLEDGED", "RESOLVED", "DISMISSED"],
         "cameras": db.scalars(select(VaultRoomAlert.camera_id).where(VaultRoomAlert.camera_id.is_not(None)).distinct()).all(),
         "evidence_limits": {"max_bytes": 10485760, "allowed_mime_types": ["image/jpeg", "image/png", "image/webp"]},
         "incident_transitions": {"OPEN":["INVESTIGATING","RESOLVED"],"INVESTIGATING":["RESOLVED"],"RESOLVED":["CLOSED"],"CLOSED":[]}}
+
+@router.post('/publications/reconcile')
+def reconcile_alert_publications(dry_run: bool = True, limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0), db: Session = Depends(get_db), operator: Operator = Depends(get_operator)):
+    from app.services.alert_reconciliation import reconcile_alerts
+    from app.services.vault_room_manager import get_vault_room_manager
+    try:
+        return reconcile_alerts(db, get_vault_room_manager()._alert_service_adapter,
+            use_case='vault_monitoring', dry_run=dry_run, limit=limit, offset=offset)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(503, 'Common Alerts reconciliation is unavailable; check producer configuration') from exc
+
 
 @router.get("/{alert_id}")
 def get_alert(alert_id: str, db: Session = Depends(get_db), operator: Operator = Depends(get_operator)):

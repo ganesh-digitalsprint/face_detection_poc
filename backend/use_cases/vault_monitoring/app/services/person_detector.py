@@ -40,6 +40,8 @@ class Detection:
     x2: float
     y2: float
     confidence: float
+    class_id: int | None = None
+    label: str | None = None
 
 
 class Detector(Protocol):
@@ -77,12 +79,49 @@ class RfDetrPersonDetector:
         self._use_source_image_flag = True
         self._frames_logged = 0
         self.last_stats: dict = {}
+        self.last_phone_detections: tuple[Detection, ...] = ()
+        self._cell_phone_class_id: int | None = None
+        self._mobile_phone_supported = False
+        self._mobile_phone_reason = "model_not_loaded"
 
     # ------------------------------------------------------------------ status
     @property
     def status(self) -> dict:
         return {"status": self._status, "reason": self._reason,
-                "model": self._config.detector.model}
+                "model": self._config.detector.model,
+                "mobile_phone_supported": self._mobile_phone_supported,
+                "mobile_phone_reason": self._mobile_phone_reason}
+
+    def _configure_mobile_phone_capability(self, model) -> None:
+        """Resolve optional phone capability without making person detection unavailable."""
+        self._cell_phone_class_id = None
+        self._mobile_phone_supported = False
+        try:
+            class_names = [str(name).lower() for name in model.class_names]
+            if "cell phone" not in class_names:
+                self._mobile_phone_reason = "class_not_available"
+                log.warning("Configured Vault-room RF-DETR checkpoint has no 'cell phone' class")
+                return
+            index = class_names.index("cell phone")
+            from rfdetr.assets.coco_classes import COCO_CLASSES, COCO_CLASS_NAMES
+            coco_names = [str(name).lower() for name in COCO_CLASS_NAMES]
+            if class_names == coco_names:
+                if isinstance(COCO_CLASSES, dict):
+                    self._cell_phone_class_id = next(int(category_id) for category_id, name in
+                        COCO_CLASSES.items() if str(name).lower() == "cell phone")
+                else:
+                    self._cell_phone_class_id = int(COCO_CLASSES[index])
+            else:
+                self._cell_phone_class_id = index
+            self._mobile_phone_supported = True
+            self._mobile_phone_reason = None
+        except Exception as exc:
+            # RF-DETR predictions still carry class_name. Preserve the working
+            # person detector and report that raw-ID fallback is unavailable.
+            self._mobile_phone_supported = "cell phone" in locals().get("class_names", ())
+            self._mobile_phone_reason = f"class_mapping_error:{type(exc).__name__}"
+            log.warning("RF-DETR phone class-ID mapping unavailable; class-name detection remains %s",
+                "enabled" if self._mobile_phone_supported else "disabled", exc_info=True)
 
     # ----------------------------------------------------------------- loading
     def _inference_shape(self) -> tuple[int, int] | None:
@@ -129,6 +168,7 @@ class RfDetrPersonDetector:
                         raise FileNotFoundError("Configured RF-DETR weights_path is not a local file")
                     kwargs["pretrain_weights"] = str(weights)
                 self._model = model_type(**kwargs)
+                self._configure_mobile_phone_capability(self._model)
                 self._failed_at = None
                 log.info("Vault-room RF-DETR %s loaded (input %s); requested device %s, actual model device: %s",
                          self._config.detector.model, self._inference_shape() or "model default",
@@ -167,7 +207,10 @@ class RfDetrPersonDetector:
 
     # --------------------------------------------------------------- inference
     def _predict_kwargs(self) -> dict:
-        kwargs: dict = {"threshold": self._config.detector.confidence}
+        mobile = getattr(self._config, "mobile_phone", None)
+        threshold = min(self._config.detector.confidence, mobile.confidence_threshold) \
+            if mobile is not None and mobile.enabled else self._config.detector.confidence
+        kwargs: dict = {"threshold": threshold}
         if self._use_source_image_flag:
             kwargs["include_source_image"] = False  # skip a per-frame copy of the image
         shape = self._inference_shape()
@@ -186,12 +229,14 @@ class RfDetrPersonDetector:
 
     def detect(self, frame_bgr: np.ndarray) -> list[Detection]:
         model = self._load()
+        self.last_phone_detections = ()
         try:
             rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
             result = self._predict(model, rgb)
             if isinstance(result, (list, tuple)):
                 result = result[0]
-            persons, stats = self._select_people(result, frame_bgr.shape[1], frame_bgr.shape[0])
+            persons, phones, stats = self._select_objects(result, frame_bgr.shape[1], frame_bgr.shape[0])
+            self.last_phone_detections = tuple(phones)
             self.last_stats = stats
             self._log_first_frames(stats)
             self._status, self._reason = "ready", None
@@ -201,7 +246,7 @@ class RfDetrPersonDetector:
             self._failed_at = time.monotonic()
             raise
 
-    def _select_people(self, result, width: int, height: int):
+    def _select_objects(self, result, width: int, height: int):
         xyxy = getattr(result, "xyxy", None)
         count = 0 if xyxy is None else len(xyxy)
         class_ids = getattr(result, "class_id", None)
@@ -209,6 +254,7 @@ class RfDetrPersonDetector:
         names = (getattr(result, "data", None) or {}).get("class_name")
         labels: Counter = Counter()
         persons: list[Detection] = []
+        phones: list[Detection] = []
         too_small = 0
         min_area = self._config.detector.min_box_area_ratio
         for i in range(count):
@@ -216,23 +262,38 @@ class RfDetrPersonDetector:
             cid = int(class_ids[i]) if class_ids is not None else None
             labels[name if name is not None else f"id:{cid}"] += 1
             is_person = (name == "person") if name is not None else (cid == COCO_PERSON_ID)
-            if not is_person:
+            is_phone = (name == "cell phone") if name is not None else (
+                self._cell_phone_class_id is not None and cid == self._cell_phone_class_id)
+            if not is_person and not is_phone:
                 continue
             x1, y1, x2, y2 = (float(v) for v in xyxy[i])
             x1, x2 = max(0.0, min(x1, width)), max(0.0, min(x2, width))
             y1, y2 = max(0.0, min(y1, height)), max(0.0, min(y2, height))
+            score = float(scores[i]) if scores is not None else 1.0
+            if is_phone:
+                mobile = getattr(self._config, "mobile_phone", None)
+                if mobile is not None and mobile.enabled and score >= mobile.confidence_threshold:
+                    phones.append(Detection(x1, y1, x2, y2, score, cid, "cell phone"))
+            if not is_person or score < self._config.detector.confidence:
+                continue
             if (x2 - x1) * (y2 - y1) / float(width * height) < min_area:
                 too_small += 1
                 continue
-            score = float(scores[i]) if scores is not None else 1.0
-            persons.append(Detection(x1, y1, x2, y2, score))
-        stats = {"raw": count, "persons": len(persons), "too_small": too_small, "labels": dict(labels)}
+            persons.append(Detection(x1, y1, x2, y2, score, cid, "person"))
+        stats = {"raw": count, "persons": len(persons), "phones": len(phones),
+            "too_small": too_small, "labels": dict(labels)}
+        return persons, phones, stats
+
+    def _select_people(self, result, width: int, height: int):
+        """Compatibility wrapper for diagnostics that only consume person detections."""
+        persons, _phones, stats = self._select_objects(result, width, height)
         return persons, stats
 
     def _log_first_frames(self, stats: dict) -> None:
         if self._frames_logged < 5:
             self._frames_logged += 1
-            log.info("Vault-room RF-DETR frame %d: raw=%d persons=%d too_small=%d labels=%s",
-                     self._frames_logged, stats["raw"], stats["persons"], stats["too_small"], stats["labels"])
+            log.info("Vault-room RF-DETR frame %d: raw=%d persons=%d phones=%d too_small=%d labels=%s",
+                     self._frames_logged, stats["raw"], stats["persons"], stats["phones"],
+                     stats["too_small"], stats["labels"])
         elif stats["raw"] and not stats["persons"]:
             log.debug("Vault-room RF-DETR saw objects but no person: %s", stats["labels"])

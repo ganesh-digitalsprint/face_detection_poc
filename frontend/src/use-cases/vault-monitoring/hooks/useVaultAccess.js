@@ -146,7 +146,7 @@ function reducer(state, action) {
 /**
  * Starts one dual-control session and feeds frames until the backend grants access or expires it.
  */
-export default function useVaultAccess(camera, paused = false, room = {}) {
+export default function useVaultAccess(camera, paused = false, room = {}, branchId = null) {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const runId = useRef(0);
   const cameraRef = useRef(camera);
@@ -286,7 +286,10 @@ export default function useVaultAccess(camera, paused = false, room = {}) {
     try {
       if (!state.config) throw new Error('Vault configuration is unavailable. Retry loading configuration.');
       const requested = state.config.allow_mode_select ? state.selectedRequiredPersons : null;
-      const session = await startLivenessSession(requested);
+      const session = await startLivenessSession(requested, {
+        branchId,
+        cameraLabel: cameraRef.current.name || 'Entrance Camera',
+      });
       if (runId.current !== id) return;
       if (!session.session_ref) {
         throw new Error('The server did not return a vault session reference. Restart the backend after applying its database migrations.');
@@ -301,7 +304,7 @@ export default function useVaultAccess(camera, paused = false, room = {}) {
       }
       if (runId.current === id) dispatch({ type: 'error', error: describeError(err) });
     }
-  }, [blockForRoomSession, cancelLoop, loop, state.config, state.roomConflict, state.selectedRequiredPersons]);
+  }, [blockForRoomSession, branchId, cancelLoop, loop, state.config, state.roomConflict, state.selectedRequiredPersons]);
 
   const cancel = useCallback(() => {
     cancelLoop();

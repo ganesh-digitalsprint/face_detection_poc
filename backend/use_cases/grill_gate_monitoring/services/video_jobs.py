@@ -112,12 +112,14 @@ class GrillGateVideoJobs:
             return sum(thread.is_alive() for thread in self._threads.values())
 
     def save(self, path: Path, *, original_filename: str, config: dict,
-             template_assignment_id: str | None, metadata: dict | None = None) -> str:
+             template_assignment_id: str | None, metadata: dict | None = None,
+             source_metadata: dict | None = None) -> str:
         """Persist an uploaded video as an UPLOADED job; processing waits for an explicit start()."""
         job_id = str(uuid4())
         job = GrillGateVideoJob(id=job_id, original_filename=original_filename[:255],
             storage_path=str(path), status="UPLOADED",
-            template_assignment_id=template_assignment_id, config_snapshot={**config, "video": metadata or {}})
+            template_assignment_id=template_assignment_id,
+            config_snapshot={**config, "video": metadata or {}, "source_metadata": source_metadata or {}})
         with SessionLocal() as db:
             db.add(job)
             db.commit()
@@ -354,6 +356,8 @@ class GrillGateVideoJobs:
             with self._lock:
                 self._sources[job_id] = source
             processor = self.processor_factory(job_id, template_id)
+            if callable(configure_source := getattr(processor, "update_alert_source_context", None)):
+                configure_source(**(raw_config.get("source_metadata") or {}))
             detector = GrillGateStateDetector(job_id, job_id, source, lambda: cfg,
                 max_fps=1_000_000, config_reload_seconds=3600,
                 frame_processor=processor,

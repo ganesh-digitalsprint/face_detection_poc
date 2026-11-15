@@ -8,6 +8,21 @@ import pytest
 POLY = [{"x": 0.1, "y": 0.4}, {"x": 0.9, "y": 0.4}, {"x": 0.9, "y": 0.9}, {"x": 0.1, "y": 0.9}]
 
 
+def test_historical_endpoint_is_bounded_read_only_by_default_and_excludes_entry_logs(client,add_event,add_entry,monkeypatch):
+    identifier=add_event(status='CLOSED')
+    add_entry('VISIBLE')
+    calls=[]
+    async def reconcile(events,*,dry_run=True):
+        calls.append(([event.id for event in events],dry_run))
+        return {'scanned':len(events),'missing':len(events),'queued':0,'dry_run':dry_run}
+    monkeypatch.setattr(client.app.state.runtime.alerts,'reconcile',reconcile)
+    response=client.post('/api/events/publications/reconcile')
+    assert response.status_code==200 and response.json()['dry_run'] is True
+    assert response.json()['scanned']==1 and calls==[([identifier],True)]
+    assert client.post('/api/events/publications/reconcile?limit=101').status_code==422
+    assert client.get('/api/events/'+identifier).json()['status']=='CLOSED'
+
+
 def _camera(client, **over):
     body = {"name": "Gate", "cam_type": "rtsp", "source": "rtsp://10.0.0.5:554/stream1", "location": "Main"}
     return client.post("/api/cameras", json={**body, **over})

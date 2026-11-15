@@ -163,6 +163,12 @@ class GrillGateFrameProcessor:
                         self._alerts.camera_id, self._alerts.assignment_id,
                         parsed.gate_open_enabled, parsed.max_gate_open_seconds)
 
+    def update_alert_source_context(self, **context) -> None:
+        """Attach immutable source metadata without changing detection or alert rules."""
+        with self._lock:
+            if self._alerts is not None:
+                self._alerts.update_source_context(**context)
+
     def evaluate_open_gate_alert(self, frontend_elapsed_seconds: float | None = None,
                                  frontend_threshold_seconds: float | None = None, timer_cycle_id: str | None = None, video_timestamp_seconds: float | None = None) -> dict | None:
         """Evaluate the existing rule with the frontend timer value when supplied."""

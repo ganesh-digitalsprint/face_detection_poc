@@ -8,9 +8,10 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import Annotated
+from uuid import uuid4
 import cv2
 import numpy as np
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
@@ -21,10 +22,12 @@ from app.db.database import session_scope
 from app.db.models.vault_room import VaultRoomAlert, VaultRoomEvent, VaultRoomSession
 from app.core.ml_config import get_vault_room_config
 from app.api.dependencies import read_upload_bytes
-from app.schemas.vault_room_camera import VaultRoomCameraSessionResponse, VaultRoomCameraStartRequest
+from app.schemas.vault_room_camera import (VaultBrowserSourceResponse, VaultBrowserSourceStartRequest,
+    VaultRoomCameraSessionResponse, VaultRoomCameraStartRequest)
 from app.services.vault_room_camera import get_vault_room_camera_manager, validate_rtsp_url
 from app.services.vault_room_manager import (VaultRoomBusyError, VaultRoomDetectorUnavailableError,
     VaultRoomSessionConflictError, get_vault_room_manager)
+from app.services.vault_source_context import build_source_context
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/vault-room", tags=["vault room"])
@@ -76,7 +79,8 @@ def rate_limited(request: Request):
 @router.post("/frames", dependencies=[Depends(require_vault_room_key), Depends(rate_limited)],
              responses={400:{"model":ErrorResponse},401:{"model":ErrorResponse},409:{"model":ErrorResponse},
                         413:{"model":ErrorResponse},429:{"model":ErrorResponse},503:{"model":ErrorResponse}})
-def process_frame(frame: UploadFile = File(...), pose_preview: bool = Query(default=False)):
+def process_frame(frame: UploadFile = File(...), pose_preview: bool = Query(default=False),
+                  source_session_id: str | None = Form(default=None, max_length=64)):
     cfg = get_vault_room_config().counting
     if frame.content_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail="Unsupported image type; use JPEG, PNG, or WebP")
@@ -86,11 +90,15 @@ def process_frame(frame: UploadFile = File(...), pose_preview: bool = Query(defa
         raise HTTPException(status_code=400, detail="Invalid image")
     if get_vault_room_camera_manager().is_active():
         raise HTTPException(status_code=409, detail="A Vault Room camera session is already processing frames.")
+    manager = get_vault_room_manager()
+    if source_session_id and manager.camera_source_context(source_session_id) is None:
+        raise HTTPException(status_code=409, detail="Browser camera source session is not active")
     try:
+        kwargs = {"source_id": source_session_id} if source_session_id else {}
         if pose_preview:
-            result = get_vault_room_manager().process_frame(image, include_pose=True)
+            result = manager.process_frame(image, include_pose=True, **kwargs)
         else:
-            result = get_vault_room_manager().process_frame(image)
+            result = manager.process_frame(image, **kwargs)
         if not result.get("accepts_frames", True) and not pose_preview:
             raise HTTPException(status_code=409, detail="Vault-room session does not accept frames")
         return result
@@ -113,30 +121,58 @@ def stop_pose_preview():
 def start_camera_session(payload: VaultRoomCameraStartRequest):
     """Create a webcam or RTSP source feeding the Vault Room person tracker."""
     try:
+        source_context = build_source_context(branch_id=payload.branch_id,
+            camera_name=payload.name, source_type=payload.source_type)
         camera_manager = get_vault_room_camera_manager()
         if payload.source_type == "webcam":
             if payload.rtsp_url is not None:
                 raise HTTPException(status_code=422, detail="Webcam requests must not include an RTSP URL.")
             if payload.pose_preview:
                 session = camera_manager.start_webcam(
-                    payload.name, payload.camera_index, pose_preview=True
+                    payload.name, payload.camera_index, pose_preview=True,
+                    source_context=source_context,
                 )
             else:
-                session = camera_manager.start_webcam(payload.name, payload.camera_index)
+                session = camera_manager.start_webcam(payload.name, payload.camera_index,
+                    source_context=source_context)
         else:
             if payload.rtsp_url is None:
                 raise HTTPException(status_code=422, detail="An RTSP URL is required for an RTSP camera.")
             url = validate_rtsp_url(payload.rtsp_url.get_secret_value())
             if payload.pose_preview:
-                session = camera_manager.start_rtsp(payload.name, url, pose_preview=True)
+                session = camera_manager.start_rtsp(payload.name, url, pose_preview=True,
+                    source_context=source_context)
             else:
-                session = camera_manager.start_rtsp(payload.name, url)
+                session = camera_manager.start_rtsp(payload.name, url,
+                    source_context=source_context)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {**camera_manager.status(session),
             "stream_url": f"/api/v1/vault-room/camera-sessions/{session.session_id}/stream"}
+
+
+@router.post("/source-sessions", dependencies=[Depends(require_vault_room_key)],
+             response_model=VaultBrowserSourceResponse, status_code=status.HTTP_201_CREATED)
+def start_browser_source(payload: VaultBrowserSourceStartRequest):
+    """Bind metadata once for a browser-owned webcam without opening server hardware."""
+    source_id = uuid4().hex
+    try:
+        context = build_source_context(branch_id=payload.branch_id, camera_name=payload.name,
+            source_type="browser_webcam", source_id=source_id)
+        context = get_vault_room_manager().bind_camera_source(source_id,
+            source_type="browser_webcam", camera_name=payload.name, source_context=context)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"session_id": source_id, "name": payload.name,
+        "source_type": "browser_webcam", "source_context": context}
+
+
+@router.delete("/source-sessions/{session_id}", dependencies=[Depends(require_vault_room_key)])
+def stop_browser_source(session_id: str):
+    get_vault_room_manager().release_camera_source(session_id)
+    return {"session_id": session_id, "status": "stopped"}
 
 
 @router.get("/camera-sessions/{session_id}", dependencies=[Depends(require_vault_room_key)], response_model=VaultRoomCameraSessionResponse)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -143,6 +144,54 @@ def test_upload_without_config_saves_job_and_does_not_start(harness):
     assert job["status"] == "UPLOADED" and job["started_at"] is None
     assert (job["width"], job["height"], job["total_frames"], job["duration_seconds"]) == (WIDTH, HEIGHT, 30, 3.0)
     assert job["readiness"]["video_saved"] is True and job["readiness"]["ready"] is False
+    assert job["branch_id"] is None and job["camera_name"] == "Uploaded video"
+
+
+def test_upload_snapshots_selected_existing_branch_without_creating_camera(harness, monkeypatch):
+    platform = harness.dir / "platform.db"
+    monkeypatch.setenv("FEDBANK_PLATFORM_DB_PATH", str(platform))
+    with sqlite3.connect(platform) as db:
+        db.executescript("""
+            CREATE TABLE zones(id TEXT PRIMARY KEY,name TEXT);
+            CREATE TABLE cities(id TEXT PRIMARY KEY,zone_id TEXT,name TEXT);
+            CREATE TABLE branches(id TEXT PRIMARY KEY,city_id TEXT,code TEXT,name TEXT,manager TEXT);
+        """)
+        db.execute("INSERT INTO zones VALUES (?,?)", ("zone-1", "South"))
+        db.execute("INSERT INTO cities VALUES (?,?,?)", ("city-1", "zone-1", "Bengaluru"))
+        db.execute("INSERT INTO branches VALUES (?,?,?,?,?)",
+                   ("branch-1", "city-1", "C99127-01", "Koramangala", "Existing Manager"))
+        db.execute("INSERT INTO zones VALUES (?,?)", ("zone-2", "South West"))
+        db.execute("INSERT INTO cities VALUES (?,?,?)", ("city-2", "zone-2", "Goa"))
+        db.execute("INSERT INTO branches VALUES (?,?,?,?,?)",
+                   ("branch-2", "city-2", "C99127-02", "Old Goa", "Second Manager"))
+    response = upload(harness, branch_id="branch-1", camera_label="Upload desk camera")
+    assert response.status_code == 201
+    job = harness.client.get(f"{BASE}/{response.json()['job_id']}", headers=HEADERS).json()
+    assert {key: job[key] for key in ("branch_id", "branch_code", "branch_name", "place_name", "region_name",
+            "branch_manager", "camera_name")} == {
+        "branch_id": "branch-1", "branch_code": "C99127-01", "branch_name": "Koramangala", "place_name": "Bengaluru",
+        "region_name": "South", "branch_manager": "Existing Manager",
+        "camera_name": "Upload desk camera"}
+    with video_jobs_module.SessionLocal() as db:
+        row = db.get(GrillGateVideoJob, response.json()["job_id"])
+        assert row.config_snapshot["source_metadata"]["video_filename"] == "gate.mp4"
+        assert db.query(RegistryCamera).count() == 0
+        assert db.query(CameraUseCaseAssignment).count() == 0
+    second = upload(harness, branch_id="branch-2")
+    assert second.status_code == 201
+    first_again = harness.client.get(f"{BASE}/{response.json()['job_id']}", headers=HEADERS).json()
+    second_job = harness.client.get(f"{BASE}/{second.json()['job_id']}", headers=HEADERS).json()
+    assert first_again["branch_id"] == "branch-1" and first_again["branch_name"] == "Koramangala"
+    assert second_job["branch_id"] == "branch-2" and second_job["branch_name"] == "Old Goa"
+
+
+def test_upload_rejects_unknown_selected_branch_but_branch_remains_optional(harness, monkeypatch):
+    monkeypatch.setenv("FEDBANK_PLATFORM_DB_PATH", str(harness.dir / "missing-platform.db"))
+    assert upload(harness, branch_id="unknown").status_code == 422
+    response = upload(harness)
+    assert response.status_code == 201
+    job = harness.client.get(f"{BASE}/{response.json()['job_id']}", headers=HEADERS).json()
+    assert job["branch_id"] is None and job["branch_name"] is None
 
 
 def test_upload_saves_assignment_alert_rules_into_the_job_snapshot_and_job_status(harness):
@@ -216,6 +265,7 @@ def test_reprocess_creates_a_separate_run_over_the_same_video_and_is_idempotent(
         assert run.asset_job_id == source_id
         assert run.storage_path == original.storage_path
         assert run.config_snapshot["zones"] == original.config_snapshot["zones"]
+        assert run.config_snapshot["source_metadata"] == original.config_snapshot["source_metadata"]
         assert run.frame_count == 0 and run.progress_seconds == 0
     again = harness.client.post(f"{BASE}/{source_id}/reprocess", headers=HEADERS, json={})
     assert again.status_code == 202 and again.json()["job_id"] == run_id
@@ -313,7 +363,8 @@ def test_named_zone_configuration_create_list_get_update_duplicate_delete(harnes
     config_id = created["id"]
     assert created["crossing_strategy"] == "three_zone"
     assert created["reference_frame"] == {"width": WIDTH, "height": HEIGHT}
-    assert created["zones"][2]["polygon"] == crossing_zones()[1]["polygon"]
+    assert [zone["zone_key"] for zone in created["zones"]] == ["gate", "approach", "interior"]
+    assert created["zones"][2]["polygon"] == crossing_zones()[2]["polygon"]
     assert [item["id"] for item in harness.client.get("/api/v1/grill-gate/zone-configurations", headers=HEADERS).json()["items"]] == [config_id]
     assert harness.client.get(f"/api/v1/grill-gate/zone-configurations/{config_id}", headers=HEADERS).json()["id"] == config_id
 
@@ -510,7 +561,7 @@ def test_config_locks_at_start_so_the_running_snapshot_cannot_change(harness):
     response = harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=config(zones=[]))
     assert response.status_code == 409 and response.json()["detail"]["code"] == "CONFIG_LOCKED"
     assert [zone["zone_key"] for zone in harness.client.get(f"{BASE}/{job_id}/config", headers=HEADERS).json()["zones"]] == [
-        "gate", "approach", "corridor", "interior"]
+        "gate", "approach", "interior"]
     assert captured["snapshot"]["zone"]["zone_key"] == "gate"
 
 
@@ -951,7 +1002,10 @@ def test_live_and_video_processors_share_no_state_and_tag_events_by_source():
     live_events, video_events = [], []
     live = make_processor(live_events.append)
     video = make_processor(video_events.append, camera="job", assignment="job")
-    assert live._crossing is not video._crossing and live._mesh is not video._mesh and live._status is not video._status
+    assert (live._three_zone_crossing is not video._three_zone_crossing
+            and live._mesh is not video._mesh
+            and live._alerts is not video._alerts
+            and live._status is not video._status)
     live._current_packet = SimpleNamespace(source_type="LIVE_CAMERA")
     video._current_packet = SimpleNamespace(source_type="UPLOADED_VIDEO", video_job_id="job-1", video_time_seconds=1.5, template_assignment_id=None)
     base = {"event_type": "CROSSING_COMPLETED", "camera_id": "c", "assignment_id": "a"}

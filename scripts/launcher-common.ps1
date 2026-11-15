@@ -61,6 +61,16 @@ function Get-LauncherUrlParts {
     }
 }
 
+function Get-LauncherAlertDatabaseUrl {
+    param([Parameter(Mandatory = $true)][string]$VaultDatabaseUrl,
+          [ValidatePattern('^[a-zA-Z][a-zA-Z0-9_]{0,62}$')][string]$DatabaseName = 'alert_service')
+    if ($VaultDatabaseUrl -notmatch '^(postgres(?:ql)?(?:\+psycopg2|\+psycopg)?://.+/)([^/?#]+)([?#].*)?$') {
+        throw 'Vault DATABASE_URL cannot be reused for the Common Alerts PostgreSQL database.'
+    }
+    $prefix = $matches[1] -replace '^postgres:', 'postgresql:' -replace '^postgresql\+psycopg2:', 'postgresql+psycopg:'
+    return $prefix + $DatabaseName + $matches[3]
+}
+
 function Test-LauncherTcpEndpoint {
     param(
         [Parameter(Mandatory = $true)][string]$HostName,
@@ -278,7 +288,8 @@ function Wait-LauncherEndpoint {
 
 # Local launcher only; production service authentication remains unchanged.
 function Get-LauncherGrillGateEnvironment {
-    param([hashtable]$VaultValues, [hashtable]$BranchValues, [hashtable]$AlertValues)
+    param([hashtable]$VaultValues, [hashtable]$BranchValues, [hashtable]$AlertValues,
+          [hashtable]$FaceMaskValues = @{})
     $url = Get-LauncherEnvValue $VaultValues 'ALERT_SERVICE_BASE_URL'
     if ([string]::IsNullOrWhiteSpace($url)) { $url = 'http://127.0.0.1:8012' }
     $parts = Get-LauncherUrlParts -Value $url -AllowedSchemes @('http')
@@ -287,22 +298,7 @@ function Get-LauncherGrillGateEnvironment {
     }
     $token = Get-LauncherEnvValue $VaultValues 'GRILL_GATE_ALERT_SERVICE_TOKEN'
     if ([string]::IsNullOrWhiteSpace($token)) {
-        $seed = Get-LauncherEnvValue $VaultValues 'ALERT_SERVICE_TOKEN'
-        if ([string]::IsNullOrWhiteSpace($seed)) { $seed = Get-LauncherEnvValue $BranchValues 'ALERT_SERVICE_TOKEN' }
-        if ([string]::IsNullOrWhiteSpace($seed)) {
-            $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-            try {
-                $randomBytes = New-Object byte[] 32
-                $rng.GetBytes($randomBytes)
-                $seed = [Convert]::ToBase64String($randomBytes)
-            } finally { $rng.Dispose() }
-        }
-        $hmac = New-Object System.Security.Cryptography.HMACSHA256
-        try {
-            $hmac.Key = [Text.Encoding]::UTF8.GetBytes($seed)
-            $digest = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes('fedbank:local-poc:grill_gate:v1'))
-            $token = 'poc-grill-' + [Convert]::ToBase64String($digest).TrimEnd('=').Replace('+','-').Replace('/','_')
-        } finally { $hmac.Dispose() }
+        throw 'GRILL_GATE_ALERT_SERVICE_TOKEN must reuse an existing configured PoC key.'
     }
     $registrations = @{}
     $raw = Get-LauncherEnvValue $AlertValues 'ALERT_PRODUCER_CREDENTIALS'
@@ -320,6 +316,22 @@ function Get-LauncherGrillGateEnvironment {
         if ($token -eq (Get-LauncherEnvValue $values 'ALERT_SERVICE_TOKEN')) { throw 'Grill Gate cannot reuse another producer token directly.' }
     }
     $registrations[$token] = @{use_case='grill_gate'; producer='grill-gate-monitoring'}
+    foreach ($producer in @(
+        @{Values=$VaultValues; UseCase='vault_monitoring'; Name='vault-monitoring'},
+        @{Values=$BranchValues; UseCase='branch_exterior'; Name='branch-exterior-monitoring'},
+        @{Values=$FaceMaskValues; UseCase='face_mask'; Name='face-mask-monitoring'}
+    )) {
+        $producerToken = Get-LauncherEnvValue $producer.Values 'ALERT_SERVICE_TOKEN'
+        if ([string]::IsNullOrWhiteSpace($producerToken)) { continue }
+        if ($registrations.ContainsKey($producerToken)) {
+            $identity = $registrations[$producerToken]
+            if ($identity.use_case -ne $producer.UseCase -or $identity.producer -ne $producer.Name) {
+                throw "Local $($producer.UseCase) credential conflicts with an existing producer identity."
+            }
+        } else {
+            $registrations[$producerToken] = @{use_case=$producer.UseCase; producer=$producer.Name}
+        }
+    }
     $alertEnvironment = @{}
     foreach ($key in $AlertValues.Keys) { $alertEnvironment[$key] = $AlertValues[$key] }
     $alertEnvironment['ALERT_PRODUCER_CREDENTIALS'] = ConvertTo-Json -InputObject $registrations -Depth 8 -Compress

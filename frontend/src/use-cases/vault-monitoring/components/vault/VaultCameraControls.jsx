@@ -67,7 +67,7 @@ export default function VaultCameraControls({ camera, sessionActive, sessionStar
       return;
     }
     setFormError('');
-    camera.start(CAMERA_KINDS.CCTV, { rtspUrl: url });
+    camera.start(CAMERA_KINDS.CCTV, { rtspUrl: url, cameraLabel: name.trim() || 'Entrance CCTV' });
   };
 
   return <div className="space-y-4">

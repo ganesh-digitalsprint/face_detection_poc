@@ -268,6 +268,8 @@ class CloudinaryEvidenceService:
                 uploaded_by=uploaded_by, camera_id=camera_id, session_id=session_id,
                 comment=comment, checksum=image.checksum, metadata_json=metadata or {},
                 thumbnail_public_id=thumbnail_public_id, session_ref=session_ref)
+            if evidence_type == 'MANUAL_UPLOAD':
+                self._stage_alert_evidence(evidence.alert_id)
             self.session.commit()
             return (evidence, True) if return_created else evidence
         except Exception as exc:
@@ -350,6 +352,7 @@ class CloudinaryEvidenceService:
             logger.warning("Cloudinary evidence removal failed evidence_id=%s", evidence.id)
             raise EvidenceStorageUnavailable("Could not remove evidence asset") from exc
         evidence.available = False
+        self._stage_alert_evidence(evidence.alert_id)
         self.session.add(VaultAuditEvent(id=str(uuid4()), action="EVIDENCE_REMOVED",
             entity_type="evidence", entity_id=evidence.id,
                 details={"actor": actor, "reason": reason.strip()}))
@@ -360,6 +363,19 @@ class CloudinaryEvidenceService:
             logger.error("Cloudinary asset removed but metadata update failed; retry deletion evidence_id=%s", evidence_id)
             raise EvidencePersistenceFailed("Asset was removed; evidence metadata requires retry reconciliation") from exc
         return evidence
+
+    def _stage_alert_evidence(self, alert_id):
+        if not alert_id:
+            return
+        from app.services.vault_alert_lifecycle import stage_lifecycle
+        self.session.flush()
+        alert = self.session.get(VaultRoomAlert, alert_id, with_for_update=True)
+        if alert is not None:
+            remaining = self.session.scalar(select(VaultEvidence.id).where(
+                VaultEvidence.alert_id == alert_id, VaultEvidence.available.is_(True)).limit(1))
+            alert.evidence_status = 'CAPTURED' if remaining else 'NONE'
+            alert.row_version += 1
+            stage_lifecycle(self.session, alert)
 
     def _record_audit(self, action: str, public_id: str, details: dict) -> None:
         try:

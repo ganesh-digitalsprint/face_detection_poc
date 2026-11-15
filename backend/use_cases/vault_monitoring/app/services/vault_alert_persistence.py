@@ -1,5 +1,6 @@
 ﻿"""Bounded persistence worker for stabilized monitoring snapshots."""
 from __future__ import annotations
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import logging, queue, threading, time
@@ -25,6 +26,11 @@ class SnapshotJob:
     source: str = "VAULT_MONITORING"
     event_frame: object | None = None
     detections: tuple = ()
+    source_metadata: dict | None = None
+    managed_alert_types: tuple[str, ...] | None = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "source_metadata", deepcopy(self.source_metadata or {}))
 
 class PersistentAlertWorker:
     def __init__(self, *, max_pending=256, publisher=None, session_factory=session_scope,
@@ -51,9 +57,12 @@ class PersistentAlertWorker:
         self._thread.join(timeout)
 
     def submit(self, snapshot: AlertSnapshot, *, session_ref=None, camera_id=None,
-               event_at=None, source="VAULT_MONITORING", event_frame=None, detections=()) -> bool:
+               event_at=None, source="VAULT_MONITORING", event_frame=None, detections=(),
+               source_metadata=None, managed_alert_types=None) -> bool:
         job = SnapshotJob(snapshot, session_ref, camera_id,
-                          event_at or datetime.now(timezone.utc), source, event_frame, tuple(detections))
+                          event_at or datetime.now(timezone.utc), source, event_frame,
+                          tuple(detections), source_metadata,
+                          tuple(managed_alert_types) if managed_alert_types is not None else None)
         try:
             self._queue.put_nowait(job)
             return True
@@ -93,7 +102,8 @@ class PersistentAlertWorker:
         capture_types = {"UNAUTHORIZED_ENTRY": cfg.capture_unauthorized_entry,
                          "EXCESS_PERSON": cfg.capture_excess_person,
                          "SESSION_EXPIRED": cfg.capture_session_expired,
-                         "COUNT_MISMATCH": cfg.capture_count_mismatch}
+                         "COUNT_MISMATCH": cfg.capture_count_mismatch,
+                         "MOBILE_PHONE_DETECTED": cfg.capture_mobile_phone_detected}
         for event in events:
             if event.get("type") != "alert.created":
                 continue
@@ -117,24 +127,29 @@ class PersistentAlertWorker:
                 from app.db.models import VaultAuditEvent, VaultRoomAlert
                 from app.services.vault_event_publisher import publish_alert_event
                 with session_scope() as db:
-                    row = db.get(VaultRoomAlert, aid)
+                    row = db.get(VaultRoomAlert, aid, with_for_update=True)
                     if row is None: return
                     row.evidence_status = "CAPTURED" if success else "FAILED"
                     row.row_version += 1
+                    from app.services.vault_alert_lifecycle import stage_lifecycle
+                    stage_lifecycle(db, row)
                     db.add(VaultAuditEvent(id=str(uuid4()), action="EVIDENCE_CAPTURED" if success else "EVIDENCE_CAPTURE_FAILED",
                         entity_type="alert", entity_id=aid, details={"evidence_id":result if success else None,
                             "reason":None if success else result, "event_type":_alert_type}))
+                    version, session_ref, incident_id = row.row_version, row.session_ref, row.incident_id
                 publish_alert_event("evidence.available" if success else "evidence.upload_failed",
-                    entity_type="alert", entity_id=aid, entity_version=row.row_version,
-                    session_ref=row.session_ref, incident_id=row.incident_id, alert_id=aid,
+                    entity_type="alert", entity_id=aid, entity_version=version,
+                    session_ref=session_ref, incident_id=incident_id, alert_id=aid,
                     data={"evidence_id":result} if success else {"reason":result})
             from app.db.database import session_scope
             from app.db.models import VaultRoomAlert
             with session_scope() as db:
-                row = db.get(VaultRoomAlert, alert_id)
+                row = db.get(VaultRoomAlert, alert_id, with_for_update=True)
                 if row is not None:
                     row.evidence_status = "PENDING"
                     row.row_version += 1
+                    from app.services.vault_alert_lifecycle import stage_lifecycle
+                    stage_lifecycle(db, row)
                     db.commit()
                     alert_session = row.session_id
                     alert_incident = row.incident_id
@@ -147,17 +162,24 @@ class PersistentAlertWorker:
 
     def _persist(self, job: SnapshotJob):
         transitions = {t.alert_type: t for t in evaluate(job.snapshot)}
+        managed = set(job.managed_alert_types) if job.managed_alert_types is not None else None
+        if managed is not None:
+            transitions = {key: value for key, value in transitions.items() if key in managed}
         cfg = load_ml_config_file().vault_alerts
         events = []
         with self._session_factory() as db:
             keys = set(transitions)
-            keys.update(db.scalars(select(VaultAlertCondition.alert_type).where(
-                VaultAlertCondition.camera_id == job.camera_id,
-                VaultAlertCondition.active.is_(True))))
+            camera_conditions = select(VaultAlertCondition.alert_type).where(
+                VaultAlertCondition.camera_id == job.camera_id, VaultAlertCondition.active.is_(True))
+            if managed is not None:
+                camera_conditions = camera_conditions.where(VaultAlertCondition.alert_type.in_(managed))
+            keys.update(db.scalars(camera_conditions))
             if job.session_ref:
-                keys.update(db.scalars(select(VaultAlertCondition.alert_type).where(
-                    VaultAlertCondition.session_ref == job.session_ref,
-                    VaultAlertCondition.active.is_(True))))
+                session_conditions = select(VaultAlertCondition.alert_type).where(
+                    VaultAlertCondition.session_ref == job.session_ref, VaultAlertCondition.active.is_(True))
+                if managed is not None:
+                    session_conditions = session_conditions.where(VaultAlertCondition.alert_type.in_(managed))
+                keys.update(db.scalars(session_conditions))
             for alert_type in keys:
                 transition = transitions.get(alert_type)
                 discriminator = (transition.reason or "") if transition else ""
@@ -169,7 +191,8 @@ class PersistentAlertWorker:
                     db.add(cond); db.flush()
                 if transition:
                     if cond.clear_since is not None:
-                        if (_as_utc(job.event_at) - _as_utc(cond.clear_since)).total_seconds() >= cfg.episode_gap_seconds:
+                        episode_gap = 0 if alert_type == "MOBILE_PHONE_DETECTED" else cfg.episode_gap_seconds
+                        if (_as_utc(job.event_at) - _as_utc(cond.clear_since)).total_seconds() >= episode_gap:
                             cond.episode += 1
                             cond.operator_closed_episode = False
                         cond.clear_since = None
@@ -181,18 +204,11 @@ class PersistentAlertWorker:
                 else:
                     if cond.active and cond.clear_since is None:
                         cond.clear_since = job.event_at
-                    if cond.active and cond.clear_since and (_as_utc(job.event_at) - _as_utc(cond.clear_since)).total_seconds() >= cfg.clear_seconds:
+                    clear_seconds = 0 if alert_type == "MOBILE_PHONE_DETECTED" else cfg.clear_seconds
+                    if cond.active and cond.clear_since and (_as_utc(job.event_at) - _as_utc(cond.clear_since)).total_seconds() >= clear_seconds:
                         cond.active = False
-                        if alert_type in {"COUNT_MISMATCH", "EXCESS_PERSON", "NO_ENTRY", "CAMERA_FEED_LOST", "CAMERA_FEED_STALE"} and cond.active_alert_id:
-                            alert = db.get(VaultRoomAlert, cond.active_alert_id)
-                            if alert and alert.status in {"OPEN", "ACKNOWLEDGED"}:
-                                alert.status = "RESOLVED"; alert.resolved_at = job.event_at
-                                alert.closed_at = job.event_at; alert.updated_at = job.event_at
-                                alert.resolution_source = "SYSTEM"; alert.row_version += 1
-                                db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_RESOLVED",
-                                    entity_type="alert", entity_id=alert.id,
-                                    details={"source": "SYSTEM", "reason": "condition_clear"}))
-                                events.append(self._event("alert.updated", alert, job, {"status": "RESOLVED"}))
+                        # Keep persisted incidents active until an authorized operator closes them.
+                        # cond.active still resets, preserving detection of later episodes.
             db.commit()
         return events
 
@@ -201,16 +217,13 @@ class PersistentAlertWorker:
         prior = db.scalars(select(VaultRoomAlert).where(VaultRoomAlert.dedup_key == dedup)
             .order_by(VaultRoomAlert.created_at.desc())).first()
         now = job.event_at
-        if prior and prior.status == "RESOLVED" and prior.resolution_source == "SYSTEM" and prior.resolved_at \
-            and (_as_utc(now) - _as_utc(prior.resolved_at)).total_seconds() <= load_ml_config_file().vault_alerts.reopen_cooldown_seconds:
-            prior.status = "OPEN"; prior.resolved_at = None; prior.closed_at = None
-            prior.resolution_source = None; prior.resolution_note = None
-            prior.occurrence_count += 1; prior.row_version += 1; prior.updated_at = now
+        if prior and prior.status in {"OPEN", "ACKNOWLEDGED"}:
             cond.active_alert_id = prior.id
-            db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_REOPENED", entity_type="alert",
-                entity_id=prior.id, details={"dedup_key": dedup}))
-            events.append(self._event("alert.updated", prior, job, {"status": "OPEN", "occurrence_count": prior.occurrence_count}))
+            self._touch(db, cond, job, 0)
             return
+        metadata = deepcopy(job.source_metadata or {})
+        if cond.discriminator:
+            metadata["reason"] = cond.discriminator
         alert = VaultRoomAlert(id=str(uuid4()), session_id=cond.session_ref or "", session_ref=cond.session_ref,
             camera_id=cond.camera_id, dedup_key=dedup, type=cond.alert_type, severity=severity,
             status="OPEN", title=cond.alert_type.replace("_", " ").title(),
@@ -219,7 +232,7 @@ class PersistentAlertWorker:
             observed_count=job.snapshot.observed_count, required_count=job.snapshot.required_persons,
             count_at_open=job.snapshot.observed_count, expected=job.snapshot.required_persons,
             occurrence_count=1, row_version=1, evidence_status="NONE",
-            metadata_json={"reason": cond.discriminator} if cond.discriminator else {})
+            metadata_json=metadata)
         db.add(alert); db.flush(); cond.active_alert_id = alert.id; cond.last_touch_at = now
         db.add(VaultAuditEvent(id=str(uuid4()), action="ALERT_CREATED", entity_type="alert", entity_id=alert.id,
             details={"alert_type": alert.type, "severity": severity, "dedup_key": dedup}))
@@ -265,10 +278,12 @@ class PersistentAlertWorker:
         if cond.last_touch_at and (_as_utc(now) - _as_utc(cond.last_touch_at)).total_seconds() < interval: return
         cond.last_touch_at = now
         if cond.active_alert_id:
-            alert = db.get(VaultRoomAlert, cond.active_alert_id)
-            if alert and alert.status in {"OPEN", "ACKNOWLEDGED"} and alert.observed_count != job.snapshot.observed_count:
+            alert = db.get(VaultRoomAlert, cond.active_alert_id, with_for_update=True)
+            if alert and alert.status in {"OPEN", "ACKNOWLEDGED"}:
                 alert.last_seen_at = now; alert.observed_count = job.snapshot.observed_count
                 alert.updated_at = now; alert.row_version += 1
+                from app.services.vault_alert_lifecycle import stage_lifecycle
+                stage_lifecycle(db, alert)
 
     @staticmethod
     def _event(kind, entity, job, data):

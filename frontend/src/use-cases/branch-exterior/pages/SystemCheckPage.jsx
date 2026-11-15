@@ -70,7 +70,7 @@ export default function SystemCheckPage() {
         </div>
       ))}
       <p className="bx-muted" style={{ marginTop: 18 }}>
-        <Link to="/branch-exterior/live" style={{ color: 'var(--bx-brand)' }}>Live Monitoring</Link> · <Link to="/regions" style={{ color: 'var(--bx-brand)' }}>Regions &amp; Zones</Link> · <Link to="/alerts/branch" style={{ color: 'var(--bx-brand)' }}>Branch events</Link>
+        <Link to="/branch-exterior/live" style={{ color: 'var(--bx-brand)' }}>Live Monitoring</Link> · <Link to="/regions" style={{ color: 'var(--bx-brand)' }}>Regions &amp; Zones</Link> · <Link to="/alerts?use_case=branch_exterior" style={{ color: 'var(--bx-brand)' }}>Branch alerts</Link>
       </p>
     </div>
   );

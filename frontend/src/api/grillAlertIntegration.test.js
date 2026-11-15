@@ -44,7 +44,7 @@ test('source navigation preserves video/assignment, source event and terminal hi
   const live = new URL(alertSourceLink(normalizeGrillGateAlert(record('OPEN',{ resource_refs: { assignment_id: 'live-1' } }))),'http://test');
   assert.equal(live.searchParams.get('assignment'),'live-1');
   assert.equal(live.searchParams.get('view'),'live');
-  assert.equal(alertSourceLink({ useCase: 'branch_exterior' }),'/alerts/branch');
+  assert.equal(alertSourceLink({ useCase: 'branch_exterior' }),'/branch-exterior/live');
 });
 
 test('snapshot routes use exactly one source scope and reject hosts, traversal and unscoped references', () => {

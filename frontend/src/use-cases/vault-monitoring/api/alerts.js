@@ -10,7 +10,7 @@ const operatorHeaders = import.meta.env?.VITE_VAULT_ROOM_API_KEY
 export const getAlerts = (params = {}) => client.get(`${root}/alerts`, { params, headers: operatorHeaders }).then((r) => r.data);
 export const getAlertSummary = (params = {}) => client.get(`${root}/alerts/summary`, { params, headers: operatorHeaders }).then((r) => r.data);
 export const getAlertMeta = () => client.get(`${root}/alerts/meta`, { headers: operatorHeaders }).then((r) => r.data);
-export const getAlert = (id) => client.get(`${root}/alerts/${encodeURIComponent(id)}`, { headers: operatorHeaders }).then((r) => r.data);
+export const getAlert = (id, signal) => client.get(`${root}/alerts/${encodeURIComponent(id)}`, { headers: operatorHeaders, signal, timeout: 15000 }).then((r) => r.data);
 export const getIncident = (id) => client.get(`${root}/incidents/${encodeURIComponent(id)}`, { headers: operatorHeaders }).then((r) => r.data);
 export const updateAlert = (id, action, payload = {}) =>
   client.post(`${root}/alerts/${encodeURIComponent(id)}/${action}`, payload, { headers: operatorHeaders }).then((r) => r.data);

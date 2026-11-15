@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.dependencies import get_db
 from app.core.config import settings
 from app.db.database import Base
-from app.db.models.camera_registry import CameraUseCaseAssignment
+from app.db.models.camera_registry import CameraUseCaseAssignment, RegistryCamera, RegistryLocation
 from grill_gate_monitoring.models.alert import GrillGateAlert
 from grill_gate_monitoring.api import grill_gate
 
@@ -22,9 +22,12 @@ def client(monkeypatch):
     monkeypatch.setattr(settings, "VAULT_ROOM_API_KEY", "test-key")
     engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False},
                            poolclass=StaticPool)
-    Base.metadata.create_all(engine, tables=[CameraUseCaseAssignment.__table__, GrillGateAlert.__table__, VaultAuditEvent.__table__])
-    assignment, camera = str(uuid4()), str(uuid4())
+    Base.metadata.create_all(engine, tables=[RegistryLocation.__table__, RegistryCamera.__table__,
+        CameraUseCaseAssignment.__table__, GrillGateAlert.__table__, VaultAuditEvent.__table__])
+    assignment, camera, location = str(uuid4()), str(uuid4()), str(uuid4())
     with Session(engine) as db:
+        db.add(RegistryLocation(id=location, code="gate-location", name="Gate location"))
+        db.add(RegistryCamera(id=camera, location_id=location, code="gate-camera", name="Gate camera"))
         db.add(CameraUseCaseAssignment(id=assignment, camera_id=camera, use_case="grill_gate",
                                        configuration={}, is_active=True))
         db.commit()

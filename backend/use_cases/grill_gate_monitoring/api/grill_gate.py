@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import Operator, get_db, get_operator
 from app.db.models.camera_registry import CameraUseCaseAssignment
 from app.services import camera_registry_service as registry
-from app.db.models import GrillGateEvent, GrillGateVideoJob
+from app.db.models import GrillGateEvent, GrillGateVideoJob, VaultAuditEvent
 from grill_gate_monitoring.models.alert import GrillGateAlert
 from grill_gate_monitoring.services.alert_store import alert_dict, persist_command
 from grill_gate_monitoring.services.alert_delivery import stage_publication, backfill_publications
@@ -50,6 +50,7 @@ from grill_gate_monitoring.services.assignment_readiness import missing_assignme
 from grill_gate_monitoring.services.diagnostics import log_diagnostic
 import cv2
 import httpx
+from fedbank_core.events.metadata import resolve_branch_metadata, safe_reference
 
 router = APIRouter(prefix="/api/v1/grill-gate", tags=["grill gate camera workers"],
                    dependencies=[Depends(get_operator)])
@@ -81,7 +82,9 @@ JOB_ERROR_MESSAGES = {
 @router.post("/videos", status_code=201)
 def upload_video(video: UploadFile, db: Db, caller: Caller,
                  template_assignment_id: str | None = Form(default=None),
-                 configuration: str | None = Form(default=None)):
+                 configuration: str | None = Form(default=None),
+                 branch_id: str | None = Form(default=None),
+                 camera_label: str | None = Form(default=None)):
     """Save an isolated uploaded-video job. Zones and calibration are optional here and can be set later.
 
     Processing does not begin until POST /videos/{job_id}/start.
@@ -122,8 +125,14 @@ def upload_video(video: UploadFile, db: Db, caller: Caller,
         frame = (metadata["width"], metadata["height"])
         snapshot = _config_call(normalize_config, raw_config, frame) if raw_config is not None else {}
         filename = Path(video.filename or "video").name
+        branch = resolve_branch_metadata(branch_id) if branch_id else {}
+        if branch_id and branch is None:
+            raise HTTPException(422, "Selected Branch Management branch was not found")
+        source_metadata = {**(branch or {}), "camera_name": safe_reference(camera_label) or "Uploaded video",
+                           "video_filename": filename, "source_type": "UPLOADED_VIDEO"}
         job_id = jobs.save(path, original_filename=filename, config=snapshot,
-                           template_assignment_id=template, metadata=metadata)
+                           template_assignment_id=template, metadata=metadata,
+                           source_metadata=source_metadata)
         return {"job_id": job_id, "filename": filename, "status": "UPLOADED"}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -188,6 +197,8 @@ def _job_dict(row, *, event_count: int | None = None, alert_count: int | None = 
     return {"job_id": str(row.id), "asset_job_id": row.asset_job_id,
         "zone_configuration_id": (row.config_snapshot or {}).get("zone_configuration_id"),
         "filename": row.original_filename, "status": row.status,
+        **{key: (row.config_snapshot or {}).get("source_metadata", {}).get(key) for key in
+           ("branch_id", "branch_code", "branch_name", "place_name", "region_name", "branch_manager", "camera_name")},
         "template_assignment_id": row.template_assignment_id, "frame_count": row.frame_count,
         "progress_seconds": row.progress_seconds, "error_code": row.error_code,
         "created_at": row.created_at, "started_at": row.started_at, "completed_at": row.completed_at,
@@ -371,8 +382,10 @@ def delete_zone_configuration(configuration_id: str, db: Db, caller: Caller):
 
 def _store_job_config(db: Session, row, config: dict) -> dict:
     # Conditional write: once a job has started, its configuration can no longer change.
+    source_metadata = dict((row.config_snapshot or {}).get("source_metadata") or {})
     stored = db.execute(update(GrillGateVideoJob).where(GrillGateVideoJob.id == row.id,
-        GrillGateVideoJob.status == "UPLOADED").values(config_snapshot={**config, "video": job_video(row)}))
+        GrillGateVideoJob.status == "UPLOADED").values(config_snapshot={**config, "video": job_video(row),
+            "source_metadata": source_metadata}))
     db.commit()
     if stored.rowcount != 1:
         raise HTTPException(409, detail={"code": "CONFIG_LOCKED", "message": "This job has started, so its configuration is locked"})
@@ -704,6 +717,7 @@ def _reconcile_final_open_timer(db, job, payload):
     at = (job.started_at + timedelta(seconds=payload.video_timestamp_seconds)
           if job.started_at and payload.video_timestamp_seconds is not None
           else job.completed_at or datetime.now(timezone.utc))
+    source_metadata = dict((job.config_snapshot or {}).get("source_metadata") or {})
     row = persist_command(db, {"action": "create", "source_event_id": source_id, "capture_evidence": True, "payload": {
         "source_event_type": "GATE_OPEN_TOO_LONG", "source_event_version": 1,
         "occurred_at": at.isoformat(), "last_seen_at": at.isoformat(),
@@ -714,7 +728,7 @@ def _reconcile_final_open_timer(db, job, payload):
                         "timer_cycle_id": payload.timer_cycle_id,
                         "open_without_crossing_seconds": payload.elapsed_seconds,
                         "gate_open_duration_seconds": payload.elapsed_seconds,
-                        "configured_threshold_seconds": threshold}}})
+                        "configured_threshold_seconds": threshold, **source_metadata}}})
     db.commit()
     return {"alert_evaluated": True, "alert_raised": row is not None, "timer_cycle_id": payload.timer_cycle_id, "alert_id": str(row.id) if row else None}
 
@@ -1035,6 +1049,15 @@ def get_alert_history(assignment_id: str, db: Db, caller: Caller,
         limit=limit, offset=offset)
 
 
+@router.get("/alerts/source-events/{source_event_id}")
+def get_grill_gate_source_alert(source_event_id: str, db: Db, caller: Caller):
+    row = db.scalar(select(GrillGateAlert).where(GrillGateAlert.source_event_id == source_event_id,
+                                               GrillGateAlert.use_case == "grill_gate"))
+    if row is None:
+        raise HTTPException(404, "Grill Gate alert not found")
+    return alert_dict(row)
+
+
 @router.get("/alerts/{alert_id}")
 def get_grill_gate_alert(alert_id: str, db: Db, caller: Caller):
     row = db.get(GrillGateAlert, alert_id)
@@ -1043,7 +1066,7 @@ def get_grill_gate_alert(alert_id: str, db: Db, caller: Caller):
     return alert_dict(row)
 
 
-def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session):
+def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session, actor_id: str | None = None):
     row = db.scalar(select(GrillGateAlert).where(GrillGateAlert.id == alert_id).with_for_update())
     if row is None or row.use_case != "grill_gate":
         raise HTTPException(status_code=404, detail="Grill Gate alert not found")
@@ -1053,20 +1076,33 @@ def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session):
         raise HTTPException(status_code=409, detail="Only an active Grill Gate alert can be changed")
     if action == "acknowledge" and row.status == "ACKNOWLEDGED":
         return alert_dict(row)
+    before = row.status
     now = datetime.now(timezone.utc)
+    domain = dict(row.domain_data or {})
+    note = (body.note or "").strip()
     if action == "acknowledge":
         if row.status == "OPEN":
+            domain.update(acknowledgement_comment=note, acknowledged_at=now.isoformat(), acknowledged_by=actor_id)
             row.status = "ACKNOWLEDGED"
             row.row_version += 1
             row.updated_at = now
     else:
         row.status = "DISMISSED" if action == "dismiss" else "RESOLVED"
-        row.resolved_at = now
+        if action == "dismiss":
+            domain.update(dismissed_at=now.isoformat(), dismissed_by=actor_id)
+        else:
+            domain.update(resolved_by=actor_id)
+            row.resolved_at = now
         row.resolution_note = (body.note or "Resolved by operator").strip()[:500]
         row.row_version += 1
         row.updated_at = now
     row.source_event_version += 1
     row.source_status = row.status
+    row.domain_data = {**domain, "lifecycle_actor_type": "operator", "lifecycle_actor_id": actor_id}
+    db.add(VaultAuditEvent(id=str(uuid4()), entity_type="grill_gate_alert", entity_id=str(row.id),
+        action=f"GRILL_ALERT_{row.status}", details={"actor_type":"operator", "actor_id":actor_id,
+            "from_status":before, "to_status":row.status, "note":note,
+            "acted_at":now.isoformat(), "row_version":row.row_version}))
     stage_publication(db, row)
     db.commit()
     db.refresh(row)
@@ -1075,14 +1111,14 @@ def _act_on_alert(alert_id: str, action: str, body: AlertAction, db: Session):
 
 @router.post("/alerts/{alert_id}/acknowledge")
 def acknowledge_grill_gate_alert(alert_id: str, body: AlertAction, db: Db, caller: Caller):
-    return _act_on_alert(alert_id, "acknowledge", body, db)
+    return _act_on_alert(alert_id, "acknowledge", body, db, caller.id)
 
 
 @router.post("/alerts/{alert_id}/resolve")
 def resolve_grill_gate_alert(alert_id: str, body: AlertAction, db: Db, caller: Caller):
     if not body.note or not body.note.strip():
         raise HTTPException(status_code=422, detail="A note is required to resolve an alert")
-    return _act_on_alert(alert_id, "resolve", body, db)
+    return _act_on_alert(alert_id, "resolve", body, db, caller.id)
 
 
 @router.get("/alerts/{alert_id}/evidence/{evidence_id}")
@@ -1113,8 +1149,20 @@ def backfill_grill_gate_alerts(db: Db, caller: Caller, dry_run: bool = True,
     return backfill_publications(db, dry_run=dry_run, limit=limit, offset=offset)
 
 
+@router.post('/alerts/publications/reconcile')
+def reconcile_grill_gate_publications(db: Db, caller: Caller, dry_run: bool = True,
+    limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0)):
+    from app.services.alert_reconciliation import reconcile_alerts
+    try:
+        return reconcile_alerts(db, get_grill_gate_alert_publisher(), use_case='grill_gate',
+            dry_run=dry_run, limit=limit, offset=offset)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(503, 'Common Alerts reconciliation is unavailable; check producer configuration') from exc
+
+
 @router.post("/alerts/{alert_id}/dismiss")
 def dismiss_grill_gate_alert(alert_id: str, body: AlertAction, db: Db, caller: Caller):
     if not body.note or not body.note.strip():
         raise HTTPException(status_code=422, detail="A note is required to dismiss an alert")
-    return _act_on_alert(alert_id, "dismiss", body, db)
+    return _act_on_alert(alert_id, "dismiss", body, db, caller.id)

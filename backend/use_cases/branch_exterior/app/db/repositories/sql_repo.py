@@ -183,7 +183,10 @@ class SqlEventRepository(EventRepository):
             s.add(row)
             await s.commit()
             await s.refresh(row)
-            return _event_out(row)
+            event = _event_out(row)
+        from app.services.alert_publisher import publish_committed
+        await publish_committed(event)
+        return event
 
     async def find_open_by_dedupe(self, dedupe_key: str, since: datetime) -> Event | None:
         if not dedupe_key:
@@ -207,7 +210,10 @@ class SqlEventRepository(EventRepository):
             row.updated_at = datetime.now(timezone.utc)
             await s.commit()
             await s.refresh(row)
-            return _event_out(row)
+            event = _event_out(row)
+        from app.services.alert_publisher import publish_committed
+        await publish_committed(event)
+        return event
 
     async def get(self, event_id: str) -> Event | None:
         async with self._sf() as s:
@@ -227,7 +233,7 @@ class SqlEventRepository(EventRepository):
                 stmt = stmt.where(EventORM.status == flt.status)
             if flt.since:
                 stmt = stmt.where(EventORM.created_at >= flt.since)
-            stmt = stmt.order_by(EventORM.created_at.desc()).limit(flt.limit)
+            stmt = stmt.order_by(EventORM.created_at.desc(), EventORM.id.desc()).offset(flt.offset).limit(flt.limit)
             rows = (await s.execute(stmt)).scalars().all()
             return [_event_out(r) for r in rows]
 
@@ -243,7 +249,10 @@ class SqlEventRepository(EventRepository):
                 row.closed_at = datetime.now(timezone.utc)
             await s.commit()
             await s.refresh(row)
-            return _event_out(row)
+            event = _event_out(row)
+        from app.services.alert_publisher import publish_committed
+        await publish_committed(event)
+        return event
 
     async def summary_counts(self) -> dict:
         async with self._sf() as s:
@@ -268,12 +277,16 @@ class SqlEventRepository(EventRepository):
 
     async def clear(self, camera_id: str | None = None) -> int:
         async with self._sf() as s:
-            stmt = delete(EventORM)
+            query = select(EventORM)
             if camera_id:
-                stmt = stmt.where(EventORM.camera_id == camera_id)
-            res = await s.execute(stmt)
+                query = query.where(EventORM.camera_id == camera_id)
+            events = [_event_out(row) for row in (await s.execute(query)).scalars()]
+            res = await s.execute(delete(EventORM).where(EventORM.id.in_([row.id for row in events])))
             await s.commit()
-            return res.rowcount or 0
+        from app.services.alert_publisher import publish_committed
+        for event in events:
+            await publish_committed(event, deleted=True)
+        return res.rowcount or 0
 
 
 class SqlRepositories(Repositories):

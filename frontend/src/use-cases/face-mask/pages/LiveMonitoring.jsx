@@ -1,3 +1,7 @@
+import SourceIncidentCard from '../../../components/alerts/SourceIncidentCard.jsx';
+import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
+import { useNavigate } from 'react-router-dom';
+import { FACE_MASK_BASE_URL } from '../../../config/services.js';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, coveringLabel, fmApiUrl, timeAgo } from '../api/index.js';
@@ -86,6 +90,8 @@ function Progress({ st }) {
 }
 
 export default function LiveMonitoring() {
+  const navigate=useNavigate();
+  const incidentStates=useCommonIncidentStates('face_mask');
   const { state: serviceState } = useFmStatus();
   const [selectedId, setSelectedId] = useState(() => { try { return localStorage.getItem('fmCameraId') || ''; } catch { return ''; } });
   const [addOpen, setAddOpen] = useState(false);
@@ -185,7 +191,7 @@ export default function LiveMonitoring() {
             {cam && st.status === 'DONE' && (
               <div className="bx-hint" style={{ margin: '0 16px 10px' }}>
                 <b>Finished.</b> {st.frames_read} frames analysed, <b>{st.events_found}</b> concealment event{st.events_found === 1 ? '' : 's'} found.
-                {st.events_found > 0 && <> <Link to="/alerts/face-mask">Review them</Link>.</>}
+                {st.events_found > 0 && <> <Link to="/alerts?use_case=face_mask">Review them</Link>.</>}
               </div>
             )}
             {cam && st.notice && <div className="bx-diag" role="status" style={{ margin: '0 16px 10px' }}>{st.notice}. <Link to={`/regions?use_case=face_mask&camera=${cam.id}`}>Set it now</Link>.</div>}
@@ -209,17 +215,11 @@ export default function LiveMonitoring() {
           </div>
 
           <div className="bx-card">
-            <div className="bx-card-title">Concealment events <Link to="/alerts/face-mask" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></div>
+            <div className="bx-card-title">Concealment events <Link to="/alerts?use_case=face_mask" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></div>
             <div className="bx-ticker">
               {events.error && !events.data && <ServiceDown error={events.error} onRetry={events.reload} />}
               {events.data && events.data.items.length === 0 && <Empty icon="🕑" bare>No concealment events yet.</Empty>}
-              {(events.data?.items || []).map((e) => (
-                <Link key={e.id} to={faceMaskEventLink(e.id)} className="bx-ticker-item sev-high" style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
-                  <div className="top"><span className="cam">{coveringLabel(e.covering_type)}</span><span className="time">{timeAgo(e.first_seen)}</span></div>
-                  <div className="msg">Track #{e.track_id} · score {e.score.toFixed(2)} · {e.frame_count} frames</div>
-                  <div style={{ marginTop: 5 }}><EventStatusBadge status={e.status} /></div>
-                </Link>
-              ))}
+              {(events.data?.items || []).map((e) => <SourceIncidentCard key={e.id} event={e} useCase="face_mask" common={incidentStates.bySource[e.id]} thumbnailUrl={e.snapshot_path ? `${FACE_MASK_BASE_URL}/storage/${e.snapshot_path.replace(/^\/?storage\//,'')}` : undefined} onSelect={(id)=>navigate(faceMaskEventLink(id))} />)}
             </div>
           </div>
         </div>

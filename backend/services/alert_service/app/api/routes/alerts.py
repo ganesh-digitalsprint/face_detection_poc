@@ -139,6 +139,9 @@ def get_alerts(use_case: str | None = None, producer: str | None = None, status:
                severity: CanonicalSeverity | None = None, source_event_type: str | None = None,
                source_event_id: str | None = None, category: str | None = None,
                assignment_id: str | None = None, camera_id: str | None = None,
+               branch_id: str | None = None, video_job_id: str | None = None,
+               session_ref: str | None = None, source_id: str | None = None,
+               registry_camera_id: str | None = None, source_event_subtype: str | None = None,
                from_at: datetime | None = Query(default=None, alias="from"),
                to_at: datetime | None = Query(default=None, alias="to"),
                sort: Literal["newest", "oldest"] = "newest", limit: int = Query(default=25, ge=1, le=100),
@@ -163,6 +166,9 @@ def get_summary(use_case: str | None = None, producer: str | None = None, status
                 severity: CanonicalSeverity | None = None, source_event_type: str | None = None,
                 source_event_id: str | None = None, category: str | None = None,
                 assignment_id: str | None = None, camera_id: str | None = None,
+                branch_id: str | None = None, video_job_id: str | None = None,
+                session_ref: str | None = None, source_id: str | None = None,
+                registry_camera_id: str | None = None, source_event_subtype: str | None = None,
                 from_at: datetime | None = Query(default=None, alias="from"),
                 to_at: datetime | None = Query(default=None, alias="to"),
                 operator: OperatorIdentity = Depends(get_operator), db: Session = Depends(get_db)):
@@ -176,7 +182,9 @@ def get_summary(use_case: str | None = None, producer: str | None = None, status
     return summary(db, scopes=list(operator.use_cases), filters={"use_case": use_case, "producer": producer,
         "status": status, "severity": severity, "source_event_type": source_event_type,
         "source_event_id": source_event_id, "category": category, "assignment_id": assignment_id,
-        "camera_id": camera_id, "from_at": from_at, "to_at": to_at})
+        "camera_id": camera_id, "branch_id": branch_id, "video_job_id": video_job_id,
+        "session_ref": session_ref, "source_id": source_id, "registry_camera_id": registry_camera_id,
+        "source_event_subtype": source_event_subtype, "from_at": from_at, "to_at": to_at})
 
 
 @router.get("/alerts/meta")
@@ -204,8 +212,8 @@ def get_alert(alert_id: str, operator: OperatorIdentity = Depends(get_operator),
 def _act(alert_id: str, target: str, request: Request, body: LifecycleAction,
          operator: OperatorIdentity, db: Session):
     alert = _scoped_alert(db, alert_id, operator)
-    if alert.use_case == "grill_gate":
-        raise HTTPException(status_code=409, detail={"code": "SOURCE_LIFECYCLE_OWNED", "message": "Use the Grill Gate source API to change this alert"})
+    if alert.use_case in {"grill_gate", "vault_monitoring"} or alert.domain_data.get("lifecycle_owner") == "source":
+        raise HTTPException(status_code=409, detail={"code": "SOURCE_LIFECYCLE_OWNED", "message": "Use the owning source API to change this alert"})
     action = {"ACKNOWLEDGED": "acknowledge", "RESOLVED": "resolve", "DISMISSED": "dismiss"}[target]
     try:
         row = transition(db, alert_id=alert_id, target=target, action=action, actor_id=operator.actor_id,

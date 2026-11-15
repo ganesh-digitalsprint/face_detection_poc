@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes.alerts import router as alerts_router
 from app.api.routes.health import router as health_router
-from app.db.database import initialize, make_engine, make_session_factory
+from app.db.database import ensure_database_exists, initialize, make_engine, make_session_factory
 from app.services.notification_manager import run_worker
 from app.settings import Settings, settings as default_settings
 
@@ -23,6 +23,7 @@ def create_app(settings: Settings | None = None, *, engine=None, start_notificat
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        ensure_database_exists(config.database_url)
         initialize(db_engine)
         worker = None
         if config.notification_webhook_url and start_notification_worker:

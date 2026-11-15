@@ -99,6 +99,33 @@ class VaultRoomSettings(BaseModel):
     active_assignment: "VaultActiveAssignmentSettings | None" = None
     counting: "VaultRoomCountingSettings" = Field(default_factory=lambda: VaultRoomCountingSettings())
     pose_preview: "VaultPosePreviewSettings" = Field(default_factory=lambda: VaultPosePreviewSettings())
+    wrist_interaction: "VaultWristInteractionSettings" = Field(default_factory=lambda: VaultWristInteractionSettings())
+    workflow: "VaultWorkflowSettings" = Field(default_factory=lambda: VaultWorkflowSettings())
+
+
+class VaultWorkflowSettings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    enabled: bool = True
+    confirmation_seconds: float = Field(default=.5, gt=0)
+    min_observations: int = Field(default=3, ge=2)
+    exit_confirmation_seconds: float = Field(default=.5, gt=0)
+    exit_min_observations: int = Field(default=3, ge=2)
+    dropout_tolerance_seconds: float = Field(default=.5, gt=0)
+
+
+class VaultWristInteractionSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    sampling_interval_ms: int = Field(default=200, ge=1)
+    confirmation_seconds: float = Field(default=1, gt=0)
+    exit_confirmation_seconds: float = Field(default=.5, gt=0)
+    min_observations: int = Field(default=3, ge=2)
+    max_observation_gap_seconds: float = Field(default=.75, gt=0)
+    landmark_confidence: float = Field(default=.5, ge=0, le=1)
+    association_margin: float = Field(default=.12, gt=0, le=1)
+    dropout_tolerance_seconds: float = Field(default=.5, gt=0, le=5)
+    pose_model_path: str | None = None
+    diagnostics: bool = False
 
 
 class VaultPosePreviewSettings(BaseModel):
@@ -125,6 +152,7 @@ class VaultAlertEvidenceSettings(BaseModel):
     capture_excess_person: bool = True
     capture_session_expired: bool = True
     capture_count_mismatch: bool = False
+    capture_mobile_phone_detected: bool = True
     realert_seconds: int = Field(default=60, ge=1)
     max_per_alert: int = Field(default=3, ge=1)
     max_per_incident: int = Field(default=15, ge=1)
@@ -164,6 +192,15 @@ class VaultRoomDetectorSettings(BaseModel):
     cpu_threads: int = Field(default=4, ge=1)
 
 
+class VaultRoomMobilePhoneSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    confidence_threshold: float = Field(default=0.40, ge=0, le=1)
+    confirmation_seconds: float = Field(default=1.0, gt=0)
+    clear_seconds: float = Field(default=2.0, gt=0)
+    absence_gap_seconds: float = Field(default=1.5, gt=0)
+
+
 class VaultRoomTrackerSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     track_activation_threshold: float = Field(ge=0, le=1)
@@ -192,6 +229,7 @@ class VaultRoomCountingSettings(BaseModel):
     lock_countdown_seconds: float = Field(ge=0)
     detector: VaultRoomDetectorSettings
     tracker: VaultRoomTrackerSettings
+    mobile_phone: VaultRoomMobilePhoneSettings = Field(default_factory=VaultRoomMobilePhoneSettings)
 
     @field_validator("min_fps")
     @classmethod

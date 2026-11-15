@@ -27,6 +27,7 @@ def _manifest() -> tuple[dict, ...]:
 
 def clear_use_case_config_cache() -> None:
     _manifest.cache_clear()
+    _load_zone_types.cache_clear()
 
 
 def get_use_case(use_case: str) -> dict | None:
@@ -43,7 +44,7 @@ def list_use_cases() -> list[dict]:
 
 
 @lru_cache(maxsize=16)
-def load_zone_types(use_case: str) -> tuple[dict, ...]:
+def _load_zone_types(use_case: str) -> tuple[tuple[tuple[str, str], ...], ...]:
     item = get_use_case(use_case)
     if item is None:
         raise KeyError(use_case)
@@ -66,7 +67,14 @@ def load_zone_types(use_case: str) -> tuple[dict, ...]:
     for entry in types:
         if set(entry) - {"key", "label", "description"} or not all(isinstance(entry.get(k), str) for k in ("key", "label", "description")):
             raise RuntimeError(f"Invalid zone type entry for {use_case}")
-    return tuple(dict(entry) for entry in types)
+    # Cache immutable values only. Returning cached dictionaries would let one
+    # use case (or a test) mutate the process-wide registry seen by another.
+    return tuple(tuple((key, entry[key]) for key in ("key", "label", "description"))
+                 for entry in types)
+
+
+def load_zone_types(use_case: str) -> tuple[dict, ...]:
+    return tuple(dict(entry) for entry in _load_zone_types(use_case))
 
 
 def annotate_zone_type(use_case: str, zone_type: str | None) -> dict:

@@ -23,7 +23,8 @@ export const getGateState = (assignmentId) =>
   client.get(`${root}/assignments/${encodeURIComponent(assignmentId)}/gate-state`, { headers, timeout: 5000 }).then((r) => r.data);
 
 /** Uploaded-video jobs. Configuration can be a template assignment ID or a self-contained video config. */
-export const uploadGrillGateVideo = (file, configurationOrAssignmentId, { onProgress, signal } = {}) => {
+export const uploadGrillGateVideo = (file, configurationOrAssignmentId,
+  { branchId, cameraLabel, onProgress, signal } = {}) => {
   const body = new FormData();
   body.append('video', file, file.name);
   if (typeof configurationOrAssignmentId === 'string') {
@@ -31,6 +32,8 @@ export const uploadGrillGateVideo = (file, configurationOrAssignmentId, { onProg
   } else if (configurationOrAssignmentId) {
     body.append('configuration', JSON.stringify(validatedZoneConfiguration(configurationOrAssignmentId)));
   }
+  if (branchId) body.append('branch_id', branchId);
+  if (cameraLabel) body.append('camera_label', cameraLabel);
   return client.post(`${root}/videos`, body, {
     headers, signal, onUploadProgress: (event) => onProgress?.(event.total ? event.loaded / event.total : null),
   }).then((r) => r.data);
@@ -101,8 +104,8 @@ export const getGrillGateAlert = (alertId, signal) =>
   client.get(`${root}/alerts/${encodeURIComponent(alertId)}`, { headers, signal, timeout: 15000 }).then((r) => r.data);
 
 /** Alert lifecycle for live and uploaded-video alerts alike; a resolve needs a note. */
-export const acknowledgeGrillGateAlert = (alertId, expectedVersion) =>
-  client.post(`${root}/alerts/${encodeURIComponent(alertId)}/acknowledge`, { expected_version: expectedVersion }, { headers, timeout: 15000 }).then((r) => r.data);
+export const acknowledgeGrillGateAlert = (alertId, expectedVersion, note) =>
+  client.post(`${root}/alerts/${encodeURIComponent(alertId)}/acknowledge`, { expected_version: expectedVersion, ...(note?.trim() ? { note: note.trim() } : {}) }, { headers, timeout: 15000 }).then((r) => r.data);
 export const resolveGrillGateAlert = (alertId, expectedVersion, note) =>
   client.post(`${root}/alerts/${encodeURIComponent(alertId)}/resolve`, { expected_version: expectedVersion, note }, { headers, timeout: 15000 }).then((r) => r.data);
 
@@ -144,3 +147,8 @@ export const getGrillGateSnapshot = (ref, signal) => {
       return r.data;
     });
 };
+
+export const getGrillGateSourceAlert = (sourceEventId, signal) =>
+  client.get(`${root}/alerts/source-events/${encodeURIComponent(sourceEventId)}`, { headers, signal }).then((r) => r.data);
+export const dismissGrillGateAlert = (alertId, expectedVersion, note) =>
+  client.post(`${root}/alerts/${encodeURIComponent(alertId)}/dismiss`, { expected_version: expectedVersion, note }, { headers }).then((r) => r.data);

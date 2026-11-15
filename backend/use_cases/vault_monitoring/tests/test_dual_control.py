@@ -351,6 +351,38 @@ def test_start_api_ignores_mode_when_server_disallows_selection(monkeypatch):
     assert response.json()["test_mode"] is False
 
 
+def test_start_api_persists_immutable_branch_snapshot_in_audit(monkeypatch):
+    from contextlib import contextmanager
+    from fastapi.testclient import TestClient
+
+    from app.api.dependencies import get_vault_authentication_service
+    from app.db.models.vault_room import VaultAuditEvent
+    from app.main import create_app
+    import app.api.routes.vault_authorization as route
+
+    rows = []
+    snapshot = {"branch_id": "branch-1", "branch_code": "C99127-01",
+        "branch_name": "Koramangala", "place_name": "Bengaluru",
+        "region_name": "South", "branch_manager": "Manager",
+        "camera_name": "Entrance Camera", "source_type": "entrance_camera"}
+
+    @contextmanager
+    def fake_session_scope():
+        yield SimpleNamespace(add=rows.append)
+
+    monkeypatch.setattr(route, "session_scope", fake_session_scope)
+    monkeypatch.setattr(route, "build_source_context", lambda **_values: dict(snapshot))
+    service, _, _session = _service()
+    app = create_app()
+    app.dependency_overrides[get_vault_authentication_service] = lambda: service
+    response = TestClient(app).post("/api/v1/vault-authentication/start",
+        json={"branch_id": "branch-1", "camera_label": "Entrance Camera"})
+
+    assert response.status_code == 201
+    audit = next(row for row in rows if isinstance(row, VaultAuditEvent))
+    assert audit.details["source_context"] == snapshot
+
+
 def test_vault_config_endpoint_reports_effective_policy(monkeypatch):
     from fastapi.testclient import TestClient
 

@@ -75,7 +75,7 @@ class VaultAuthenticationService:
         return self._dual_control.config
 
     def start(
-        self, required_persons: int | None = None
+        self, required_persons: int | None = None, *, source_context: dict | None = None
     ) -> tuple[LivenessSessionStarted, DualControlSession]:
         if required_persons is not None and (
             type(required_persons) is not int or required_persons not in (1, 2)
@@ -94,7 +94,8 @@ class VaultAuthenticationService:
         self._session_started_monotonic[session.session_ref] = time.perf_counter()
         start_monitoring = getattr(self._vault_room_manager, "on_access_attempt_started", None)
         if start_monitoring is not None:
-            start_monitoring(session.session_ref, session.required_persons)
+            start_monitoring(session.session_ref, session.required_persons,
+                source_context=source_context)
         test_mode = session.required_persons < 2
         if test_mode:
             logger.warning("TEST MODE: single-custodian authorization is active")

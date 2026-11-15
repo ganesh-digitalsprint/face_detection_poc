@@ -134,7 +134,10 @@ class MongoEventRepository(EventRepository):
         doc["updated_at"] = now
         doc["closed_at"] = None
         await self._col.insert_one(doc)
-        return _doc_to_model(doc, Event)
+        event = _doc_to_model(doc, Event) if doc else None
+        from app.services.alert_publisher import publish_committed
+        await publish_committed(event)
+        return event
 
     async def find_open_by_dedupe(self, dedupe_key: str, since: datetime) -> Event | None:
         if not dedupe_key:
@@ -149,7 +152,10 @@ class MongoEventRepository(EventRepository):
         fields["updated_at"] = datetime.now(timezone.utc)
         await self._col.update_one({"_id": event_id}, {"$set": fields})
         doc = await self._col.find_one({"_id": event_id})
-        return _doc_to_model(doc, Event) if doc else None
+        event = _doc_to_model(doc, Event) if doc else None
+        from app.services.alert_publisher import publish_committed
+        await publish_committed(event)
+        return event
 
     async def get(self, event_id: str) -> Event | None:
         doc = await self._col.find_one({"_id": event_id})
@@ -167,7 +173,7 @@ class MongoEventRepository(EventRepository):
             query["status"] = flt.status
         if flt.since:
             query["created_at"] = {"$gte": flt.since}
-        cursor = self._col.find(query).sort("created_at", -1).limit(flt.limit)
+        cursor = self._col.find(query).sort([("created_at", -1), ("_id", -1)]).skip(flt.offset).limit(flt.limit)
         return [_doc_to_model(d, Event) async for d in cursor]
 
     async def review(self, event_id: str, status: str, remarks: str) -> Event | None:
@@ -176,7 +182,10 @@ class MongoEventRepository(EventRepository):
         if status in ("closed", "confirmed", "false_positive"):
             payload["closed_at"] = now
         await self._col.update_one({"_id": event_id}, {"$set": payload})
-        return await self.get(event_id)
+        event = await self.get(event_id)
+        from app.services.alert_publisher import publish_committed
+        await publish_committed(event)
+        return event
 
     async def summary_counts(self) -> dict:
         total = await self._col.count_documents({})
@@ -192,7 +201,11 @@ class MongoEventRepository(EventRepository):
 
     async def clear(self, camera_id: str | None = None) -> int:
         query = {"camera_id": camera_id} if camera_id else {}
-        res = await self._col.delete_many(query)
+        events = [_doc_to_model(doc, Event) async for doc in self._col.find(query)]
+        res = await self._col.delete_many({"_id": {"$in": [row.id for row in events]}})
+        from app.services.alert_publisher import publish_committed
+        for event in events:
+            await publish_committed(event, deleted=True)
         return res.deleted_count
 
 

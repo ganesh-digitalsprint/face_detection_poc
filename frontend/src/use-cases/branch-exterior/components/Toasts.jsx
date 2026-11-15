@@ -5,7 +5,7 @@ import { eventBeep } from '../sound.js';
 
 /**
  * Toast + beep for every new Branch alert. It listens to the Branch websocket, which BxLayout opens, so it only runs
- * while a Branch page is mounted (Branch pages, the moved /regions /guards /settings, and /alerts/branch).
+ * while a Branch page is mounted (Branch monitoring and the moved /regions /guards /settings pages).
  * On Vault pages, Alerts > Vault/All alerts, Employees, etc. there are no Branch toasts or sounds.
  */
 export default function Toasts({ onEvent }) {
@@ -30,7 +30,7 @@ export default function Toasts({ onEvent }) {
           key={id}
           className="bx-toast"
           style={{ borderLeftColor: `var(--bx-sev-${event.severity || 'medium'})` }}
-          onClick={() => { remove(id); navigate(`/alerts/branch?event=${event.id}`); }}
+          onClick={() => { remove(id); navigate(`/alerts?use_case=branch_exterior&source_event_id=${encodeURIComponent(event.id)}`); }}
         >
           <div className="t-title">
             <span>{event.camera_name || 'Camera'}</span>

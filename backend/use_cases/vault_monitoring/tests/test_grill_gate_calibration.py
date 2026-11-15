@@ -45,20 +45,31 @@ def valid_calibration(**overrides):
 def test_grill_gate_zone_metadata_adds_required_types_and_preserves_existing():
     types = {item["key"]: item for item in load_zone_types("grill_gate")}
     assert set(types) == {
-        "gate_leaf_roi", "gate_approach", "gate_trigger", "gate_crossing", "gate_interior", "mesh_area",
+        "gate_leaf_roi", "gate_approach", "gate_interior", "mesh_area",
     }
     assert "physical sliding gate leaf" in types["gate_leaf_roi"]["description"]
     assert "outside approach" in types["gate_approach"]["description"].lower()
-    assert "threshold" in types["gate_trigger"]["description"].lower()
-    assert "virtual line" in types["gate_crossing"]["description"]
     assert "bank-premises" in types["gate_interior"]["description"].lower()
     assert "group-presence" in types["mesh_area"]["description"]
+    assert not {"gate_trigger", "gate_crossing"} & set(types)
 
 
 def test_other_use_case_zone_metadata_is_unchanged():
     assert {item["key"] for item in load_zone_types("branch_exterior")} == {
         "entrance", "atm", "side_lane", "forecourt", "rear", "restricted", "other",
     }
+    assert load_zone_types("vault_room") == ()
+
+
+def test_cached_zone_metadata_cannot_be_mutated_across_use_cases():
+    gate = load_zone_types("grill_gate")
+    branch = load_zone_types("branch_exterior")
+    gate[0]["key"] = "vault_area_roi"
+    branch[0]["description"] = "changed by caller"
+    assert {item["key"] for item in load_zone_types("grill_gate")} == {
+        "gate_leaf_roi", "gate_approach", "gate_interior", "mesh_area",
+    }
+    assert load_zone_types("branch_exterior")[0]["description"] != "changed by caller"
     assert load_zone_types("vault_room") == ()
 
 

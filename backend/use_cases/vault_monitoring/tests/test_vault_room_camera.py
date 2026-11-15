@@ -58,10 +58,20 @@ class FakeCapture:
 class FakeRoomManager:
     def __init__(self):
         self.sources = []
+        self.contexts = {}
         self.processed = threading.Event()
 
-    def process_frame(self, _frame, *, source):
-        self.sources.append(source)
+    def bind_camera_source(self, source_id, *, source_type, camera_name, source_context=None):
+        context = {**(source_context or {}), "source_id": source_id,
+            "source_type": source_type, "camera_name": camera_name}
+        self.contexts[source_id] = context
+        return dict(context)
+
+    def release_camera_source(self, source_id):
+        self.contexts.pop(source_id, None)
+
+    def process_frame(self, _frame, *, source, source_id=None, include_pose=False):
+        self.sources.append((source, source_id))
         self.processed.set()
         return {"accepts_frames": True, "tracks": [
             {"track_id": 7, "x": .1, "y": .1, "w": .3, "h": .4},
@@ -88,7 +98,8 @@ def test_webcam_session_uses_shared_capture_and_vault_room_pipeline(monkeypatch)
     assert wait_for(lambda: manager.status(session)["status"] == "streaming")
     assert captures[0].args == (3,)
     assert manager.status(session)["camera_index"] == 3
-    assert set(room.sources) == {"webcam"}
+    assert {source for source, _ in room.sources} == {"webcam"}
+    assert session.source_context["camera_name"] == "Test webcam"
     with pytest.raises(RuntimeError, match="already connected"):
         manager.start_webcam("Second camera")
     stream = manager.stream(session.session_id)
@@ -101,7 +112,8 @@ def test_webcam_session_uses_shared_capture_and_vault_room_pipeline(monkeypatch)
     assert manager.stop(session.session_id)  # repeated stop is idempotent
 
 
-def test_unavailable_webcam_reports_failure_and_releases_capture():
+def test_unavailable_webcam_reports_failure_and_releases_capture(monkeypatch):
+    monkeypatch.setattr("app.services.vault_room_camera.settings.RTSP_RECONNECT_ATTEMPTS", 0)
     capture = FakeCapture()
     capture.isOpened = lambda: False
     room = FakeRoomManager()
@@ -123,7 +135,7 @@ def test_rtsp_session_uses_vault_room_pipeline_and_keeps_running_if_viewer_close
     assert room.processed.wait(1)
     assert wait_for(lambda: manager.status(session)["status"] == "streaming")
     assert captures[0].args[0] == "rtsp://viewer:secret@camera.local/live"
-    assert set(room.sources) == {"rtsp"}
+    assert {source for source, _ in room.sources} == {"rtsp"}
     assert "secret" not in str(manager.status(session))
     stream = manager.stream(session.session_id)
     assert next(stream).startswith(b"--frame\r\nContent-Type: image/jpeg")

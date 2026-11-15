@@ -2,6 +2,9 @@ import {
   Activity, Bell, DoorClosed, EyeOff, FileText, Film, LayoutDashboard, LockKeyhole, Map as MapIcon,
   Radio, ScanFace, Settings as SettingsIcon, ShieldCheck, Users, Video, Webcam, Cctv, HardDrive, House,
 } from 'lucide-react';
+import { vaultUiFromSearch } from '../use-cases/vault-monitoring/utils/replayStorage.js';
+
+const vaultView = (search) => vaultUiFromSearch(search).view;
 
 /**
  * Single source of truth for the sidebar.
@@ -45,10 +48,13 @@ export const NAV_SECTIONS = [
     items: [
       {
         id: 'vault-access',
-        label: 'Vault Access',
+        label: 'Vault Monitoring',
         icon: LockKeyhole,
-        defaultOpen: true,
-        children: [{ id: 'vault-door', label: 'Door authorization', to: '/vault-access' }],
+        children: [
+          { id: 'vault-entrance', label: 'Entrance Camera', to: '/vault-access?view=entrance', searchParam: ['view', 'entrance'], searchValue: vaultView, preserveSearch: true },
+          { id: 'vault-room', label: 'Vault Room Camera', to: '/vault-access?view=room', searchParam: ['view', 'room'], searchValue: vaultView, preserveSearch: true },
+          { id: 'vault-zones', label: 'Zones & Regions', to: '/vault-access?view=zones', searchParam: ['view', 'zones'], searchValue: vaultView, preserveSearch: true },
+        ],
       },
       {
         id: 'branch-exterior',
@@ -57,7 +63,7 @@ export const NAV_SECTIONS = [
         children: [{ id: 'branch-live', label: 'Live monitoring', to: '/branch-exterior/live' }],
       },
       {
-        id: 'gate-mesh', label: 'Gate & Mesh', icon: DoorClosed,
+        id: 'gate-mesh', label: 'Gate Monitoring', icon: DoorClosed,
         children: [
           { id: 'gate-mesh-live', label: 'Live Camera', to: '/grill-gate', end: true, searchParam: ['view', null] },
           { id: 'gate-mesh-video', label: 'Uploaded Video Processing', to: '/grill-gate?view=video', searchParam: ['view', 'video'] },
@@ -119,10 +125,19 @@ export function isItemActive(item, pathname, search = '') {
   if (item.children?.some((child) => isItemActive(child, pathname, search))) return true;
   if (item.searchParam) {
     const [key, value] = item.searchParam;
-    if (new URLSearchParams(search).get(key) !== value) return false;
+    if ((item.searchValue ? item.searchValue(search) : new URLSearchParams(search).get(key)) !== value) return false;
   }
   if (item.to && pathMatches(item.to, pathname, item.end)) return true;
   return (item.match ?? []).some((prefix) => pathMatches(prefix, pathname));
+}
+
+/** Preserve current view-specific query state only within the same page. */
+export function navigationTarget(item, pathname, search = '') {
+  if (!item.preserveSearch || !pathMatches(item.to, pathname, true)) return item.to;
+  const [path, query] = item.to.split('?');
+  const params = new URLSearchParams(search);
+  new URLSearchParams(query).forEach((value, key) => params.set(key, value));
+  return `${path}?${params}`;
 }
 
 /** Drops `dev` items unless the dev menu is enabled, and sections left with nothing to show. */

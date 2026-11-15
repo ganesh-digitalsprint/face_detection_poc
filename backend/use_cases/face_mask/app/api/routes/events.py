@@ -21,6 +21,19 @@ from app.services.runtime import Runtime
 router = APIRouter(prefix="/events", tags=["events"])
 _write = [Depends(require_api_key)]
 
+
+@router.post('/publications/reconcile', dependencies=_write)
+async def reconcile_alerts(dry_run: bool = True, limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0), session: AsyncSession = Depends(get_session), runtime: Runtime = Depends(get_runtime)):
+    if not runtime.cfg.alerts.channels.dashboard:
+        raise HTTPException(503, 'Common Alerts publication is disabled')
+    events, total = await EventRepository(session).list(limit=limit, offset=offset, ascending=True)
+    try:
+        result = await runtime.alerts.reconcile(events, dry_run=dry_run)
+    except Exception as exc:
+        raise HTTPException(503, 'Common Alerts reconciliation is unavailable; check producer configuration') from exc
+    return {**result, 'next_offset':offset+len(events) if offset+len(events) < total else None}
+
 def parse_statuses(raw: str | None) -> list[str] | None:
     """'OPEN,UNDER_REVIEW' -> ['OPEN', 'UNDER_REVIEW']; unknown names are rejected with 422."""
     if not raw:
@@ -102,13 +115,14 @@ async def evidence_details(event_id: str, session: AsyncSession = Depends(get_se
     event = await _event(session, event_id)
     camera = await CameraRepository(session).get(event.camera_id)
     roi = await EntryRoiRepository(session).get(event.roi_id) if event.roi_id else None
+    from fedbank_core.events.evidence import media_path
     return EvidenceDetails(
         event_id=event.id, camera_id=event.camera_id,
         camera_name=camera.name if camera else runtime.camera_names.get(event.camera_id, ""),
         roi_name=roi.name if roi else "", track_id=event.track_id, timestamp=event.first_seen, score=event.score,
         covering_type=event.covering_type, frames_evaluated=event.frame_count,
-        snapshot_url=f"/api/events/{event.id}/evidence/snapshot" if event.snapshot_path else None,
-        clip_url=f"/api/events/{event.id}/evidence/clip" if event.clip_status == "ready" and event.clip_path else None,
+        snapshot_url=f"/api/events/{event.id}/evidence/snapshot" if media_path(event.snapshot_path, 'face_mask') else None,
+        clip_url=f"/api/events/{event.id}/evidence/clip" if event.clip_status == "ready" and media_path(event.clip_path, 'face_mask') else None,
         clip_status=event.clip_status, clip_error=event.clip_error)
 
 

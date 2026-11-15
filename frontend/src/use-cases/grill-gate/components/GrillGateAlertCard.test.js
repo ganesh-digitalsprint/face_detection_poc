@@ -21,7 +21,7 @@ test('right-side card matches the compact reference and opens the existing selec
     assert.equal((html.match(/<button/g)||[]).length,1,'snapshot and chevron share the card details action without nested buttons');
     assert.doesNotMatch(html,/View details|Grill Gate Monitoring/);
     const tree=Card(props);
-    tree.props.children.props.onClick();
+    tree.props.children[0].props.onClick();
     assert.equal(selected,'saved-1');
     for(const severity of ['HIGH','CRITICAL','INFO','CUSTOM']) {
       const other=renderToStaticMarkup(createElement(Card,{...props,alert:{...alert,severity,status:'RESOLVED'},selected:true}));

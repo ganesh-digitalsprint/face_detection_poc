@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 import json
 
 import httpx
-from sqlalchemy import create_engine, select
+import pytest
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
 from app.db.database import Base
@@ -15,6 +16,14 @@ from app.services.vault_alert_service_adapter import (
 )
 from app.services.vault_alert_persistence import PersistentAlertWorker, SnapshotJob
 from app.services.vault_alert_rules import AlertSnapshot
+
+SOURCE_METADATA = {
+    "branch_id": "branch-1", "branch_code": "C99127-01", "branch_name": "Koramangala",
+    "place_name": "Bengaluru", "region_name": "South", "branch_manager": "Existing Manager",
+    "camera_name": "Vault Room Camera", "source_id": "source-1", "source_type": "rtsp",
+    "registry_camera_id": "registry-camera-1", "assignment_id": "assignment-1",
+    "location_id": "location-1", "location_name": "Vault Room",
+}
 
 
 def _alert(**changes):
@@ -79,6 +88,22 @@ def _adapter(factory, handler, *, clock=lambda: datetime(2026, 10, 28, 10, 5, tz
     )
 
 
+@pytest.mark.parametrize('changes', [{'type':'PERSON_ENTERED'}, {'type':'CAMERA_ACTIVITY'},
+    {'metadata_json':{'replay':True}}, {'source':'REPLAY'}])
+def test_routine_and_replay_records_do_not_enter_vault_publication_outbox(changes):
+    engine, factory = _database()
+    adapter = _adapter(factory, lambda request:httpx.Response(201, json={'id':'unexpected'}))
+    with factory() as db:
+        row = _alert(**changes)
+        identifier = row.id
+        db.add(row)
+        db.flush()
+        adapter.enqueue(db, row)
+    with factory() as db:
+        assert db.get(VaultRoomAlert, identifier) is not None
+        assert db.scalars(select(VaultAuditEvent)).all() == []
+
+
 def test_vault_contract_mapping_is_stable_and_excludes_unapproved_metadata():
     payload = build_payload(_alert(incident_id="vault-incident-1"))
     assert payload["source_event_id"] == "f098ca36-7912-4cb9-980e-7d4eb51e3d33"
@@ -94,6 +119,135 @@ def test_vault_contract_mapping_is_stable_and_excludes_unapproved_metadata():
     assert "incident_id" not in payload
     unsafe_reference = build_payload(_alert(camera_id="rtsp://user:pass@example.invalid/stream"))
     assert "camera_id" not in unsafe_reference["resource_refs"]
+
+
+def test_vault_snapshot_metadata_maps_to_approved_common_alert_references():
+    payload = build_payload(_alert(metadata_json={**SOURCE_METADATA, "password": "must-not-leak"}))
+    assert payload["resource_refs"] == {
+        "camera_id": "camera-7", "session_ref": "session-ref", **SOURCE_METADATA}
+    assert "password" not in json.dumps(payload).lower()
+
+
+def test_mobile_phone_alert_is_published_with_high_severity_and_attribution():
+    engine, factory = _database()
+    requests = []
+    adapter = _adapter(factory, lambda request: requests.append(request) or
+        httpx.Response(201, request=request))
+    alert = _alert(type="MOBILE_PHONE_DETECTED", severity="HIGH", metadata_json=SOURCE_METADATA)
+    alert_id = _enqueue(engine, adapter, alert)
+    assert adapter.dispatch_once() == 1
+    body = json.loads(requests[0].content)
+    assert body["source_event_id"] == alert_id
+    assert body["source_event_type"] == "MOBILE_PHONE_DETECTED"
+    assert body["severity"] == "HIGH"
+    assert body["resource_refs"]["branch_id"] == "branch-1"
+    assert body["resource_refs"]["camera_name"] == "Vault Room Camera"
+    engine.dispose()
+
+
+@pytest.mark.parametrize("metadata", [None, {}, {"reason": "legacy"}])
+def test_alerts_without_source_metadata_publish_unattributed(metadata):
+    refs = build_payload(_alert(metadata_json=metadata))["resource_refs"]
+    assert refs == {"camera_id": "camera-7", "session_ref": "session-ref"}
+
+
+def test_vault_source_alert_projection_exposes_only_safe_snapshot_metadata():
+    from app.api.routes.alerts import _item
+    engine, factory = _database()
+    with factory() as db:
+        row = _alert(metadata_json={**SOURCE_METADATA, "password": "must-not-leak"})
+        db.add(row)
+        db.flush()
+        item = _item(db, row)
+    for key in ("branch_id", "branch_code", "branch_name", "place_name", "region_name",
+                "branch_manager", "camera_name"):
+        assert item[key] == SOURCE_METADATA[key]
+    assert "password" not in item
+    engine.dispose()
+
+
+@pytest.mark.parametrize("status", ["OPEN", "ACKNOWLEDGED", "RESOLVED", "DISMISSED"])
+def test_lifecycle_and_evidence_payloads_keep_original_snapshot(status):
+    from app.services.vault_alert_lifecycle import current_payload
+    engine, factory = _database()
+    with factory() as db:
+        row = _alert(metadata_json=SOURCE_METADATA, evidence_status="CAPTURED")
+        db.add(row)
+        db.add(VaultEvidence(id="evidence-1", alert_id=row.id, evidence_type="snapshot",
+            storage_public_id="vault/evidence-1", available=True))
+        db.flush()
+        if status != "OPEN":
+            VaultMonitoringRepository(db).transition_alert(row.id, status, actor_id="operator",
+                note="Reviewed" if status in {"RESOLVED", "DISMISSED"} else None)
+        payload = current_payload(db, row)
+    assert payload["source_status"] == status
+    assert payload["resource_refs"] == {
+        "camera_id": "camera-7", "session_ref": "session-ref", **SOURCE_METADATA}
+    assert payload["evidence_refs"] == [
+        {"provider": "vault_monitoring", "id": "evidence-1", "type": "snapshot"}]
+    engine.dispose()
+
+
+@pytest.mark.parametrize('session_reference', [None, 'camera_id', 'assignment_id', 'location_id'])
+def test_vault_payload_supports_legacy_session_columns(session_reference, tmp_path, monkeypatch):
+    from uuid import uuid4
+    from app.db.models.camera_registry import RegistryLocation, RegistryCamera, CameraUseCaseAssignment
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    engine, factory = _database()
+    location_id, camera_id, assignment_id = [str(uuid4()) for _ in range(3)]
+    with engine.begin() as conn:
+        conn.execute(text('DROP TABLE vault_room_sessions'))
+        optional = f', {session_reference} VARCHAR(36)' if session_reference else ''
+        conn.execute(text('CREATE TABLE vault_room_sessions (session_ref VARCHAR(36)' + optional + ')'))
+        values = {'camera_id':camera_id, 'assignment_id':assignment_id, 'location_id':location_id}
+        if session_reference:
+            conn.execute(text(f'INSERT INTO vault_room_sessions (session_ref,{session_reference}) VALUES (:ref,:value)'),
+                {'ref':'session-ref', 'value':values[session_reference]})
+        else:
+            conn.execute(text("INSERT INTO vault_room_sessions (session_ref) VALUES ('session-ref')"))
+    with factory() as db:
+        db.add(RegistryLocation(id=location_id, code='LEGACY', name='Existing location'))
+        db.add(RegistryCamera(id=camera_id, location_id=location_id, code='LEGACY-CAM', name='Existing camera'))
+        db.add(CameraUseCaseAssignment(id=assignment_id, camera_id=camera_id, use_case='vault-room', configuration={}))
+        alert = _alert()
+        db.add(alert)
+        db.flush()
+        refs = build_payload(alert)['resource_refs']
+        assert refs['session_ref'] == alert.session_ref
+        assert refs['camera_id'] == 'camera-7'
+        if session_reference:
+            assert refs['location_id'] == location_id
+            assert refs['location_name'] == 'Existing location'
+        else:
+            assert 'location_id' not in refs and 'registry_camera_id' not in refs
+        assert db.scalar(select(VaultRoomAlert.id)) == alert.id
+
+
+def test_vault_public_references_keep_session_source_and_registry_identity(tmp_path, monkeypatch):
+    from uuid import uuid4
+    from app.db.models.camera_registry import RegistryLocation, RegistryCamera, CameraUseCaseAssignment
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    engine, factory = _database()
+    location_id, camera_id, assignment_id, source_id = [str(uuid4()) for _ in range(4)]
+    with factory() as db:
+        db.add(RegistryLocation(id=location_id, code='BR-1', name='Registry location'))
+        db.add(RegistryCamera(id=camera_id, location_id=location_id, code='CAM-1', name='Vault camera'))
+        db.add(CameraUseCaseAssignment(id=assignment_id, camera_id=camera_id, use_case='vault-room',
+            configuration={'source_id':source_id}))
+        db.flush()
+        alert = _alert(camera_id=camera_id, metadata_json={'assignment_id':assignment_id,
+            'branch_id':'known-branch', 'branch_name':'Explicit branch', 'password':'never-copy'})
+        db.add(alert)
+        db.flush()
+        payload = build_payload(alert)
+        refs = payload['resource_refs']
+        assert refs['camera_id'] == camera_id and refs['camera_name'] == 'Vault camera'
+        assert refs['session_ref'] == 'session-ref' and refs['source_id'] == source_id
+        assert refs['assignment_id'] == assignment_id and refs['location_id'] == location_id
+        assert refs['branch_name'] == 'Explicit branch' and 'never-copy' not in json.dumps(payload)
+        alert.row_version += 1
+        assert build_payload(alert)['resource_refs'] == refs
+    engine.dispose()
 
 
 def test_publication_is_authenticated_idempotent_and_durable_across_adapter_restart():
@@ -137,8 +291,12 @@ def test_transport_failure_is_persisted_and_recovered_after_restart():
 
     base = datetime(2026, 10, 28, 10, 5, tzinfo=timezone.utc)
     first_adapter = _adapter(factory, fail, clock=lambda: base)
-    alert_id = _enqueue(engine, first_adapter)
+    alert_id = _enqueue(engine, first_adapter, _alert(metadata_json=SOURCE_METADATA))
     assert first_adapter.dispatch_once() == 1
+    with Session(engine) as db:
+        db.get(VaultRoomAlert, alert_id).metadata_json = {
+            **SOURCE_METADATA, "branch_id": "branch-2", "branch_name": "Changed later"}
+        db.commit()
 
     success_requests = []
 
@@ -151,6 +309,7 @@ def test_transport_failure_is_persisted_and_recovered_after_restart():
     assert len(failed_requests) == len(success_requests) == 1
     assert failed_requests[0].headers["idempotency-key"] == success_requests[0].headers["idempotency-key"]
     assert failed_requests[0].content == success_requests[0].content
+    assert json.loads(success_requests[0].content)["resource_refs"]["branch_id"] == "branch-1"
 
     with Session(engine) as db:
         actions = list(db.scalars(select(VaultAuditEvent.action)

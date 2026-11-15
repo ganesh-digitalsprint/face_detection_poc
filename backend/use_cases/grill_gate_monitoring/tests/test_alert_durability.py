@@ -23,6 +23,58 @@ from grill_gate_monitoring.api import grill_gate
 
 T0 = datetime(2026, 11, 11, tzinfo=timezone.utc)
 
+
+@pytest.mark.parametrize('video', [False, True])
+@pytest.mark.parametrize('alert_type', ['GATE_OPEN_WITHOUT_CROSSING', 'GATE_OPEN_TOO_LONG'])
+def test_public_metadata_preserves_typed_source_references(video, alert_type, tmp_path, monkeypatch):
+    from grill_gate_monitoring.services.alert_delivery import public_payload
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    local_id, source_id, camera_id, assignment_id, job_id, template_id = [str(uuid4()) for _ in range(6)]
+    snapshot_id=str(uuid4())
+    store=GrillGateEvidence(tmp_path)
+    store.root.mkdir(parents=True)
+    store.path(snapshot_id).write_bytes(b'test snapshot')
+    monkeypatch.setattr(alert_evidence,'_evidence',store)
+    refs = {'video_job_id':job_id} if video else {'assignment_id':assignment_id}
+    evidence = [{'id':snapshot_id, 'storage_id':snapshot_id, 'provider':'grill_gate', 'type':'snapshot',
+        'retrieval_path':f'/api/v1/grill-gate/alerts/{local_id}/evidence/{snapshot_id}?'
+            + ('video_job_id='+job_id if video else 'assignment_id='+assignment_id)}]
+    domain = {'source_id':'source-reference', 'branch_id':'explicit-branch', 'branch_name':'Explicit branch',
+              'branch_code':'C99127-01',
+              'place_name':'Configured place', 'region_name':'Configured region',
+              'branch_manager':'Configured manager'}
+    if video:
+        domain.update(template_assignment_id=template_id, camera_id=job_id,
+                      camera_name='Uploaded video', video_filename='gate.mp4')
+    row = GrillGateAlert(id=local_id, source_event_id=source_id, source_event_version=1,
+        source_event_type=alert_type, camera_id=None if video else camera_id,
+        camera_name=None if video else 'Gate camera', assignment_id=None if video else assignment_id,
+        video_job_id=job_id if video else None, severity='WARNING', status='OPEN', title='Gate alert',
+        summary='Details', occurred_at=T0, triggered_at=T0, updated_at=T0, resource_refs=refs,
+        domain_data=domain, evidence_refs=evidence)
+    first = public_payload(row)
+    assert first['source_event_id'] == source_id and first['source_event_type'] == alert_type
+    assert first['resource_refs']['source_id'] == 'source-reference'
+    assert first['resource_refs']['branch_id'] == 'explicit-branch'
+    assert first['resource_refs']['branch_code'] == 'C99127-01'
+    assert first['resource_refs']['place_name'] == 'Configured place'
+    assert first['resource_refs']['region_name'] == 'Configured region'
+    assert first['resource_refs']['branch_manager'] == 'Configured manager'
+    assert first['evidence_refs'] == evidence
+    if video:
+        assert first['resource_refs']['video_job_id'] == job_id
+        assert first['resource_refs']['template_assignment_id'] == template_id
+        assert first['resource_refs']['camera_name'] == 'Uploaded video'
+        assert first['resource_refs']['video_filename'] == 'gate.mp4'
+        assert 'camera_id' not in first['resource_refs']
+    else:
+        assert first['resource_refs']['camera_id'] == camera_id
+        assert first['resource_refs']['assignment_id'] == assignment_id
+    row.source_event_version = 2
+    row.status = 'ACKNOWLEDGED'
+    newer = public_payload(row)
+    assert newer['resource_refs'] == first['resource_refs'] and newer['evidence_refs'] == evidence
+
 @pytest.fixture
 def h(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{(tmp_path / 'incidents.db').as_posix()}", connect_args={"check_same_thread": False})
@@ -139,9 +191,18 @@ def test_manual_status_commits_a_mirrored_transition_without_deleting_incident(h
     assert result.json()["status"] == target
     with h.factory() as db:
         assert db.get(GrillGateAlert, row.id) is not None
-        changes = db.scalars(select(VaultAuditEvent)).all()
+        changes = db.scalars(select(VaultAuditEvent).where(VaultAuditEvent.entity_type == ENTITY)).all()
         assert len(changes) == 2
         assert any(item.details["payload"]["source_status"] == target for item in changes)
+        audit = db.scalar(select(VaultAuditEvent).where(VaultAuditEvent.entity_type == "grill_gate_alert"))
+        assert audit.details["actor_id"] == "test" and audit.details["note"] == "Reviewed by operator"
+        assert audit.details["from_status"] == "OPEN" and audit.details["to_status"] == target
+        assert audit.details["acted_at"]
+        if target == "ACKNOWLEDGED":
+            assert result.json()["acknowledgement_comment"] == "Reviewed by operator"
+            assert result.json()["acknowledged_at"] and result.json()["acknowledged_by"] == "test"
+        if target == "DISMISSED":
+            assert result.json()["dismissed_at"] and result.json()["resolved_at"] is None
 
 def test_backfill_defaults_to_dry_run_and_is_idempotent(h):
     row = saved(h, command())
@@ -192,12 +253,12 @@ def test_vault_identity_is_rejected_before_any_common_create(h):
     assert remote.posts == []
     with h.factory() as db: assert db.scalar(select(VaultAuditEvent)).action == FAILED
 
-def test_automatic_recovery_is_mirrored_after_create(h):
+def test_legacy_automatic_recovery_does_not_close_a_persisted_incident(h):
     value = command(); row = saved(h, value); remote = Remote()
     publisher(h, remote).drain_database_once()
     assert h.writer.submit({"action": "resolve", "source_event_id": value["source_event_id"], "note": "Gate closed"})
     publisher(h, remote).drain_database_once()
-    assert remote.rows[row.source_event_id]["source_status"] == "RESOLVED"
+    assert remote.rows[row.source_event_id]["source_status"] == "OPEN"
 
 
 def test_active_history_filtering_keeps_resolved_rows(h, monkeypatch):
@@ -206,7 +267,7 @@ def test_active_history_filtering_keeps_resolved_rows(h, monkeypatch):
     active = f"/api/v1/grill-gate/assignments/{row.assignment_id}/alerts/active"
     history = f"/api/v1/grill-gate/assignments/{row.assignment_id}/alerts/history"
     assert len(h.client.get(active).json()["items"]) == 1
-    assert h.writer.submit({"action": "resolve", "source_event_id": row.source_event_id, "note": "Confirmed gate closure"})
+    assert h.client.post(f"/api/v1/grill-gate/alerts/{row.id}/resolve", json={"expected_version": row.row_version, "note": "Operator reviewed the incident"}).status_code == 200
     assert h.client.get(active).json()["items"] == []
     assert len(h.client.get(history).json()["items"]) == 1
     assert h.client.get(f"/api/v1/grill-gate/alerts/{row.id}").json()["status"] == "RESOLVED"
@@ -223,6 +284,10 @@ def test_final_video_reconciliation_stages_publication_and_captures_real_evidenc
         db.add(GrillGateVideoJob(id=job_id, original_filename="final.avi", storage_path=str(path),
             status="COMPLETED", progress_seconds=6, completed_at=T0, config_snapshot={
                 "alert_configuration": {"gate_open_enabled": True, "max_gate_open_seconds": 4},
+                "source_metadata": {"source_type": "UPLOADED_VIDEO", "camera_name": "Uploaded video",
+                    "branch_id": "branch-1", "branch_code": "C99127-01", "branch_name": "Koramangala", "place_name": "Bengaluru",
+                    "region_name": "South", "branch_manager": "Existing Manager",
+                    "video_filename": "final.avi"},
                 "final_status": {"gate_state": "FULLY_OPEN", "open_without_crossing_seconds": 4,
                     "open_without_crossing_threshold_seconds": 4}}))
         db.commit()
@@ -237,8 +302,15 @@ def test_final_video_reconciliation_stages_publication_and_captures_real_evidenc
     with h.factory() as db:
         row = db.get(GrillGateAlert, response.json()["alert_id"])
         assert row.evidence_refs[0]["video_timestamp_seconds"] == 6
+        assert row.domain_data["branch_name"] == "Koramangala"
         assert db.scalar(select(func.count()).select_from(VaultAuditEvent)) == 1
-        assert db.scalar(select(VaultAuditEvent)).details["payload"]["evidence_refs"]
+        published = db.scalar(select(VaultAuditEvent)).details["payload"]
+        assert published["evidence_refs"]
+        assert published["resource_refs"]["camera_name"] == "Uploaded video"
+        assert published["resource_refs"]["branch_code"] == "C99127-01"
+        assert published["resource_refs"]["place_name"] == "Bengaluru"
+        assert published["resource_refs"]["region_name"] == "South"
+        assert published["resource_refs"]["branch_manager"] == "Existing Manager"
 
 
 def test_mesh_gap_does_not_report_recovery():
@@ -322,4 +394,46 @@ def test_missing_mesh_track_does_not_resolve_until_confirmed_observation_returns
     processor._apply_mesh_alert_observation([], T0)
     assert [item["action"] for item in sent] == ["create"]
     processor._apply_mesh_alert_observation([{"track_id": 1, "confidence": 1}], T0)
-    assert [item["action"] for item in sent] == ["create", "resolve"]
+    assert [item["action"] for item in sent] == ["create"]
+
+
+@pytest.mark.parametrize("recovery", ["gate_closed", "crossing_reset", "video_completed"])
+def test_condition_recovery_and_completion_keep_persisted_incident_open(h, recovery):
+    from datetime import timedelta
+    from grill_gate_monitoring.schemas.alerts import GrillGateAlertConfig
+    from grill_gate_monitoring.services.alert_rule_engine import GrillGateAlertRuleEngine
+    rule = GrillGateAlertRuleEngine(str(uuid4()), str(uuid4()), h.writer.submit,
+        config=GrillGateAlertConfig(gate_open_enabled=True, max_gate_open_seconds=3))
+    rule.on_crossing_activity(0, True, T0)
+    rule.on_gate_transition("OPEN", T0)
+    rule.tick(T0 + timedelta(seconds=3))
+    with h.factory() as db:
+        before = db.scalar(select(GrillGateAlert))
+        identity = before.id
+    if recovery == "gate_closed": rule.on_gate_transition("CLOSED", T0 + timedelta(seconds=4))
+    elif recovery == "crossing_reset": rule.on_crossing_activity(1, True, T0 + timedelta(seconds=4))
+    else: rule.reset()
+    with h.factory() as db:
+        row = db.get(GrillGateAlert, identity)
+        assert row.status == "OPEN" and row.row_version == 1 and row.resolved_at is None
+        assert db.scalar(select(func.count()).select_from(GrillGateAlert)) == 1
+
+
+def test_action_audit_and_outbox_are_atomic_and_stale_retries_do_not_duplicate(h, monkeypatch):
+    row = saved(h, command())
+    original = grill_gate.stage_publication
+    monkeypatch.setattr(grill_gate, "stage_publication", lambda *args: (_ for _ in ()).throw(RuntimeError("outbox unavailable")))
+    with pytest.raises(RuntimeError):
+        h.client.post(f"/api/v1/grill-gate/alerts/{row.id}/acknowledge", json={"expected_version":1,"note":"Checked snapshot"})
+    with h.factory() as db:
+        assert db.get(GrillGateAlert, row.id).status == "OPEN"
+        assert db.scalar(select(func.count()).select_from(VaultAuditEvent).where(VaultAuditEvent.entity_type == "grill_gate_alert")) == 0
+    monkeypatch.setattr(grill_gate, "stage_publication", original)
+    url = f"/api/v1/grill-gate/alerts/{row.id}/acknowledge"
+    body = {"expected_version":1,"note":"  Checked snapshot  "}
+    assert h.client.post(url, json=body).status_code == 200
+    assert h.client.post(url, json=body).status_code == 409
+    stored = h.client.get(f"/api/v1/grill-gate/alerts/{row.id}").json()
+    assert stored["acknowledgement_comment"] == "Checked snapshot"
+    with h.factory() as db:
+        assert db.scalar(select(func.count()).select_from(VaultAuditEvent).where(VaultAuditEvent.entity_type == "grill_gate_alert")) == 1

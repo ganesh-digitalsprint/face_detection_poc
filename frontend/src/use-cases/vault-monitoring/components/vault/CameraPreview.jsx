@@ -7,7 +7,7 @@ const FRAME_CLASSES = {
   default: 'aspect-video rounded-lg bg-slate-900',
   // Vault stage: tall, dark ground; overlays are positioned over it by `children`.
   stage: 'min-h-[360px] rounded-xl bg-[#0B1224] lg:min-h-[560px]',
-  room: 'min-h-[560px] rounded-xl bg-[#0B1224]',
+  room: 'room-camera-frame aspect-[2.44/1] rounded-xl bg-[#0B1224]',
 };
 
 /**

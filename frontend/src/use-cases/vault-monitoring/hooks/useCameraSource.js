@@ -43,6 +43,7 @@ export default function useCameraSource() {
   const [status, setStatus] = useState('idle'); // idle | starting | ready | error
   const [error, setError] = useState(null);
   const [cctvSession, setCctvSession] = useState(null);
+  const [name, setName] = useState(null);
 
   const release = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -57,11 +58,14 @@ export default function useCameraSource() {
     setKind(null);
     setStatus('idle');
     setError(null);
+    setName(null);
   }, [release]);
 
-  const start = useCallback(async (nextKind, { streamIndex = 0, rtspUrl } = {}) => {
+  const start = useCallback(async (nextKind, { streamIndex = 0, rtspUrl, cameraLabel } = {}) => {
     release();
     setKind(nextKind);
+    setName(nextKind === CAMERA_KINDS.WEBCAM ? 'Entrance Camera'
+      : cameraLabel?.trim() || `CCTV Camera ${streamIndex + 1}`);
     setStatus('starting');
     setError(null);
     try {
@@ -115,7 +119,7 @@ export default function useCameraSource() {
   useEffect(() => release, [release]);
 
   return {
-    kind, status, error, cctvSession, videoRef, imgRef,
+    kind, status, error, name, cctvSession, videoRef, imgRef,
     start, stop, captureFrame, markCctvReady, markCctvFailed,
   };
 }

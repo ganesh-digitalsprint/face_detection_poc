@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
+event_publisher = None
 
 
 async def startup(settings: Settings | None = None) -> None:
@@ -41,6 +42,12 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
         try:
             yield session
             await session.commit()
+            if event_publisher is not None:
+                for event_id in session.info.pop("alert_sync_ids", set()):
+                    try:
+                        await event_publisher.enqueue_committed(event_id)
+                    except Exception:
+                        logger.exception("Committed event publication failed: %s", event_id)
         except Exception:
             await session.rollback()
             raise

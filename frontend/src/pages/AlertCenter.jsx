@@ -1,33 +1,22 @@
+// @refresh reset
+import { alertAuthority, authorityErrorMessage } from '../api/alertAuthority.js';
+import ServiceAlertDetail from '../components/alerts/CommonAlertDetail.jsx';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { AlertCard, AlertEvidenceDetails } from '../components/alerts/AlertPresentation.jsx';
+import { useSearchParams } from 'react-router-dom';
+import { AlertCard } from '../components/alerts/AlertPresentation.jsx';
 import { Bell, RefreshCw } from 'lucide-react';
-import { getServiceAudit, transitionServiceAlert } from '../api/alertService.js';
+import { getServiceAlert, getServiceAudit } from '../api/alertService.js';
 import {
-  ACTIVE_STATUSES, SEVERITIES, STATUSES, USE_CASE_LABELS, availableActions, buildAlertParams, buildLifecycleBody,
-  describeServiceError, isStaleConflict, useCaseLabel, alertSourceLink, alertSourceLabel,
+  buildAlertParams, buildLifecycleBody,
+  describeServiceError, isStaleConflict, useCaseLabel,
 } from '../api/alertServiceModel.js';
-import { ALERT_POLL_MS, ALERT_SERVICE_ACTIONS_ENABLED } from '../config/services.js';
+import { ALERT_POLL_MS } from '../config/services.js';
 import useServiceAlerts from '../hooks/useServiceAlerts.js';
-import { faceMaskEventLink } from '../layouts/routes.js';
-
-const SEVERITY_STYLE = {
-  CRITICAL: 'bg-red-100 text-red-800', HIGH: 'bg-orange-100 text-orange-800',
-  WARNING: 'bg-amber-100 text-amber-800', INFO: 'bg-sky-100 text-sky-800',
-};
-const STATUS_STYLE = {
-  OPEN: 'bg-red-50 text-red-700', ACKNOWLEDGED: 'bg-amber-50 text-amber-800',
-  RESOLVED: 'bg-emerald-50 text-emerald-700', DISMISSED: 'bg-slate-100 text-slate-600',
-};
-const SOURCE_LINK = { vault_monitoring: '/alerts/vault', branch_exterior: '/alerts/branch', face_mask: '/alerts/face-mask' };
-/** Where "Open in <source>" goes. Face Mask alerts deep-link to the exact event (its id is the alert's source_event_id). */
-const linkFor = (alert) => (alert.useCase === 'face_mask' && alert.sourceEventId
-  ? faceMaskEventLink(alert.sourceEventId) : SOURCE_LINK[alert.useCase]);
-const fmt = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—');
-
-function Pill({ className, children }) {
-  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${className}`}>{children}</span>;
-}
+import useAlertEvidence from '../hooks/useAlertEvidence.js';
+import { evidenceFields, matchesEvidence } from '../api/alertEvidence.js';
+import './AlertCenter.css';
+import AlertFilterToolbar from '../components/alerts/AlertFilterToolbar.jsx';
+import { useOptionalActiveBranch } from '../features/branches/ActiveBranch.jsx';
 
 function SummaryTile({ label, value, critical = false }) {
   return <section className={`vault-card min-h-24 p-4 ${critical ? 'border-red-200' : ''}`} aria-label={label}>
@@ -36,64 +25,11 @@ function SummaryTile({ label, value, critical = false }) {
   </section>;
 }
 
-function Timeline({ audit }) {
-  if (audit.loading) return <p className="text-xs text-slate-500">Loading timeline…</p>;
-  if (audit.error) return <p className="text-xs text-red-700" role="alert">{audit.error}</p>;
-  if (!audit.rows.length) return <p className="text-xs text-slate-500">No timeline entries.</p>;
-  return <ol className="space-y-2 border-l border-slate-200 pl-3" aria-label="Event timeline">
-    {audit.rows.map((row) => <li key={row.id} className="text-xs">
-      <p className="font-semibold text-[#152449]">{row.action}{row.from_status && row.to_status ? ` · ${row.from_status} → ${row.to_status}` : ''}</p>
-      <p className="text-slate-500">{fmt(row.created_at)}{row.actor_id ? ` · ${row.actor_id}` : ''}</p>
-      {row.details?.note && <p className="text-slate-600">{row.details.note}</p>}
-    </li>)}
-  </ol>;
-}
-
-export function ServiceAlertDetail({ alert, audit, actionsEnabled, pending, notice, onAction, onClose }) {
-  const [note, setNote] = useState('');
-  useEffect(() => setNote(''), [alert.id, alert.rowVersion]);
-  const actions = availableActions(alert, actionsEnabled);
-  const sourceLink = alertSourceLink(alert);
-  return <div className="vault-card sticky top-24 space-y-4 p-4 sm:p-5">
-    <div className="flex items-start justify-between gap-2">
-      <div><div className="mb-2 flex flex-wrap gap-2"><Pill className={SEVERITY_STYLE[alert.severity] || 'bg-slate-100'}>{alert.severity}</Pill><Pill className={STATUS_STYLE[alert.status] || 'bg-slate-100'}>{alert.status}</Pill></div>
-        <h2 className="mt-1 text-lg font-bold text-[#152449]">{alert.title}</h2></div>
-      <button type="button" onClick={onClose} className="min-h-9 rounded px-2 text-sm text-slate-500" aria-label="Close alert details">Close</button>
-    </div>
-    <p className="text-sm text-slate-500">{alertSourceLabel(alert)} &middot; {useCaseLabel(alert.useCase)}</p>
-    <p className="text-sm leading-relaxed text-slate-700">{alert.summary}</p>
-    {alert.useCase === 'grill_gate' && <AlertEvidenceDetails alert={alert} />}
-    <dl className="grid grid-cols-2 gap-3 text-xs">
-      <div><dt className="text-slate-500">Source</dt><dd className="mt-1 font-bold">{useCaseLabel(alert.useCase)}</dd></div>
-      <div><dt className="text-slate-500">Camera / video</dt><dd className="mt-1 break-words font-bold">{alertSourceLabel(alert)}</dd></div>
-      <div><dt className="text-slate-500">Alert ID</dt><dd className="mt-1 break-all font-bold">{alert.id}</dd></div>
-      <div><dt className="text-slate-500">Source event</dt><dd className="mt-1 break-all font-bold">{alert.sourceEventId}</dd></div>
-      <div><dt className="text-slate-500">Severity</dt><dd className="mt-1 font-bold">{alert.severity}{alert.sourceSeverity && alert.sourceSeverity !== alert.severity ? ` (source: ${alert.sourceSeverity})` : ''}</dd></div>
-      <div><dt className="text-slate-500">Status</dt><dd className="mt-1 font-bold">{alert.status}{alert.sourceStatus ? ` (source: ${alert.sourceStatus})` : ''}</dd></div>
-      <div><dt className="text-slate-500">Occurred</dt><dd className="mt-1 font-bold">{fmt(alert.occurredAt)}</dd></div>
-      <div><dt className="text-slate-500">Occurrences</dt><dd className="mt-1 font-bold">{alert.occurrenceCount}</dd></div>
-      {alert.acknowledgedAt && <div><dt className="text-slate-500">Acknowledged</dt><dd className="mt-1 font-bold">{fmt(alert.acknowledgedAt)} · {alert.acknowledgedBy}</dd></div>}
-      {alert.resolvedAt && <div><dt className="text-slate-500">Resolved</dt><dd className="mt-1 font-bold">{fmt(alert.resolvedAt)} · {alert.resolvedBy}</dd></div>}
-      {alert.dismissedAt && <div><dt className="text-slate-500">Dismissed</dt><dd className="mt-1 font-bold">{fmt(alert.dismissedAt)} · {alert.dismissedBy}</dd></div>}
-    </dl>
-    {alert.resolutionNote && <p className="text-xs text-slate-600">Note: {alert.resolutionNote}</p>}
-    <div><h3 className="mb-2 text-xs font-semibold uppercase text-slate-500">Timeline</h3><Timeline audit={audit} /></div>
-    {actions.length > 0 && <div className="space-y-2">
-      <textarea aria-label="Note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2}
-        placeholder="Note (required to resolve or dismiss)" className="w-full rounded-lg border border-slate-200 p-2 text-sm" />
-      <div className="flex flex-wrap gap-2">
-        {actions.map((action) => <button key={action.target} type="button" disabled={pending} onClick={() => onAction(alert, action.target, note)}
-          className="min-h-10 flex-1 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-[#26365F] disabled:opacity-50">{action.label}</button>)}
-      </div>
-    </div>}
-    {(!actionsEnabled || alert.useCase === 'grill_gate') && <p className="text-xs text-slate-500">{useCaseLabel(alert.useCase)} manages this alert's lifecycle. Use the source monitoring page for actions.</p>}
-    {notice && <p className="text-sm text-slate-700" role="status" aria-live="polite">{notice}</p>}
-    {sourceLink && <Link to={sourceLink} className="block text-center text-sm font-semibold text-[#34479B] underline">Open in {useCaseLabel(alert.useCase)}</Link>}
-  </div>;
-}
+export { default as ServiceAlertDetail } from '../components/alerts/CommonAlertDetail.jsx';
 
 export default function AlertCenter() {
   const [query, setQuery] = useSearchParams();
+  const activeBranch = useOptionalActiveBranch()?.scope;
   const status = query.get('status') || '';
   const useCase = query.get('use_case') || '';
   const severity = query.get('severity') || '';
@@ -102,24 +38,72 @@ export default function AlertCenter() {
   const to = query.get('to') || '';
   const sort = query.get('sort') || 'newest';
   const [typeInput, setTypeInput] = useState(sourceType);
-  const [selectedId, setSelectedId] = useState(null);
+  const selectedId = query.get('alert_id');
+  const [detailRecord, setDetailRecord] = useState(null);
+  const [detailLoadError, setDetailLoadError] = useState('');
+  const setSelectedId = (id) => {
+    const next = new URLSearchParams(query);
+    if (id) next.set('alert_id', id);
+    else { next.delete('alert_id'); next.delete('source_event_id'); }
+    setQuery(next);
+  };
   const group = query.get('group') || '';
   const cameraId = query.get('camera_id') || '';
+  const branchId = query.get('branch_id') || '';
   const evidence = query.get('evidence') || '';
   const sourceEventId = query.get('source_event_id') || '';
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
   const [audit, setAudit] = useState({ loading: false, rows: [], error: '' });
 
-  const params = useMemo(() => ({ ...buildAlertParams({ status, useCase, severity, sourceType, from, to, sort, limit: 25 }), ...(group && !status ? { group } : {}), ...(cameraId ? { camera_id: cameraId } : {}), ...(sourceEventId ? { source_event_id: sourceEventId } : {}) }),
-    [status, useCase, severity, sourceType, from, to, sort, group, cameraId, sourceEventId]);
+  useEffect(() => {
+    if (activeBranch?.type !== 'branch' || query.get('branch_id') === activeBranch.id) return;
+    const next = new URLSearchParams(query);
+    next.set('branch_id', activeBranch.id);
+    next.delete('camera_id');
+    setQuery(next, { replace: true });
+  }, [activeBranch?.id, activeBranch?.type, query, setQuery]);
+
+  const params = useMemo(() => ({ ...buildAlertParams({ status, useCase, severity, sourceType, from, to, sort, limit: 6 }), ...(group && !status ? { group } : {}), ...(cameraId ? { camera_id: cameraId } : {}), ...(branchId ? { branch_id: branchId } : {}), ...(sourceEventId ? { source_event_id: sourceEventId } : {}) }),
+    [status, useCase, severity, sourceType, from, to, sort, group, cameraId, branchId, sourceEventId]);
   const feed = useServiceAlerts({ params, status: status || group, pollMs: ALERT_POLL_MS });
-  const visibleItems = feed.items.filter((item) => !evidence || item.evidenceStatus === evidence);
-  const selected = feed.items.find((item) => item.id === selectedId || (selectedId === null && sourceEventId && item.sourceEventId === sourceEventId)) || null;
+  useEffect(() => {
+    setDetailRecord(null);
+    setDetailLoadError('');
+    if (!selectedId) return undefined;
+    const controller = new AbortController();
+    getServiceAlert(selectedId, controller.signal).then((row) => {
+      if (!controller.signal.aborted) setDetailRecord(row);
+    }).catch((error) => {
+      if (!controller.signal.aborted) setDetailLoadError(describeServiceError(error).message);
+    });
+    return () => controller.abort();
+  }, [selectedId]);
+  const evidenceRecords = useMemo(() => detailRecord && detailRecord.id === selectedId && !feed.items.some((row) => row.id === selectedId)
+    ? [...feed.items, detailRecord] : feed.items, [feed.items, detailRecord, selectedId]);
+  const evidenceItems=useAlertEvidence(evidenceRecords);
+  const visibleItems = evidenceItems.filter((item) => feed.items.some((row) => row.id === item.id) && matchesEvidence(item,evidence));
+  const selected = evidenceItems.find((item) => item.id === selectedId || (selectedId === null && sourceEventId && item.sourceEventId === sourceEventId)) || null;
+  const [sourceDetail, setSourceDetail] = useState(null);
+  const [sourceError, setSourceError] = useState('');
+  const [sourceRetry, setSourceRetry] = useState(0);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  useEffect(() => {
+    const ctl=new AbortController(); setSourceError(''); setSourceDetail(null);
+    if (!selected) { setSourceLoading(false); return () => ctl.abort(); }
+    setSourceLoading(true);
+    alertAuthority.load(selected,ctl.signal).then((row)=>{if(!ctl.signal.aborted)setSourceDetail(row);})
+      .catch((error)=>{if(!ctl.signal.aborted)setSourceError(authorityErrorMessage(error));})
+      .finally(()=>{if(!ctl.signal.aborted)setSourceLoading(false);});
+    return ()=>ctl.abort();
+  },[selected?.id,selected?.sourceEventVersion,sourceRetry]);
+  const detailed = sourceDetail?.id === selected?.id && selected ? {...sourceDetail,...evidenceFields(selected)} : selected;
+
 
   const setFilter = (key, value) => {
     const next = new URLSearchParams(query);
     if (value) next.set(key, value); else next.delete(key);
+    if (key === 'branch_id') next.delete('camera_id');
     if (key === 'group') next.delete('status');
     if (key === 'status') next.delete('group');
     setQuery(next);
@@ -150,26 +134,38 @@ export default function AlertCenter() {
     try { body = buildLifecycleBody(alert, target, note); } catch (err) { setNotice(err.message); return; }
     setPending(true);
     try {
-      const updated = await transitionServiceAlert(alert.id, target, body);
+      const updated = await alertAuthority.transition(alert, target, body);
       feed.applyUpdate(updated);
+      setDetailRecord(updated);
+      setSourceDetail(updated);
       setNotice(`Alert ${updated.status.toLowerCase()}.`);
     } catch (error) {
       const info = describeServiceError(error);
       setNotice(info.message);
-      if (isStaleConflict(info)) await feed.refresh();
+      if (isStaleConflict(info)) {
+        try { const latest=await alertAuthority.load(alert);setSourceDetail(latest);feed.applyUpdate(latest); } catch { setSourceError('Could not reload the source alert. Retry after the source service is available.'); }
+        await feed.refresh();
+      }
     } finally { setPending(false); }
   }, [feed]);
 
-  const noFilters = !group && !cameraId && !evidence && !sourceEventId && !status && !useCase && !severity && !sourceType && !from && !to;
-  const clearFilters = () => setQuery(new URLSearchParams());
+  const noFilters = !group && !branchId && !cameraId && !evidence && !sourceEventId && !status && !useCase && !severity && !sourceType && !from && !to;
+  const clearFilters = () => {
+    const next = new URLSearchParams(query);
+    for (const key of ['status', 'branch_id', 'camera_id', 'use_case', 'severity', 'evidence', 'type', 'from', 'to', 'source_event_id']) next.delete(key);
+    if (activeBranch?.type === 'branch') next.set('branch_id', activeBranch.id);
+    setTypeInput('');
+    setQuery(next);
+  };
   const bySeverity = feed.summary?.by_severity;
   const byStatus = feed.summary?.by_status;
   const input = 'min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm';
 
-  return <div className="mx-auto max-w-[1600px] space-y-5">
+  return <div className={`alert-center mx-auto max-w-[1600px] space-y-5 ${selected || selectedId ? 'showing-detail' : ''}`}>
+    {(selected || selectedId) && <button type="button" className="center-back" onClick={() => setSelectedId('')}>‹ Alerts{selected ? ` / ${useCaseLabel(selected.useCase)} / ${selected.sourceEventId || selected.id}` : ''}</button>}
     <header className="flex flex-wrap items-center justify-between gap-4">
       <div><h2 className="text-2xl font-bold text-[#152449]">Alert Center</h2>
-        <p className="mt-1 text-sm text-slate-500">Persisted incidents from Vault, Gate & Mesh, and Branch Exterior monitoring</p></div>
+        <p className="mt-1 text-sm text-slate-500">Persisted incidents from Vault, Gate & Mesh, Branch Exterior and Face Mask monitoring</p></div>
       <div className="flex flex-wrap items-center gap-2">
         {feed.lastUpdated && <span className="text-xs text-slate-500">Updated {feed.lastUpdated.toLocaleTimeString()}</span>}
         <button type="button" onClick={feed.refresh} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700">
@@ -181,37 +177,17 @@ export default function AlertCenter() {
     {feed.summaryError && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="status">{describeServiceError(feed.summaryError).message}</div>}
     {feed.stale && <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900" role="status">
       The list may be out of date. <button type="button" onClick={feed.refresh} className="font-semibold underline">Reload</button></div>}
-    <section className="grid grid-cols-2 gap-3 xl:grid-cols-5" aria-label="Alert summary">
+    <section className="center-summary grid grid-cols-2 gap-3 xl:grid-cols-5" aria-label="Alert summary">
       <SummaryTile label="Open alerts" value={byStatus ? (byStatus.OPEN || 0) + (byStatus.ACKNOWLEDGED || 0) : undefined} />
       <SummaryTile label="Unacknowledged" value={byStatus?.OPEN} />
       <SummaryTile label="High / Critical" value={bySeverity ? bySeverity.HIGH + bySeverity.CRITICAL : undefined} critical />
-      <SummaryTile label="With snapshot (loaded)" value={feed.items.filter((a) => a.evidenceStatus === 'CAPTURED').length} />
-      <SummaryTile label="Evidence unavailable (loaded)" value={feed.items.filter((a) => a.evidenceStatus === 'UNAVAILABLE').length} critical />
+      <SummaryTile label="With snapshot (loaded)" value={evidenceItems.filter((a) => a.snapshotCount>0).length} />
+      <SummaryTile label="Evidence unavailable (loaded)" value={evidenceItems.filter((a) => a.evidenceStatus === 'UNAVAILABLE').length} critical />
     </section>
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2">
-          <div className="flex flex-wrap gap-1" role="tablist" aria-label="Alert status">
-            {['ACTIVE', 'HISTORY'].map((item) => <button key={item} type="button" role="tab" aria-selected={group === item} onClick={() => setFilter('group', item)} className={`min-h-10 rounded-lg px-3 text-sm font-semibold ${group === item ? 'bg-[#34479B] text-white' : 'text-slate-600'}`}>{item === 'ACTIVE' ? 'Active' : 'History'}</button>)}
-            {['', ...STATUSES].map((item) => <button key={item || 'all'} type="button" role="tab" aria-selected={status === item && !group}
-              onClick={() => setFilter('status', item)}
-              className={`min-h-10 rounded-lg px-3 text-sm font-semibold ${status === item && !group ? 'bg-[#34479B] text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
-              {item ? item.charAt(0) + item.slice(1).toLowerCase() : 'All'}</button>)}
-          </div>
-          <span className="mx-1 h-7 border-l border-slate-200" aria-hidden />
-          <select aria-label="Filter by source" value={useCase} onChange={(e) => setFilter('use_case', e.target.value)} className={input}>
-            <option value="">Source: All</option>
-            {Object.entries(USE_CASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-          <select aria-label="Filter by severity" value={severity} onChange={(e) => setFilter('severity', e.target.value)} className={input}>
-            <option value="">Severity: All</option>{SEVERITIES.map((item) => <option key={item}>{item}</option>)}</select>
-          <input aria-label="Filter by camera ID" value={cameraId} onChange={(e) => setFilter('camera_id', e.target.value)} placeholder="Camera: All (ID)" className={input} />
-          <select aria-label="Filter by evidence" value={evidence} onChange={(e) => setFilter('evidence', e.target.value)} className={input}><option value="">Evidence: Any</option><option value="CAPTURED">Snapshot captured</option><option value="PENDING">Pending</option><option value="UNAVAILABLE">Unavailable</option></select>
-          <input aria-label="Filter by event type" value={typeInput} onChange={(e) => setTypeInput(e.target.value)} placeholder="Event type" className={`${input} min-w-32 flex-1`} />
-          <label className="flex items-center gap-2 text-xs text-slate-500">From
-            <input aria-label="From date" type="datetime-local" value={from} onChange={(e) => setFilter('from', e.target.value)} className={input} /></label>
-          <label className="flex items-center gap-2 text-xs text-slate-500">To
-            <input aria-label="To date" type="datetime-local" value={to} onChange={(e) => setFilter('to', e.target.value)} className={input} /></label>
-        </div>
-    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-      <section className="min-w-0">
+    <AlertFilterToolbar query={query} onChange={setFilter} onClear={clearFilters}
+      typeInput={typeInput} onTypeInput={setTypeInput} />
+    <div className="center-content min-w-0">
+      <section className="center-list min-w-0">
         {feed.error && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
           <p>{describeServiceError(feed.error).message}</p>
           <button type="button" onClick={feed.refresh} className="mt-2 font-semibold underline">Retry</button></div>}
@@ -222,15 +198,18 @@ export default function AlertCenter() {
           <p className="mt-3 font-semibold text-[#152449]">{noFilters ? 'No alerts yet' : 'No results'}</p>
           {!noFilters && <button type="button" onClick={clearFilters} className="mt-2 text-sm font-semibold text-[#34479B] underline">Clear filters</button>}</div>}
         {evidence && <p className="mt-2 text-xs text-slate-500">Evidence filtering applies to loaded records. Load more to search additional pages.</p>}
-        <div className="mt-3 space-y-3">{visibleItems.map((alert) => <AlertCard key={alert.id} alert={alert} selected={alert.id === selectedId} onSelect={setSelectedId} />)}</div>
+        <div className="mt-3 space-y-3">{visibleItems.map((alert) => <AlertCard key={alert.id} alert={alert} selected={alert.id === selectedId} onSelect={setSelectedId} showMetadata />)}</div>
         {feed.hasMore && <button type="button" disabled={feed.loading} onClick={feed.loadMore}
           className="mt-4 min-h-11 w-full rounded-lg border border-slate-200 bg-white text-sm font-semibold text-[#34479B] disabled:opacity-50">{feed.loading ? 'Loading…' : 'Load more'}</button>}
-        <p className="mt-3 text-xs text-slate-500">Active alerts are {ACTIVE_STATUSES.join(' and ').toLowerCase()}; resolved and dismissed alerts are history.</p>
+        <p className="mt-3 text-xs text-slate-500">Showing {visibleItems.length} of {feed.summary?.total ?? feed.items.length} alerts</p>
       </section>
-      <aside className="min-w-0" aria-label="Alert details">
+      <aside className="center-details min-w-0" aria-label="Alert details">
+        {selectedId && !selected && (detailLoadError ? <p role="alert">{detailLoadError}</p> : <p role="status">Loading alert details…</p>)}
+        {sourceLoading && <p role="status" className="mb-2 text-sm text-slate-500">Loading latest alert details...</p>}
+        {sourceError && <p role="alert" className="mb-2 text-sm text-red-700">{sourceError} <button type="button" onClick={() => setSourceRetry((value) => value + 1)} className="underline">Retry details</button></p>}
         {selected
-          ? <ServiceAlertDetail alert={selected} audit={audit} actionsEnabled={ALERT_SERVICE_ACTIONS_ENABLED} pending={pending} notice={notice} onAction={act} onClose={() => setSelectedId('')} />
-          : <div className="hidden rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 xl:block">Select an alert to view details and its timeline.</div>}
+          ? <ServiceAlertDetail key={selected.id} alert={detailed} audit={audit} actionsEnabled={Boolean(sourceDetail?.id === selected?.id && !sourceLoading && !sourceError)} pending={pending} notice={notice} onAction={act} onClose={() => setSelectedId('')} />
+          : null}
       </aside>
     </div>
   </div>;

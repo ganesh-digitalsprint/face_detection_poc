@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  availableActions, buildAlertParams, buildLifecycleBody, describeServiceError, isStaleConflict, matchesStatus,
+  alertDetailLocationFields, availableActions, buildAlertParams, buildLifecycleBody, describeServiceError, isStaleConflict, matchesStatus,
   mergeById, normalizeServiceAlert, replaceAlert, useCaseLabel,
 } from './alertServiceModel.js';
 
@@ -33,6 +33,78 @@ test('normalizing tolerates missing optional fields', () => {
   assert.equal(alert.sessionRef, null);
   assert.deepEqual(alert.allowedActions, []);
   assert.equal(alert.occurrenceCount, 1);
+  assert.equal(alert.branchId, null);
+  assert.equal(alert.branchCode, null);
+  assert.equal(alert.cameraName, null);
+  assert.equal(alert.sourceId, null);
+  assert.equal(alert.placeName, null);
+  assert.equal(alert.regionName, null);
+  assert.equal(alert.branchManager, null);
+});
+
+test('normalizes configured Gate branch metadata for the alert detail page', () => {
+  const alert = normalizeServiceAlert(raw({ use_case: 'grill_gate', resource_refs: {
+    camera_id: 'gate-camera', camera_name: 'Entrance camera', branch_id: 'branch-1',
+    branch_code: 'C99127-01', branch_name: 'Koramangala', place_name: 'Bengaluru', region_name: 'South',
+    branch_manager: 'Configured manager' } }));
+  assert.equal(alert.cameraName, 'Entrance camera');
+  assert.equal(alert.branchName, 'Koramangala');
+  assert.equal(alert.branchCode, 'C99127-01');
+  assert.equal(alert.placeName, 'Bengaluru');
+  assert.equal(alert.regionName, 'South');
+  assert.equal(alert.branchManager, 'Configured manager');
+  assert.deepEqual(Object.fromEntries(alertDetailLocationFields(alert)), {
+    'Camera name': 'Entrance camera', Branch: 'Koramangala', 'Branch code': 'C99127-01', Place: 'Bengaluru',
+    Region: 'South', 'Branch manager': 'Configured manager',
+  });
+});
+
+test('normalizes Vault snapshot metadata for all centralized detail fields', () => {
+  const alert = normalizeServiceAlert(raw({ use_case: 'vault_monitoring', resource_refs: {
+    camera_id: 'vault-camera', camera_name: 'Vault Room Camera', branch_id: 'branch-1',
+    branch_code: 'C99127-01', branch_name: 'Koramangala', place_name: 'Bengaluru', region_name: 'South',
+    branch_manager: 'Existing Manager' } }));
+  assert.deepEqual(Object.fromEntries(alertDetailLocationFields(alert)), {
+    'Camera name': 'Vault Room Camera', Branch: 'Koramangala', 'Branch code': 'C99127-01', Place: 'Bengaluru',
+    Region: 'South', 'Branch manager': 'Existing Manager',
+  });
+});
+
+test('normalization retains nested references and detailed Branch subtypes for old and new responses', () => {
+  const refs = { branch_id: 'branch', branch_name: 'Known branch', camera_id: 'source-camera',
+    camera_name: 'Original camera', source_id: 'source', assignment_id: 'assignment',
+    session_ref: 'session', registry_camera_id: 'registry-camera', location_id: 'location' };
+  const alert = normalizeServiceAlert(raw({ source_event_type: 'anomaly', title: 'Anomaly at Original camera',
+    resource_refs: refs, domain_data: { kind: 'unattended_bag' } }));
+  assert.equal(alert.sourceEventType, 'anomaly');
+  assert.equal(alert.sourceEventSubtype, 'unattended_bag');
+  assert.equal(alert.displayEventType, 'unattended_bag');
+  assert.equal(alert.title, 'Unattended bag at Original camera');
+  assert.equal(alert.branchId, 'branch');
+  assert.equal(alert.branchName, 'Known branch');
+  assert.equal(alert.cameraId, 'source-camera');
+  assert.equal(alert.registryCameraId, 'registry-camera');
+  assert.equal(alert.sessionRef, 'session');
+  assert.equal(alert.sourceId, 'source');
+  assert.deepEqual(alert.resourceRefs, refs);
+  assert.equal(alert.sourceSeverity, 'medium');
+  assert.equal(alert.sourceStatus, 'open');
+});
+
+test('uploaded Gate references never become fabricated camera IDs', () => {
+  const alert = normalizeServiceAlert(raw({ use_case: 'grill_gate', resource_refs: {
+    video_job_id: 'job', template_assignment_id: 'template' }, domain_data: { camera_id: 'job' } }));
+  assert.equal(alert.videoJobId, 'job');
+  assert.equal(alert.templateAssignmentId, 'template');
+  assert.equal(alert.cameraId, null);
+  assert.equal(alert.branchId, null);
+});
+
+test('identifier filters use the same API names as preserved references', () => {
+  assert.deepEqual(buildAlertParams({ branchId: 'branch', cameraId: 'camera', assignmentId: 'assignment',
+    videoJobId: 'job', sessionRef: 'session', sourceId: 'source', registryCameraId: 'registry', sourceSubtype: 'weapon' }), {
+    branch_id: 'branch', camera_id: 'camera', assignment_id: 'assignment', video_job_id: 'job',
+    session_ref: 'session', source_id: 'source', registry_camera_id: 'registry', source_event_subtype: 'weapon' });
 });
 
 test('useCaseLabel names known sources and falls back to the raw id', () => {

@@ -13,11 +13,13 @@ from typing import Callable
 from uuid import uuid4
 
 import httpx
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import inspect, select
+from sqlalchemy.orm import Session, object_session
+from uuid import UUID
 
 from app.db.database import session_scope
 from app.db.models.vault_room import VaultAuditEvent, VaultRoomAlert
+from fedbank_core.events.classification import is_security_alert
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,11 @@ RETRY = "ALERT_SERVICE_PUBLICATION_RETRY"
 SUCCEEDED = "ALERT_SERVICE_PUBLICATION_SUCCEEDED"
 FAILED = "ALERT_SERVICE_PUBLICATION_FAILED"
 STATE_ACTIONS = (QUEUED, RETRY, SUCCEEDED, FAILED)
+SOURCE_METADATA_KEYS = (
+    "branch_id", "branch_code", "branch_name", "place_name", "region_name",
+    "branch_manager", "camera_name", "registry_camera_id", "assignment_id",
+    "source_id", "source_type", "location_id", "location_name",
+)
 
 
 def _utc(value: datetime) -> datetime:
@@ -38,7 +45,7 @@ def _timestamp(value: datetime) -> str:
 
 
 def _safe_reference(value: str | None, limit: int) -> str | None:
-    if not value or len(value) > limit:
+    if not isinstance(value, str) or not value.strip() or len(value) > limit:
         return None
     lowered = value.lower()
     if "://" in lowered or "@" in value or any(term in lowered for term in (
@@ -69,12 +76,7 @@ def build_payload(alert: VaultRoomAlert) -> dict:
         "summary": (alert.message or alert.type.replace("_", " ").title())[:4000],
         "deduplication_key": _safe_reference(alert.dedup_key, 512),
         "source_status": "OPEN",
-        "resource_refs": {
-            key: value for key, value in {
-                "camera_id": _safe_reference(alert.camera_id, 128),
-                "session_ref": _safe_reference(alert.session_ref, 36),
-            }.items() if value
-        },
+        "resource_refs": _resource_refs(alert),
         "domain_data": {
             "schema_version": "vault-alert/1",
             "alert_type": alert.type,
@@ -87,6 +89,66 @@ def build_payload(alert: VaultRoomAlert) -> dict:
         },
         "evidence_refs": [],
     }
+
+
+def _resource_refs(alert):
+    refs = {key: value for key, value in {"camera_id": _safe_reference(alert.camera_id, 128),
+        "session_ref": _safe_reference(alert.session_ref, 36)}.items() if value}
+    for key in SOURCE_METADATA_KEYS:
+        value = (alert.metadata_json or {}).get(key)
+        if isinstance(value, str) and (value := _safe_reference(value, 128)):
+            refs[key] = value
+    db = object_session(alert)
+    if db is not None:
+        from app.db.models.camera_registry import RegistryCamera, RegistryLocation, CameraUseCaseAssignment
+        from app.db.models.vault_room import VaultRoomSession
+        def by_uuid(model, identifier):
+            try:
+                identifier = str(UUID(identifier))
+            except (ValueError, TypeError, AttributeError):
+                return None
+            return db.get(model, identifier)
+        # Archived sessions contain explicit registry identities. A location is
+        # deliberately not treated as a platform branch.
+        # Legacy archives may predate the optional registry-reference columns.
+        # Project only columns actually deployed; loading the whole ORM model
+        # would fail the transaction before camera/assignment fallbacks can run.
+        sessions = []
+        if alert.session_ref:
+            columns = db.info.get('vault_alert_session_columns')
+            if columns is None:
+                columns = {column['name'] for column in inspect(db.connection()).get_columns('vault_room_sessions')}
+                db.info['vault_alert_session_columns'] = columns
+            names = [key for key in ('assignment_id', 'location_id', 'camera_id') if key in columns]
+            if names:
+                sessions = db.execute(select(*(getattr(VaultRoomSession, key) for key in names)).where(
+                    VaultRoomSession.session_ref == alert.session_ref).limit(2)).mappings().all()
+        if len(sessions) == 1:
+            summary = sessions[0]
+            for key in ("assignment_id", "location_id"):
+                if summary.get(key):
+                    refs.setdefault(key, str(summary[key]))
+            if summary.get('camera_id'):
+                refs.setdefault("registry_camera_id", str(summary['camera_id']))
+        assignment = by_uuid(CameraUseCaseAssignment, refs.get("assignment_id"))
+        if assignment:
+            refs.setdefault('registry_camera_id', str(assignment.camera_id))
+        camera = by_uuid(RegistryCamera, refs.get("registry_camera_id") or refs.get("camera_id"))
+        if camera:
+            if name := _safe_reference(camera.name, 128):
+                refs.setdefault("camera_name", name)
+            refs.setdefault("location_id", str(camera.location_id))
+        location = by_uuid(RegistryLocation, refs.get("location_id"))
+        if location:
+            if name := _safe_reference(location.name, 128):
+                refs.setdefault("location_name", name)
+        if assignment:
+            source_id = _safe_reference((assignment.configuration or {}).get("source_id"), 128)
+            if source_id:
+                refs.setdefault("source_id", source_id)
+    # VaultRoomAlert.metadata_json is the immutable attribution snapshot. Do not
+    # supplement it from the current Branch Management state during publication.
+    return refs
 
 
 def _category(alert_type: str) -> str:
@@ -124,6 +186,11 @@ class VaultAlertServiceAdapter:
 
     def enqueue(self, db: Session, alert: VaultRoomAlert) -> None:
         payload = build_payload(alert)
+        eligibility = {**payload, 'domain_data': {**payload['domain_data'],
+            **{key: (alert.metadata_json or {}).get(key) for key in ('replay', 'replay_mode', 'simulated')},
+            'source': alert.source or ''}}
+        if not is_security_alert('vault_monitoring', eligibility):
+            return
         db.add(VaultAuditEvent(
             id=str(uuid4()),
             action=QUEUED,
@@ -217,7 +284,8 @@ class VaultAlertServiceAdapter:
                 logger.warning("Alert Service publication failed for Vault alert %s (%s)",
                                  alert_id, type(exc).__name__)
                 self._record_result(alert_id, state, attempt, RETRY, error_kind=type(exc).__name__)
-        return attempted
+        from app.services.vault_alert_lifecycle import dispatch_lifecycle
+        return attempted + dispatch_lifecycle(self, limit=limit)
 
     def _record_result(self, alert_id: str, prior_state: dict, attempt: int, action: str,
                        *, status_code: int | None = None, error_kind: str | None = None) -> None:
