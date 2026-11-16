@@ -4,6 +4,7 @@ from __future__ import annotations
 import shutil
 import sqlite3
 import uuid
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
@@ -22,6 +23,14 @@ PUBLIC_CATEGORIES = {"sample_videos", "uploads", "clips", "screenshots", "eviden
 def _video_details(path: Path) -> dict:
     if path.suffix.lower() not in VIDEO_EXTENSIONS:
         return {}
+    stat = path.stat()
+    return _cached_video_details(str(path), stat.st_size, stat.st_mtime_ns)
+
+
+@lru_cache(maxsize=1024)
+def _cached_video_details(path_name: str, _size: int, _mtime_ns: int) -> dict:
+    """Probe each unchanged file only once per service process."""
+    path = Path(path_name)
     cap = cv2.VideoCapture(str(path))
     try:
         if not cap.isOpened():
@@ -72,7 +81,7 @@ def inventory(category: str | None = None):
         item.update(_video_details(safe_path(item["path"])))
     with platform_database() as conn:
         upload_rows = {row["stored_path"]: row for row in conn.execute(
-            "SELECT u.id,u.stored_path,u.original_name,u.status,u.branch_id,b.name branch_name,"
+            "SELECT u.id,u.stored_path,u.original_name,u.status,u.branch_id,u.created_at,b.name branch_name,"
             " b.city_id,ci.zone_id FROM video_uploads u JOIN branches b ON b.id=u.branch_id"
             " JOIN cities ci ON ci.id=b.city_id")}
     for item in files:
@@ -81,7 +90,7 @@ def inventory(category: str | None = None):
             item.update({"name": upload["original_name"], "upload_id": upload["id"],
                          "upload_status": upload["status"], "branch_id": upload["branch_id"],
                          "branch_name": upload["branch_name"], "city_id": upload["city_id"],
-                         "zone_id": upload["zone_id"]})
+                         "zone_id": upload["zone_id"], "created_at": upload["created_at"]})
     categories = {}
     owners = {}
     for item in files:

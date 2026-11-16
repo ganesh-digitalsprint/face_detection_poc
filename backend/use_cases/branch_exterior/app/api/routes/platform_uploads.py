@@ -48,6 +48,39 @@ class UploadStart(BaseModel):
     size: int = Field(gt=0)
 
 
+class RecordedCameraCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    use_case: str
+
+
+@router.post("/{ident}/camera", status_code=201)
+def create_recorded_camera(ident: str, payload: RecordedCameraCreate, x_platform_admin_key: str = Header(default="")):
+    _admin(x_platform_admin_key)
+    name = payload.name.strip()
+    if not name or payload.use_case not in USE_CASES:
+        raise HTTPException(422, "Camera name and valid use case are required")
+    with database() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        upload = _one(conn, "SELECT * FROM video_uploads WHERE id=?", (ident,))
+        if upload["status"] != "uploaded":
+            raise HTTPException(409, "Video is not ready for a camera source")
+        if not safe_path(upload["proxy_path"] or upload["stored_path"]).is_file():
+            raise HTTPException(409, "Uploaded video file is missing")
+        camera_id = str(uuid.uuid4())
+        code = f"VID-{ident}"
+        if conn.execute("SELECT 1 FROM cameras WHERE branch_id=? AND code=?", (upload["branch_id"], code)).fetchone():
+            raise HTTPException(409, "This upload already has a camera source")
+        conn.execute("INSERT INTO cameras(id,branch_id,channel_no,code,name,width,height,codec,fps,status) "
+                     "VALUES(?,?,?,?,?,?,?,?,?,'recorded')",
+                     (camera_id, upload["branch_id"], 0, code, name, upload["width"], upload["height"], upload["codec"], upload["fps"]))
+        conn.execute("INSERT INTO camera_use_cases(camera_id,use_case) VALUES(?,?)", (camera_id, payload.use_case))
+        if not upload["camera_id"]:
+            conn.execute("UPDATE video_uploads SET camera_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (camera_id, ident))
+        return {"id": camera_id, "branch_id": upload["branch_id"], "name": name, "code": code,
+                "status": "recorded", "source_type": "video_file", "upload_id": ident,
+                "use_cases": [payload.use_case]}
+
+
 @router.post("", status_code=201)
 def create_upload(payload: UploadStart, x_platform_admin_key: str = Header(default="")):
     _admin(x_platform_admin_key)

@@ -519,7 +519,12 @@ def create_branch(payload: BranchCreate, request: Request, x_platform_admin_key:
 def cameras(branch_id: str):
     with database() as conn:
         _one(conn, "SELECT id FROM branches WHERE id=?", (branch_id,))
-        return [dict(row) for row in conn.execute("SELECT c.*, group_concat(u.use_case) use_cases FROM cameras c LEFT JOIN camera_use_cases u ON u.camera_id=c.id WHERE c.branch_id=? GROUP BY c.id ORDER BY c.channel_no", (branch_id,))]
+        return [dict(row) for row in conn.execute("SELECT c.*, group_concat(DISTINCT u.use_case) use_cases, "
+            "CASE WHEN c.status='recorded' THEN 'video_file' ELSE 'rtsp' END source_type, "
+            "CASE WHEN c.status='recorded' THEN v.id ELSE NULL END upload_id "
+            "FROM cameras c LEFT JOIN camera_use_cases u ON u.camera_id=c.id "
+            "LEFT JOIN video_uploads v ON (v.camera_id=c.id OR (c.status='recorded' AND c.code='VID-' || v.id)) "
+            "AND v.branch_id=c.branch_id WHERE c.branch_id=? GROUP BY c.id ORDER BY c.channel_no", (branch_id,))]
 
 
 @router.get("/branches/{branch_id}/recorders")

@@ -36,7 +36,8 @@ export const NAV_SECTIONS = [
         badge: 'alerts',
       },
       { id: 'brief', label: 'Security Brief', icon: FileText, to: '/branch-exterior/brief' },
-      { id: 'video-uploads', label: 'Video Uploads', icon: Film, to: '/video-uploads' },
+      // Standalone Video Uploads is hidden from navigation; uploads remain in Add camera.
+      // { id: 'video-uploads', label: 'Video Uploads', icon: Film, to: '/video-uploads' },
       { id: 'branches', label: 'Branches', icon: House, children: [
         { id: 'branch-hierarchy', label: 'Branch Hierarchy', to: '/branches/hierarchy' },
         { id: 'branch-new', label: 'Add New Branch', to: '/branches/new' },

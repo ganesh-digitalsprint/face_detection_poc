@@ -1,0 +1,35 @@
+.source-picker-card { position: relative; overflow: visible; }
+.source-picker-subtitle { margin: -7px 0 16px; font-size: 13px; }
+.source-picker-row { display: flex; gap: 12px; align-items: stretch; }
+.source-picker-anchor { position: relative; min-width: 0; flex: 1; }
+.source-picker-trigger { display: flex; align-items: center; width: 100%; min-height: 70px; gap: 13px; padding: 10px 14px; text-align: left; border: 1px solid var(--bx-border, #cbd5e1); border-radius: 10px; background: var(--bx-card, #fff); color: inherit; cursor: pointer; }
+.source-picker-trigger:hover, .source-picker-trigger[aria-expanded="true"] { border-color: var(--bx-brand, #4058ad); }
+.source-picker-trigger:focus-visible, .source-picker-option:focus-visible, .source-picker-search button:focus-visible { outline: 2px solid var(--bx-brand, #4058ad); outline-offset: 2px; }
+.source-picker-icon { display: grid; place-items: center; width: 42px; height: 42px; flex: none; border-radius: 9px; color: var(--bx-brand, #4058ad); background: var(--bx-inset, #eef0ff); }
+.source-picker-trigger-text { flex: 1; min-width: 0; }
+.source-picker-trigger-text b, .source-picker-trigger-text small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-picker-trigger-text b { font-size: 15px; }
+.source-picker-trigger-text small { margin-top: 2px; font-size: 12px; color: var(--bx-mute, #64748b); }
+.source-picker-upload { display: flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
+.source-picker-panel { position: absolute; z-index: 30; top: calc(100% + 7px); left: 0; right: 0; min-width: min(100%, 430px); padding: 10px; border: 1px solid var(--bx-border, #cbd5e1); border-radius: 12px; background: var(--bx-card, #fff); box-shadow: 0 18px 40px #0f1b3d33; }
+.source-picker-search { display: flex; align-items: center; gap: 8px; padding: 5px 9px; border: 1px solid var(--bx-border, #cbd5e1); border-radius: 8px; }
+.source-picker-search input { width: 100%; min-width: 0; padding: 5px 0; border: 0; outline: 0; background: transparent; color: inherit; }
+.source-picker-search button { display: grid; place-items: center; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.source-picker-list { max-height: 350px; overflow-y: auto; margin-top: 6px; }
+.source-picker-group { padding: 12px 9px 5px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--bx-mute, #64748b); }
+.source-picker-option { display: flex; align-items: center; width: 100%; gap: 10px; padding: 9px; border: 0; border-radius: 7px; text-align: left; color: inherit; background: transparent; cursor: pointer; }
+.source-picker-option.is-focused, .source-picker-option:hover, .source-picker-option.is-selected { background: var(--bx-inset, #edf1ff); color: var(--bx-text, #0f1b3d); }
+.source-picker-option-text { flex: 1; min-width: 0; }
+.source-picker-option-text b, .source-picker-option-text small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-picker-option-text b { font-size: 13px; }
+.source-picker-option-text small { margin-top: 2px; color: var(--bx-mute, #64748b); font-size: 11px; }
+.source-picker-status { border-radius: 99px; padding: 3px 7px; font-size: 10px; font-weight: 700; background: #edf1ff; color: #34479b; }
+.source-picker-message { padding: 12px; }
+.source-picker-process { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; }
+.source-picker-more { display: block; margin: 7px 0 2px auto; padding: 2px; border: 0; color: var(--bx-brand, #4058ad); background: none; font-size: 12px; cursor: pointer; }
+.source-picker-upload-progress { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-size: 12px; }
+.source-picker-upload-progress progress { flex: 1; }
+.source-picker-modal-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 20px; background: #0f1b3d99; }
+.source-picker-modal { width: min(920px, 100%); max-height: 90vh; overflow: auto; padding: 18px; border-radius: 14px; background: #fff; }
+.source-picker-modal > button { float: right; }
+@media (max-width: 700px) { .source-picker-row { flex-direction: column; } .source-picker-upload { min-height: 42px; } }

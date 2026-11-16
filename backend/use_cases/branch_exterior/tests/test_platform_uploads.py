@@ -71,3 +71,14 @@ def test_completed_upload_is_playable_and_listed(prepared, tmp_path):
     assert detail["sha256"] and detail["duration"] > 0
     assert client.get(f"/api/platform/uploads/{ident}/file", headers={"Range": "bytes=0-15"}).status_code == 206
     assert client.get("/api/platform/uploads").json()["total"] == 1
+    assert client.post(f"/api/platform/uploads/{ident}/camera", json={"name": "Recorded entrance", "use_case": "face_mask"}).status_code == 403
+    camera = client.post(f"/api/platform/uploads/{ident}/camera", json={"name": "Recorded entrance", "use_case": "face_mask"}, headers=HEADERS)
+    assert camera.status_code == 201, camera.text
+    assert camera.json()["status"] == "recorded"
+    assert camera.json()["upload_id"] == ident
+    cameras = client.get(f"/api/platform/branches/{branch['id']}/cameras").json()
+    assert len(cameras) == 1
+    assert cameras[0]["source_type"] == "video_file"
+    assert cameras[0]["upload_id"] == ident
+    assert cameras[0]["use_cases"] == "face_mask"
+    assert client.post(f"/api/platform/uploads/{ident}/camera", json={"name": "Duplicate", "use_case": "face_mask"}, headers=HEADERS).status_code == 409
