@@ -41,6 +41,7 @@ class GrillGateAlertRuleEngine:
         self._last_completed_crossing_at: datetime | None = None
         self._last_crossing_direction: str | None = None
         self._partial_since: datetime | None = None
+        self._mesh_gathering_since: datetime | None = None
         self._active_crossings = 0
         self._crossing_reliable = False
         self._active: dict[str, _ActiveCondition] = {}
@@ -88,6 +89,19 @@ class GrillGateAlertRuleEngine:
                 "seconds_since_crossing": seconds_since_crossing,
                 "source_timestamp": _iso(at) if at is not None else None,
                 "timer_state": timer_state}
+
+    def mesh_monitoring_status(self, at: datetime | None, count: int = 0) -> dict:
+        """Backend-owned gathering clock, evaluated on the caller's source timebase."""
+        threshold = self._config.max_mesh_occupancy
+        active = (self._config.mesh_occupancy_enabled and threshold is not None and threshold > 0
+                  and int(count) >= threshold and self._mesh_gathering_since is not None)
+        duration = (round(max(0.0, (_utc(at) - self._mesh_gathering_since).total_seconds()), 3)
+                    if active and at is not None else None)
+        return {"gathering_duration_seconds": duration,
+                "gathering_since": _iso(self._mesh_gathering_since) if active else None,
+                "gathering_threshold_seconds": self._config.mesh_gathering_seconds,
+                "gathering_threshold_people": threshold,
+                "gathering_alert_active": "MESH_OCCUPANCY_LIMIT_EXCEEDED" in self._active}
 
     def evaluate_frontend_open_timer(self, elapsed_seconds: float, at: datetime,
                                      threshold_seconds: float | None = None, timer_cycle_id: str | None = None) -> dict:
@@ -141,6 +155,8 @@ class GrillGateAlertRuleEngine:
                 since = datetime.now(timezone.utc)
             self._active[alert_type] = _ActiveCondition(str(row["source_event_id"]), alert_type,
                                                         _utc(since), int(row.get("source_event_version", 1)))
+            if alert_type == "MESH_OCCUPANCY_LIMIT_EXCEEDED":
+                self._mesh_gathering_since = _utc(since)
             if alert_type in {"GATE_OPEN_WITHOUT_CROSSING", "GATE_OPEN_TOO_LONG"}:
                 self._open_alert_raised = True
 
@@ -296,19 +312,25 @@ class GrillGateAlertRuleEngine:
 
     def on_mesh_occupancy(self, count: int, at: datetime, *, recovery_confirmed: bool = True) -> None:
         threshold = self._config.max_mesh_occupancy
-        if not self._config.mesh_occupancy_enabled or threshold is None:
+        if not self._config.mesh_occupancy_enabled or threshold is None or threshold <= 0:
             return
         at = _utc(at)
-        if int(count) > threshold:
-            active = self._active.get("MESH_OCCUPANCY_LIMIT_EXCEEDED")
-            if active is None:
-                self._raise("MESH_OCCUPANCY_LIMIT_EXCEEDED", at, at,
-                            self._config.mesh_occupancy_severity, "Mesh occupancy limit exceeded",
-                            f"Mesh occupancy is {count}; configured maximum is {threshold}.",
-                            condition_data={"observed_occupancy": int(count), "maximum_occupancy": threshold})
-        elif recovery_confirmed:
+        if int(count) >= threshold:
+            if self._mesh_gathering_since is None:
+                self._mesh_gathering_since = at
+            duration = max(0.0, (at - self._mesh_gathering_since).total_seconds())
+            if duration >= self._config.mesh_gathering_seconds and "MESH_OCCUPANCY_LIMIT_EXCEEDED" not in self._active:
+                self._raise("MESH_OCCUPANCY_LIMIT_EXCEEDED", self._mesh_gathering_since, at,
+                            self._config.mesh_occupancy_severity, "Too many people in mesh area",
+                            f"At least {threshold} people remained in the mesh area for {duration:.3f} seconds.",
+                            condition_data={"observed_occupancy": int(count), "detected_person_count": int(count),
+                                            "minimum_occupancy": threshold, "configured_threshold_people": threshold,
+                                            "gathering_duration_seconds": round(duration, 3),
+                                            "configured_gathering_seconds": self._config.mesh_gathering_seconds})
+        elif recovery_confirmed or int(count) < threshold:
+            self._mesh_gathering_since = None
             self._resolve("MESH_OCCUPANCY_LIMIT_EXCEEDED", at,
-                          f"Mesh occupancy returned within the configured maximum of {threshold}")
+                          f"Mesh occupancy fell below the configured minimum of {threshold}")
 
     def on_camera_status(self, status: str, at: datetime) -> None:
         # The current camera worker exposes snapshots, not reliable connection transition events.
@@ -367,7 +389,7 @@ class GrillGateAlertRuleEngine:
     def reset(self) -> None:
         # Session stop is not evidence that a gate or mesh condition has recovered.
         self._state = "UNKNOWN"
-        self._open_since = self._open_episode_since = self._partial_since = None
+        self._open_since = self._open_episode_since = self._partial_since = self._mesh_gathering_since = None
         self._open_elapsed_seconds = 0.0
         self._open_alert_raised = False
         self._last_completed_crossing_at = None

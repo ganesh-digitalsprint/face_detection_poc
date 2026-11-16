@@ -210,6 +210,32 @@ def test_rules_disabled_by_default_and_mesh_only_alerts_when_explicit_limit_exce
     rule.on_mesh_occupancy(3, T0 + timedelta(seconds=1))
     rule.on_mesh_occupancy(4, T0 + timedelta(seconds=2))
     assert [x["action"] for x in sent] == ["create"]
+
+
+def test_mesh_gathering_uses_video_time_resets_below_threshold_and_raises_once():
+    rule, sent = engine(GrillGateAlertConfig(mesh_occupancy_enabled=True, max_mesh_occupancy=3,
+                                             mesh_gathering_seconds=15))
+    rule.on_mesh_occupancy(2, T0)
+    assert rule.mesh_monitoring_status(T0, 2)["gathering_duration_seconds"] is None
+    rule.on_mesh_occupancy(3, T0 + timedelta(seconds=10))
+    assert rule.mesh_monitoring_status(T0 + timedelta(seconds=10), 3)["gathering_duration_seconds"] == 0
+    assert rule.mesh_monitoring_status(T0 + timedelta(seconds=14), 3)["gathering_duration_seconds"] == 4
+    rule.on_mesh_occupancy(4, T0 + timedelta(seconds=13))
+    rule.on_mesh_occupancy(5, T0 + timedelta(seconds=16))
+    rule.on_mesh_occupancy(3, T0 + timedelta(seconds=25))
+    creates = [item for item in sent if item["action"] == "create"]
+    assert len(creates) == 1
+    metadata = creates[0]["payload"]["domain_data"]
+    assert metadata["detected_person_count"] == 3
+    assert metadata["configured_threshold_people"] == 3
+    assert metadata["gathering_duration_seconds"] == 15
+    rule.on_mesh_occupancy(3, T0 + timedelta(seconds=40))
+    assert len([item for item in sent if item["action"] == "create"]) == 1
+    rule.on_mesh_occupancy(2, T0 + timedelta(seconds=41))
+    assert rule.mesh_monitoring_status(T0 + timedelta(seconds=42), 2)["gathering_duration_seconds"] is None
+    rule.on_mesh_occupancy(3, T0 + timedelta(seconds=50))
+    rule.on_mesh_occupancy(3, T0 + timedelta(seconds=65))
+    assert len([item for item in sent if item["action"] == "create"]) == 2
     rule.on_mesh_occupancy(2, T0 + timedelta(seconds=3))
     rule.on_mesh_occupancy(1, T0 + timedelta(seconds=4))
     assert [x["action"] for x in sent] == ["create"]

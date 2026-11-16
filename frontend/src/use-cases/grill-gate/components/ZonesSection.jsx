@@ -20,8 +20,6 @@ import FrameCanvas from '../../../components/regions/PolygonFrameCanvas.jsx';
 const smallField = 'mt-1 min-h-9 w-full rounded-md border border-[#D0D7E6] bg-white px-2.5 text-sm text-[#1C2B4D] outline-none focus:border-[#34479B] focus:ring-2 focus:ring-[#34479B]/20 disabled:bg-[#F4F6FB]';
 const ALERT_RULES = [
   ['gate_open', 'Alert when the gate stays open without a crossing for (seconds)', 'max_gate_open_seconds', 'Threshold (s)'],
-  ['partially_open', 'Gate partially open too long', 'max_partially_open_seconds', 'Max partially open (s)'],
-  ['mesh_occupancy', 'Too many people in mesh area', 'max_mesh_occupancy', 'Max people'],
 ];
 
 
@@ -52,6 +50,31 @@ function AlertRulesCard({ rules, onChange, disabled, isVideo }) {
             </div>
           );
         })}
+        <div className="grid items-end gap-2 sm:grid-cols-[1fr_110px]">
+          <label className="flex items-center gap-2 text-sm text-[#0F1B3D]">
+            <input type="checkbox" checked={Boolean(rules.mesh_occupancy_enabled)}
+              disabled={disabled || rules.max_mesh_occupancy == null}
+              onChange={(event) => set({ mesh_occupancy_enabled: event.target.checked })} />
+            Too many people in mesh area
+          </label>
+          <span className="block text-xs text-[#55607A]">Max people
+            <input className={smallField} type="number" min="1" step="1" value={videoAlertThresholdInputValue(rules, 'max_mesh_occupancy')} disabled={disabled}
+              onChange={(event) => set({ max_mesh_occupancy: event.target.value === '' ? null : Number(event.target.value),
+                ...(event.target.value === '' ? { mesh_occupancy_enabled: false } : {}) })} />
+          </span>
+        </div>
+        <div className="grid items-end gap-2 sm:grid-cols-[1fr_110px]">
+          <label className="flex items-center gap-2 text-sm text-[#0F1B3D]">
+            <input type="checkbox" checked={Boolean(rules.mesh_occupancy_enabled)}
+              disabled={disabled || rules.max_mesh_occupancy == null}
+              onChange={(event) => set({ mesh_occupancy_enabled: event.target.checked })} />
+            Group gathering in mesh area
+          </label>
+          <label className="block text-xs text-[#55607A]">Max duration (s)
+            <input className={smallField} type="number" min="0.1" step="any" value={rules.mesh_gathering_seconds ?? 15} disabled={disabled}
+              onChange={(event) => set({ mesh_gathering_seconds: event.target.value === '' ? 15 : Number(event.target.value) })} />
+          </label>
+        </div>
       </div>
     </Card>
   );

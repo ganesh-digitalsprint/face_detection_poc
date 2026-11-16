@@ -906,7 +906,9 @@ class FakeDetector:
                 "open_without_crossing_threshold_seconds": 3.0, "threshold_configured": True,
                 "progress_percent": 66.67, "timer_state": "COUNTING",
                 "source_timestamp": "2026-11-06T05:00:02Z", "seconds_since_crossing": None,
-                "processing": {"mesh": {"occupancy_count": 2, "occupied": True}}}
+                "processing": {"mesh": {"occupancy_count": 2, "occupied": True,
+                    "gathering_duration_seconds": 5.2, "gathering_threshold_seconds": 15,
+                    "gathering_threshold_people": 1, "gathering_alert_active": False}}}
 
 
 class FakeWriter:
@@ -965,7 +967,10 @@ def test_job_is_not_completed_until_its_events_are_stored(harness, monkeypatch):
     assert set(results["monitoring"]) == {"progress", "processed_frames", "frame_number", "video_timestamp",
         "frame_width", "frame_height", "crossing", "mesh", "tracks", "error"}
     assert results["monitoring"]["progress"] == 0.9
-    assert results["monitoring"]["mesh"] == {"occupancy_count": 2, "occupied": True, "config_status": None}
+    assert results["monitoring"]["mesh"] == {"occupancy_count": 2, "occupied": True, "config_status": None,
+        "gathering_duration_seconds": 5.2, "gathering_since": None,
+        "gathering_threshold_seconds": 15, "gathering_threshold_people": 1,
+        "gathering_alert_active": False}
 
 
 def test_job_fails_when_its_events_could_not_be_stored(harness, monkeypatch):

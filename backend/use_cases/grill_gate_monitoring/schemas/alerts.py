@@ -18,6 +18,7 @@ class GrillGateAlertConfig(BaseModel):
     partially_open_severity: Literal["INFO", "WARNING", "HIGH", "CRITICAL"] = "WARNING"
     mesh_occupancy_enabled: bool = False
     max_mesh_occupancy: int | None = Field(default=None, ge=0, le=10000)
+    mesh_gathering_seconds: float = Field(default=15, gt=0, le=86400)
     mesh_occupancy_severity: Literal["INFO", "WARNING", "HIGH", "CRITICAL"] = "WARNING"
 
 

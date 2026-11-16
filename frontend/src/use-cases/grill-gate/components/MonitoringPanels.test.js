@@ -10,7 +10,7 @@ import { createServer } from 'vite';
 test('monitoring panels handle missing snapshots and the uploaded video forwards its confirmed session', async () => {
   const server = await createServer({ root:process.cwd(),server:{ middlewareMode:true },appType:'custom',logLevel:'silent' });
   try {
-    const { GateStatePanel, MonitoringStats } = await server.ssrLoadModule('/src/use-cases/grill-gate/components/MonitoringPanels.jsx');
+    const { GateStatePanel, MonitoringStats, MeshPanel } = await server.ssrLoadModule('/src/use-cases/grill-gate/components/MonitoringPanels.jsx');
     const { default: UploadedVideoSection } = await server.ssrLoadModule('/src/use-cases/grill-gate/components/UploadedVideoSection.jsx');
     const { EMPTY_MONITORING } = await server.ssrLoadModule('/src/use-cases/grill-gate/grillGateModel.js');
     const store=configureStore({ reducer:{ gateMonitoring:()=>({ sessionId:'video:job-1',gateState:'FULLY_OPEN',direction:null,alertRequests:{},sessions:{} }) } });
@@ -32,6 +32,10 @@ test('monitoring panels handle missing snapshots and the uploaded video forwards
     const recorded=render(OpenWithoutCrossingCard,{gateState:'UNKNOWN',monitoring:{source:'video',gateSessionId:'video:job-1',finalTimer:true,timerRecorded:false,recordedTimerDisplay:{source:'alert',elapsedSeconds:336.341,thresholdSeconds:3,videoTimeSeconds:19.7}}});
     assert.match(recorded,/05:36/);assert.match(recorded,/00:03/);assert.match(recorded,/336.341/);assert.match(recorded,/Recorded alert duration/);
     assert.doesNotMatch(recorded,/Upload the video again/);
+    const meshTimer=render(MeshPanel,{monitoring:{meshPeopleCount:1,meshGatheringSeconds:5,meshGatheringThresholdSeconds:15,meshEvents:[]}});
+    assert.match(meshTimer,/00:05 \/ 00:15/);
+    const meshInactive=render(MeshPanel,{monitoring:{meshPeopleCount:0,meshGatheringSeconds:0,meshGatheringThresholdSeconds:15,meshEvents:[]}});
+    assert.match(meshInactive,/00:00 \/ 00:15/);
     for (const gateState of ['PARTIALLY_OPEN','CLOSED']) {
       const stopped=render(OpenWithoutCrossingCard,{gateState,monitoring:{source:'video',gateSessionId:'video:job-1',cycleStartedAt:null,openWithoutCrossingSeconds:null,openWithoutCrossingThresholdSeconds:3,finalTimer:false}});
       assert.match(stopped,/>00:00<\/p>/);

@@ -33,13 +33,14 @@ test('Branch Exterior source details show canonical metadata, evidence controls,
       zone_name:'Entrance zone', status:'open', snapshot_path:'snapshots/front.jpg', clip_path:'clips/front.mp4',
       meta:{ branch_id:'branch-1', branch_code:'B001', branch_name:'Old Goa', place_name:'Panaji', region_name:'West', branch_manager:'Manager A' } };
     const html = renderToStaticMarkup(createElement(MemoryRouter, null,
-      createElement(Detail, { id:event.id, initialEvent:event, incident:{ status:'OPEN' }, onClose:()=>{} })));
-    for (const value of ['Front door','camera-1','Old Goa','B001','Panaji','West','Manager A','Entrance zone','loitering','92.0%','Track ID','Download snapshot','Download clip']) assert.ok(html.includes(value), value);
+      createElement(Detail, { id:event.id, initialEvent:event, incident:{ id:'common-1', status:'OPEN' }, onClose:()=>{} })));
+    for (const value of ['Front door','camera-1','Old Goa','B001','Panaji','West','Manager A','Entrance zone','loitering','92.0%','Track ID','Source event ID','source-1','Incident ID','common-1','Download snapshot','Download clip','Acknowledge','Resolve','Discard']) assert.ok(html.includes(value), value);
+    assert.match(html, /role="dialog"/);
+    assert.match(html, /role="tablist"/);
+    assert.match(html, /Alert details/);
     assert.match(html, /storage\/snapshots\/front.jpg/);
-    assert.match(html, /storage\/clips\/front.mp4/);
-    assert.match(html, /<video[^>]*preload="metadata"/);
+    assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>Video clip/);
     assert.doesNotMatch(html, /<video[^>]*controls/);
-    assert.match(html, /Checking video clip/);
   } finally { await server.close(); }
 });
 
@@ -49,14 +50,17 @@ test('ticker cards render a saved snapshot and keep the camera placeholder when 
     const { default: SourceIncidentCard } = await server.ssrLoadModule('/src/components/alerts/SourceIncidentCard.jsx');
     const saved = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(SourceIncidentCard, {
       event:{ id:'source-1', camera_name:'Front', severity:'high', message:'Loitering', status:'open', snapshot_path:'snapshots/front.jpg' },
-      useCase:'branch_exterior', thumbnailUrl:'http://localhost:8011/storage/snapshots/front.jpg', onSelect:()=>{},
+      useCase:'branch_exterior', common:{ id:'common-1', severity:'WARNING', status:'OPEN', summary:'Central alert description' },
+      thumbnailUrl:'http://localhost:8011/storage/snapshots/front.jpg', onSelect:()=>{},
     })));
     const missing = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(SourceIncidentCard, {
       event:{ id:'source-2', camera_name:'Rear', severity:'medium', message:'Running', status:'open', snapshot_path:'' },
       useCase:'branch_exterior', onSelect:()=>{},
     })));
     assert.match(saved, /src="http:\/\/localhost:8011\/storage\/snapshots\/front.jpg"/);
+    assert.match(saved, /HIGH/);
     assert.match(missing, /No captured snapshot/);
+    assert.match(missing, /MEDIUM/);
     assert.doesNotMatch(missing, /<img/);
   } finally { await server.close(); }
 });

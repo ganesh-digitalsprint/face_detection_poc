@@ -3,7 +3,6 @@ import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, bxApiUrl, bxStorageUrl, timeAgo } from '../api/index.js';
-import { listServiceAlerts } from '../../../api/alertService.js';
 import { useNewEvents } from '../feed.js';
 import { beep, setSound, soundOn } from '../sound.js';
 import AddCameraModal from '../components/AddCameraModal.jsx';
@@ -12,7 +11,7 @@ import SourcePicker from '../../../components/video/SourcePicker.jsx';
 import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
 import BranchExteriorEventDetail from '../components/BranchExteriorEventDetail.jsx';
 import { branchIdBody } from '../branchContext.js';
-import { branchEventDestination, findCommonAlert, mergeTickerEvents } from '../tickerModel.js';
+import { mergeTickerEvents, tickerDetailLocation } from '../tickerModel.js';
 
 const browseBranchVideos = () => api.get('/uploads/browse');
 
@@ -131,10 +130,9 @@ export default function LiveMonitoringPage() {
     next.delete('event');
     setQuery(next, { replace: true, state: null });
   };
-  const openTickerEvent = useCallback(async (sourceEventId, event) => {
-    const common = await findCommonAlert(sourceEventId, incidentStates.bySource[sourceEventId], listServiceAlerts);
-    navigate(branchEventDestination(sourceEventId, common), { state: { sourceEvent: event } });
-  }, [incidentStates.bySource, navigate]);
+  const openTickerEvent = useCallback((sourceEventId, event) => {
+    navigate(tickerDetailLocation(location.pathname, location.search, sourceEventId), { state: { sourceEvent: event } });
+  }, [location.pathname, location.search, navigate]);
   const toggleOverlay = async (endpoint, current) => {
     if (!cam) return;
     try { await api.post(`/cameras/${cam.id}/${endpoint}?on=${!current}`); } catch (e) { alert(e.message); }

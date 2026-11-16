@@ -394,7 +394,11 @@ class GrillGateFrameProcessor:
 
     def _refresh_status(self) -> None:
         self._status["crossing"] = self._active_crossing().status()
-        self._status["mesh"] = self._mesh.status()
+        mesh = self._mesh.status()
+        packet = self._current_packet
+        at = packet.captured_at if packet is not None else None
+        mesh.update(self._alerts.mesh_monitoring_status(at, mesh["occupancy_count"]))
+        self._status["mesh"] = mesh
 
     def _active_crossing(self):
         return self._three_zone_crossing
@@ -425,11 +429,19 @@ class GrillGateFrameProcessor:
                         else datetime.now(timezone.utc))
             if self._alerts is not None:
                 result.update(self._alerts.monitoring_status(timer_at))
+                result["mesh"].update(self._alerts.mesh_monitoring_status(timer_at,
+                    result["mesh"].get("occupancy_count", 0)))
             return result
 
     def mesh_status(self) -> dict:
         with self._lock:
-            return self._mesh.status()
+            result = self._mesh.status()
+            packet = self._current_packet
+            at = (packet.captured_at if packet is not None
+                  and getattr(packet, "source_type", "LIVE_CAMERA") == "UPLOADED_VIDEO"
+                  else datetime.now(timezone.utc))
+            result.update(self._alerts.mesh_monitoring_status(at, result["occupancy_count"]))
+            return result
 
     def reset(self) -> None:
         with self._lock:

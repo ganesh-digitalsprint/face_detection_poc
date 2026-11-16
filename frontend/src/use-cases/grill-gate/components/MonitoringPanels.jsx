@@ -124,7 +124,9 @@ export function MeshPanel({ monitoring }) {
     <Card title="Mesh Area Monitoring">
       <dl className="grid grid-cols-2 gap-3">
         <div><dt className="text-xs text-[#55607A]">Current people</dt><dd className="mt-1 text-2xl font-bold text-[#0F1B3D]">{monitoring.meshPeopleCount}</dd></div>
-        <div><dt className="text-xs text-[#55607A]">Gathering duration</dt><dd className="mt-1 text-2xl font-bold text-[#0F1B3D]">{clock(monitoring.meshGatheringSeconds)}</dd></div>
+        <div><dt className="text-xs text-[#55607A]">Gathering duration</dt><dd className="mt-1 text-2xl font-bold text-[#0F1B3D]">
+          {clock(monitoring.meshGatheringSeconds)}{monitoring.meshGatheringThresholdSeconds != null && ` / ${clock(monitoring.meshGatheringThresholdSeconds)}`}
+        </dd></div>
       </dl>
       {monitoring.meshEvents?.length ? (
         <ul className="mt-2 divide-y divide-[#E3E7F0]">

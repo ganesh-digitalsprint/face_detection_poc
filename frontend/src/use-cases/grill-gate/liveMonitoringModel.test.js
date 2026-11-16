@@ -9,6 +9,15 @@ test('live alert monitoring carries the local API error detail to the Active Ale
   assert.equal(snapshot.alertsError, 'Could not load this assignment’s local Grill Gate alerts (HTTP 503).');
 });
 
+test('live mesh gathering duration is taken from the backend mesh monitor', () => {
+  const active = liveMonitoring({ mesh: { occupancy_count: 3, gathering_duration_seconds: 8.25, gathering_threshold_seconds: 15 } });
+  assert.equal(active.meshPeopleCount, 3);
+  assert.equal(active.meshGatheringSeconds, 8.25);
+  assert.equal(active.meshGatheringThresholdSeconds, 15);
+  const inactive = liveMonitoring({ mesh: { occupancy_count: 2, gathering_duration_seconds: null } });
+  assert.equal(inactive.meshGatheringSeconds, 0);
+});
+
 test('live alert monitoring distinguishes waiting, empty success, and an attempted request error', () => {
   const waiting = liveMonitoring({ alertsLoading: true, alertsRequestAttempted: false });
   assert.equal(waiting.alertsLoading, true);

@@ -65,14 +65,16 @@ test('poller reads the job configuration when status omits its threshold', async
   assert.equal(received.alert_configuration.max_gate_open_seconds, 3);
 });
 
-test('poller publishes only the progress field from the results monitoring object', async () => {
+test('poller publishes progress and live mesh gathering fields from results monitoring', async () => {
   let received;
   const progress = 0.8244978822243475;
   const poller = createVideoJobPoller({
     jobId: 'job-1',
     api: {
       getJob: async () => job('PROCESSING'),
-      getResults: async () => ({ monitoring: { progress, state: 'CLOSED', gate_state: 'CLOSED' }, items: [], transitions: [], alerts: [] }),
+      getResults: async () => ({ monitoring: { progress, state: 'CLOSED', gate_state: 'CLOSED',
+        mesh: { occupancy_count: 1, gathering_duration_seconds: 5, gathering_threshold_seconds: 15 } },
+        items: [], transitions: [], alerts: [] }),
       describeError: String,
     },
     onUpdate: (value) => { received = value; },
@@ -81,6 +83,8 @@ test('poller publishes only the progress field from the results monitoring objec
   assert.equal(received.monitoring.progress, progress);
   assert.equal(received.monitoring.state, 'CLOSED');
   assert.equal(received.monitoring.gate_state, 'CLOSED');
+  assert.deepEqual(received.monitoring.mesh,
+    { occupancy_count: 1, gathering_duration_seconds: 5, gathering_threshold_seconds: 15 });
   poller.stop();
 });
 
@@ -233,7 +237,7 @@ test('video snapshot reports backend values and leaves unreported ones null', ()
   assert.equal(view.gateStateTimeLabel, '');
   assert.equal(view.gateOpenSeconds, null);
   assert.equal(view.openWithoutCrossingSeconds, null);
-  assert.equal(view.meshGatheringSeconds, null);
+  assert.equal(view.meshGatheringSeconds, 0);
   assert.equal(view.secondsSinceCrossing, null, 'crossing age comes only from the authoritative timer snapshot');
   assert.deepEqual([view.entryCount, view.exitCount], [1, 1]);
   assert.equal(view.crossings[0].direction, 'EXIT', 'newest first');
@@ -376,6 +380,17 @@ test('the timeline merges gate transitions with events, leaves out the end of th
   assert.equal('gateConfidence' in view, false);
   assert.equal(jobPillLabel(job('PROCESSING', { progress: 0.42 })), 'PROCESSING 42%');
   assert.equal(jobPillLabel(null), 'NONE');
+});
+
+test('uploaded video mesh gathering duration comes from backend monitoring', () => {
+  const view = videoMonitoring({ job: job('PROCESSING', { video_time_seconds: 12,
+    monitoring: { video_timestamp: 12, mesh: { occupancy_count: 3, gathering_duration_seconds: 7.5 } } }) });
+  assert.equal(view.meshPeopleCount, 3);
+  assert.equal(view.meshGatheringSeconds, 7.5);
+  const inactive = videoMonitoring({ job: job('PROCESSING', { monitoring: {
+    video_timestamp: 13, mesh: { occupancy_count: 2, gathering_duration_seconds: null },
+  } }) });
+  assert.equal(inactive.meshGatheringSeconds, 0);
 });
 
 test('alert buttons follow locally stored Grill Gate statuses and retain evidence details', () => {

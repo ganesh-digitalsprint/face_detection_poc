@@ -4,6 +4,8 @@ import { alertSourceLabel, evidenceLabel, useCaseLabel } from '../../api/alertSe
 
 const severityStyles = {
   WARNING: { accent: 'border-l-[#F59E0B]', badge: 'bg-[#FFF3C4] text-[#8F5000]', dot: 'bg-[#D97706]', value: 'text-[#B45309]' },
+  MEDIUM: { accent: 'border-l-[#F59E0B]', badge: 'bg-[#FFF3C4] text-[#8F5000]', dot: 'bg-[#D97706]', value: 'text-[#B45309]' },
+  LOW: { accent: 'border-l-green-600', badge: 'bg-green-100 text-green-800', dot: 'bg-green-600', value: 'text-green-700' },
   HIGH: { accent: 'border-l-red-600', badge: 'bg-red-100 text-red-800', dot: 'bg-red-600', value: 'text-red-700' },
   CRITICAL: { accent: 'border-l-red-600', badge: 'bg-red-100 text-red-800', dot: 'bg-red-600', value: 'text-red-700' },
   INFO: { accent: 'border-l-sky-500', badge: 'bg-sky-100 text-sky-800', dot: 'bg-sky-500', value: 'text-sky-700' },

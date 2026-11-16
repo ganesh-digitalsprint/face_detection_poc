@@ -304,7 +304,8 @@ export function videoMonitoring({ job, monitoring = null, gateClassification = {
     entryCount: crossings.filter((event) => event.direction === 'OUTSIDE_TO_INSIDE').length,
     exitCount: crossings.filter((event) => event.direction === 'INSIDE_TO_OUTSIDE').length,
     meshPeopleCount: reported?.mesh?.occupancy_count ?? meshOccupancy(mesh),
-    meshGatheringSeconds: null,
+    meshGatheringSeconds: reported?.mesh?.gathering_duration_seconds ?? 0,
+    meshGatheringThresholdSeconds: reported?.mesh?.gathering_threshold_seconds ?? null,
     meshEvents: newestFirst(mesh).slice(0, 5).map(timelineView),
     crossingTotal: crossings.length,
     crossingConfigStatus: reported?.crossing?.status

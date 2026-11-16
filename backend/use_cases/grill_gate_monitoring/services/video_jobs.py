@@ -69,7 +69,12 @@ def monitoring_summary(status: dict) -> dict:
                             "active_tracks": crossing.get("active_tracks", 0),
                             "reliable": crossing.get("reliable", False)},
                "mesh": {"occupancy_count": mesh.get("occupancy_count", 0), "occupied": bool(mesh.get("occupied")),
-                        "last_updated_at": mesh.get("last_updated_at"), "config_status": mesh.get("config_status")}}
+                        "last_updated_at": mesh.get("last_updated_at"), "config_status": mesh.get("config_status"),
+                        "gathering_duration_seconds": mesh.get("gathering_duration_seconds"),
+                        "gathering_since": mesh.get("gathering_since"),
+                        "gathering_threshold_seconds": mesh.get("gathering_threshold_seconds"),
+                        "gathering_threshold_people": mesh.get("gathering_threshold_people"),
+                        "gathering_alert_active": mesh.get("gathering_alert_active", False)}}
     # The detector's current state is authoritative. Never infer it from history
     # or the separate alert timer's state alias.
     summary["gate_state"] = state
