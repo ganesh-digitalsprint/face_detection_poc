@@ -1,7 +1,6 @@
 import { CalendarDays, ChevronDown, Search, X } from 'lucide-react';
 import { startTransition, useEffect, useRef, useState } from 'react';
 import { SEVERITIES, STATUSES, USE_CASE_LABELS } from '../../api/alertServiceModel.js';
-import { useOptionalActiveBranch } from '../../features/branches/ActiveBranch.jsx';
 import { platformApi } from '../../features/branches/api.js';
 import './AlertFilterToolbar.css';
 
@@ -9,17 +8,13 @@ function FilterChip({ label, value, onChange, children }) {
   return <label className="alert-filter-chip" data-filter={label.toLowerCase()}><span>{label}</span><select aria-label={`Filter by ${label.toLowerCase()}`} value={value} onChange={(event) => onChange(event.target.value)}>{children}</select><ChevronDown size={12} aria-hidden /></label>;
 }
 
-export function availableBranchOptions(rows = [], scope = null) {
-  const options = [...rows];
-  if (scope?.type === 'branch' && scope.id && !options.some((branch) => branch.id === scope.id)) {
-    options.push({ id: scope.id, name: scope.name || scope.id });
-  }
-  return options;
+export function availableBranchOptions(rows = []) {
+  return [...rows];
 }
 
-export function branchFilterLabel(branchId, branches = [], scope = null) {
+export function branchFilterLabel(branchId, branches = []) {
   if (!branchId) return '';
-  const branch = availableBranchOptions(branches, scope).find((item) => item.id === branchId);
+  const branch = availableBranchOptions(branches).find((item) => item.id === branchId);
   return branch?.name || branch?.code || branchId;
 }
 
@@ -48,8 +43,6 @@ function DateFilter({ from, to, onChange, cameraError, branchError }) {
 }
 
 export default function AlertFilterToolbar({ query, onChange, onClear, typeInput, onTypeInput }) {
-  const branchContext = useOptionalActiveBranch();
-  const scope = branchContext?.scope;
   const group = query.get('group') || '';
   const [selectedGroup, setSelectedGroup] = useState(group);
   useEffect(() => setSelectedGroup(group), [group]);
@@ -57,6 +50,7 @@ export default function AlertFilterToolbar({ query, onChange, onClear, typeInput
   const branchId = query.get('branch_id') || '';
   const cameraId = query.get('camera_id') || '';
   const [branches, setBranches] = useState([]);
+  const [branchesLoaded, setBranchesLoaded] = useState(false);
   const [branchError, setBranchError] = useState('');
   const [cameras, setCameras] = useState([]);
   const [cameraError, setCameraError] = useState('');
@@ -64,10 +58,13 @@ export default function AlertFilterToolbar({ query, onChange, onClear, typeInput
     let live = true;
     setBranchError('');
     platformApi('/branches/search?limit=100')
-      .then((rows) => { if (live) setBranches(rows); })
+      .then((rows) => { if (live) { setBranches(rows); setBranchesLoaded(true); } })
       .catch((error) => { if (live) setBranchError(error.message); });
     return () => { live = false; };
   }, []);
+  useEffect(() => {
+    if (branchesLoaded && branchId && !branches.some((branch) => branch.id === branchId)) onChange('branch_id', '');
+  }, [branchesLoaded, branches, branchId, onChange]);
   useEffect(() => {
     let live = true;
     setCameras([]);
@@ -80,8 +77,8 @@ export default function AlertFilterToolbar({ query, onChange, onClear, typeInput
   }, [branchId]);
   const from = query.get('from') || '';
   const to = query.get('to') || '';
-  const branchOptions = availableBranchOptions(branches, scope);
-  const branchName = branchFilterLabel(branchId, branchOptions, scope);
+  const branchOptions = availableBranchOptions(branches);
+  const branchName = branchFilterLabel(branchId, branchOptions);
   const count = ['status', 'branch_id', 'use_case', 'severity', 'evidence', 'type', 'camera_id', 'source_event_id'].filter((key) => query.get(key)).length + (from || to ? 1 : 0);
   return <section className="center-filters alert-filter-toolbar" aria-label="Alert filters">
     <div className="alert-filter-top">
@@ -96,7 +93,7 @@ export default function AlertFilterToolbar({ query, onChange, onClear, typeInput
     </div>
     <div className="alert-filter-bottom">
       <FilterChip label="Status" value={status} onChange={(value) => onChange('status', value)}><option value="">All</option>{STATUSES.map((value) => <option key={value} value={value}>{value.charAt(0) + value.slice(1).toLowerCase()}</option>)}</FilterChip>
-      {branchId ? <div className="alert-filter-chip alert-filter-branch"><span>Branch</span><strong>{branchName}</strong><button type="button" aria-label="Clear branch filter" onClick={() => { if (scope?.type === 'branch' && scope.id === branchId) branchContext.setScope(null); onChange('branch_id', ''); }}><X size={12} /></button></div>
+      {branchId ? <div className="alert-filter-chip alert-filter-branch"><span>Branch</span><strong>{branchName}</strong><button type="button" aria-label="Clear branch filter" onClick={() => onChange('branch_id', '')}><X size={12} /></button></div>
         : <FilterChip label="Branch" value="" onChange={(value) => onChange('branch_id', value)}><option value="">All</option>{branchOptions.map((branch) => <option key={branch.id} value={branch.id}>{branch.name || branch.code || branch.id}</option>)}</FilterChip>}
       <FilterChip label="Camera" value={cameraId} onChange={(value) => onChange('camera_id', value)}><option value="">All</option>{cameras.map((camera) => <option key={camera.id} value={camera.id}>{camera.name || camera.code || camera.id}</option>)}{cameraId && !cameras.some((camera) => camera.id === cameraId) && <option value={cameraId}>{cameraId}</option>}</FilterChip>
       <FilterChip label="Source" value={query.get('use_case') || ''} onChange={(value) => onChange('use_case', value)}><option value="">All</option>{Object.entries(USE_CASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</FilterChip>

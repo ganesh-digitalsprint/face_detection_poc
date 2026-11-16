@@ -2,7 +2,7 @@ import SourceIncidentCard from '../../../components/alerts/SourceIncidentCard.js
 import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
 import { useNavigate } from 'react-router-dom';
 import { FACE_MASK_BASE_URL } from '../../../config/services.js';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, coveringLabel, fmApiUrl, timeAgo } from '../api/index.js';
 import AddCameraModal from '../components/AddCameraModal.jsx';
@@ -10,7 +10,7 @@ import { useFmStatus } from '../components/FmStatus.jsx';
 import { EventStatusBadge, PageState, ServiceDown, StateDot, StreamBadge, Empty } from '../components/ui.jsx';
 import usePolling from '../hooks/usePolling.js';
 import { faceMaskEventLink } from '../../../layouts/routes.js';
-import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
+import SourcePicker from '../../../components/video/SourcePicker.jsx';
 
 const DEFAULT_ROI = {
   name: 'Full frame default',
@@ -22,59 +22,7 @@ const DEFAULT_ROI = {
 // Real cameras get their own Entry ROI on the common Regions & Zones page.
 const STAGE = { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', textAlign: 'center', padding: 16 };
 const LIVE_STATES = ['ONLINE', 'PROCESSING', 'RECONNECTING', 'DONE'];
-
-function VideoPanel({ onCreated, branchId }) {
-  const [files, setFiles] = useState([]);
-  const [picked, setPicked] = useState('');
-  const [upload, setUpload] = useState(null);
-  const [useDefaultRoi, setUseDefaultRoi] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const loadFiles = useCallback(() => api.get('/uploads/browse').then(setFiles).catch(() => setFiles([])), []);
-  useEffect(() => { loadFiles(); }, [loadFiles]);
-
-  const run = async (path, name) => {
-    const created = await api.post('/videos/process', { path, name, roi: useDefaultRoi ? DEFAULT_ROI : null, branch_id: branchId });
-    await onCreated(created);
-  };
-  const submit = async () => {
-    setError(''); setBusy(true);
-    try {
-      if (upload) {
-        const fd = new FormData(); fd.append('file', upload);
-        const up = await api.postForm('/uploads/video', fd);
-        await run(up.path, upload.name.replace(/\.[^.]+$/, ''));
-        setUpload(null); await loadFiles();
-      } else if (picked) {
-        await run(picked, files.find((f) => f.path === picked)?.name.replace(/\.[^.]+$/, '') || '');
-      } else { throw new Error('Choose a video file to upload, or pick one that is already on the server.'); }
-    } catch (e) { setError(e.message); } finally { setBusy(false); }
-  };
-
-  return (
-    <div className="bx-card bx-mb-16">
-      <div className="bx-card-title">Analyse a video</div>
-      {error && <div className="bx-diag" role="alert">{error}</div>}
-      <div className="bx-field-row">
-        <label className="bx-field">Upload a video
-          <input className="bx-input" type="file" accept="video/*" onChange={(e) => { setUpload(e.target.files[0] || null); setPicked(''); }} />
-        </label>
-        <label className="bx-field">…or pick one already on the server
-          <select className="bx-input" value={picked} onChange={(e) => { setPicked(e.target.value); setUpload(null); }}>
-            <option value="">{files.length ? 'Select a video…' : 'No videos found'}</option>
-            {files.map((f) => <option key={f.path} value={f.path}>{f.name} ({f.folder}, {f.size_mb} MB)</option>)}
-          </select>
-        </label>
-      </div>
-      <button type="button" className="bx-btn" onClick={loadFiles}>Refresh server videos</button>
-      <label className="bx-row bx-gap-8" style={{ fontSize: 13, marginBottom: 10 }}>
-        <input type="checkbox" checked={useDefaultRoi} onChange={(e) => setUseDefaultRoi(e.target.checked)} />
-        Restrict evaluation to a saved entry area. If unchecked, Face Mask evaluates and plots the whole video frame; configure a reusable zone on <Link to="/regions?use_case=face_mask">Regions &amp; Zones</Link>.
-      </label>
-      <button type="button" className="bx-btn bx-btn-primary" disabled={busy} onClick={submit}>{busy ? 'Starting…' : 'Analyse video'}</button>
-    </div>
-  );
-}
+const browseFaceMaskVideos = () => api.get('/uploads/browse');
 
 function Progress({ st }) {
   if (!st.frames_total) return null;
@@ -102,6 +50,7 @@ export default function LiveMonitoring() {
   const [nonce, setNonce] = useState(0);
   const [imgFailed, setImgFailed] = useState(false);
   const [debugOverlay, setDebugOverlay] = useState(false);
+  const [useDefaultRoi, setUseDefaultRoi] = useState(false);
 
   const cams = usePolling(() => api.get('/cameras'), 1500);
   const events = usePolling(() => api.get('/events?limit=10'), 3000);
@@ -145,17 +94,22 @@ export default function LiveMonitoring() {
       {cams.error && !cams.data && <ServiceDown error={cams.error} onRetry={cams.reload} />}
       {actionError && <div className="bx-diag" role="alert">{actionError}</div>}
 
-      {!down && <VideoPanel branchId={branchId} onCreated={async (created) => { select(created.id); await cams.reload(); }} />}
-
-      <div className="bx-card bx-mb-16">
-        <label className="bx-field" style={{ margin: 0 }}>
-          <span>Camera or video</span>
-          <select className="bx-input" value={selectedId} onChange={(e) => select(e.target.value)} disabled={!cameras.length}>
-            <option value="">{cameras.length ? '— Select a camera or video —' : 'No cameras yet - add one or analyse a video above'}</option>
-            {cameras.map((c) => <option key={c.id} value={c.id}>{c.stream.running ? '▶ ' : ''}{c.name} ({c.stream.status})</option>)}
-          </select>
+      {!down && <SourcePicker useCase="face_mask" cameras={cameras} browseVideos={browseFaceMaskVideos}
+        onProcess={async (source) => {
+          if (source.kind === 'camera') {
+            await api.post(`/cameras/${source.cameraId}/start`);
+            select(source.cameraId); await cams.reload();
+          } else {
+            const created = await api.post('/videos/process', { path: source.processPath,
+              name: source.name.replace(/\.[^.]+$/, ''), roi: useDefaultRoi ? DEFAULT_ROI : null });
+            select(created.id); await cams.reload();
+          }
+        }}>
+        <label className="bx-row bx-gap-8" style={{ fontSize: 13, marginTop: 12 }}>
+          <input type="checkbox" checked={useDefaultRoi} onChange={(e) => setUseDefaultRoi(e.target.checked)} />
+          Restrict evaluation to a saved entry area. If unchecked, Face Mask evaluates and plots the whole video frame; configure a reusable zone on <Link to="/regions?use_case=face_mask">Regions &amp; Zones</Link>.
         </label>
-      </div>
+      </SourcePicker>}
 
       <PageState loading={cams.loading} error={null} data={cams.data} isEmpty={() => false}>
         <div className="bx-two-col">

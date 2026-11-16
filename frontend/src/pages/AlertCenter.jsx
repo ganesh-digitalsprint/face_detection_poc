@@ -16,7 +16,7 @@ import useAlertEvidence from '../hooks/useAlertEvidence.js';
 import { evidenceFields, matchesEvidence } from '../api/alertEvidence.js';
 import './AlertCenter.css';
 import AlertFilterToolbar from '../components/alerts/AlertFilterToolbar.jsx';
-import { useOptionalActiveBranch } from '../features/branches/ActiveBranch.jsx';
+import { clearAlertCenterFilters, updateAlertCenterQuery } from './alertCenterFilters.js';
 
 function SummaryTile({ label, value, critical = false }) {
   return <section className={`vault-card min-h-24 p-4 ${critical ? 'border-red-200' : ''}`} aria-label={label}>
@@ -29,7 +29,6 @@ export { default as ServiceAlertDetail } from '../components/alerts/CommonAlertD
 
 export default function AlertCenter() {
   const [query, setQuery] = useSearchParams();
-  const activeBranch = useOptionalActiveBranch()?.scope;
   const status = query.get('status') || '';
   const useCase = query.get('use_case') || '';
   const severity = query.get('severity') || '';
@@ -42,9 +41,8 @@ export default function AlertCenter() {
   const [detailRecord, setDetailRecord] = useState(null);
   const [detailLoadError, setDetailLoadError] = useState('');
   const setSelectedId = (id) => {
-    const next = new URLSearchParams(query);
-    if (id) next.set('alert_id', id);
-    else { next.delete('alert_id'); next.delete('source_event_id'); }
+    const next = updateAlertCenterQuery(query, 'alert_id', id);
+    if (!id) next.delete('source_event_id');
     setQuery(next);
   };
   const group = query.get('group') || '';
@@ -55,14 +53,6 @@ export default function AlertCenter() {
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
   const [audit, setAudit] = useState({ loading: false, rows: [], error: '' });
-
-  useEffect(() => {
-    if (activeBranch?.type !== 'branch' || query.get('branch_id') === activeBranch.id) return;
-    const next = new URLSearchParams(query);
-    next.set('branch_id', activeBranch.id);
-    next.delete('camera_id');
-    setQuery(next, { replace: true });
-  }, [activeBranch?.id, activeBranch?.type, query, setQuery]);
 
   const params = useMemo(() => ({ ...buildAlertParams({ status, useCase, severity, sourceType, from, to, sort, limit: 6 }), ...(group && !status ? { group } : {}), ...(cameraId ? { camera_id: cameraId } : {}), ...(branchId ? { branch_id: branchId } : {}), ...(sourceEventId ? { source_event_id: sourceEventId } : {}) }),
     [status, useCase, severity, sourceType, from, to, sort, group, cameraId, branchId, sourceEventId]);
@@ -101,12 +91,7 @@ export default function AlertCenter() {
 
 
   const setFilter = (key, value) => {
-    const next = new URLSearchParams(query);
-    if (value) next.set(key, value); else next.delete(key);
-    if (key === 'branch_id') next.delete('camera_id');
-    if (key === 'group') next.delete('status');
-    if (key === 'status') next.delete('group');
-    setQuery(next);
+    setQuery(updateAlertCenterQuery(query, key, value));
   };
   useEffect(() => setTypeInput(sourceType), [sourceType]);
   useEffect(() => {
@@ -151,9 +136,7 @@ export default function AlertCenter() {
 
   const noFilters = !group && !branchId && !cameraId && !evidence && !sourceEventId && !status && !useCase && !severity && !sourceType && !from && !to;
   const clearFilters = () => {
-    const next = new URLSearchParams(query);
-    for (const key of ['status', 'branch_id', 'camera_id', 'use_case', 'severity', 'evidence', 'type', 'from', 'to', 'source_event_id']) next.delete(key);
-    if (activeBranch?.type === 'branch') next.set('branch_id', activeBranch.id);
+    const next = clearAlertCenterFilters(query);
     setTypeInput('');
     setQuery(next);
   };

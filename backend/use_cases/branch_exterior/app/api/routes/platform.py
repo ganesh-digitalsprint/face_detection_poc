@@ -30,6 +30,7 @@ from fedbank_core.storage import repo_root
 
 router = APIRouter(prefix="/platform", tags=["platform"])
 DB_PATH = repo_root() / "backend" / "services" / "platform_data" / "platform.db"
+LOCAL_DEMO_KEY_PATH = repo_root() / "backend" / "services" / "platform_data" / "local-demo.key"
 USE_CASES = {"vault_access", "branch_exterior", "grill_gate", "face_mask"}
 CODE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{2,38}$")
 
@@ -120,19 +121,25 @@ def _admin(x_platform_admin_key: str = Header(default="")) -> None:
 
 
 def _hierarchy_admin(request: Request, x_platform_admin_key: str) -> None:
-    """Allow only hierarchy setup in an explicitly enabled, local demo.
+    """Allow only hierarchy setup from the local Vite development proxy.
 
     Recorder, camera and upload writes continue to require the admin key.
-    Do not use this mode behind a network-accessible frontend proxy.
+    The demo token is never accepted by ``_admin`` for other writes.
     """
-    if os.environ.get("FEDBANK_PLATFORM_DEMO_WRITES") == "1":
-        try:
-            client = ipaddress.ip_address(request.client.host if request.client else "")
-            server = ipaddress.ip_address(request.scope["server"][0])
-        except (ValueError, KeyError, TypeError):
-            pass
-        else:
-            if client.is_loopback and server.is_loopback:
+    try:
+        client = ipaddress.ip_address(request.client.host if request.client else "")
+        server = ipaddress.ip_address(request.scope["server"][0])
+    except (ValueError, KeyError, TypeError):
+        pass
+    else:
+        if client.is_loopback and server.is_loopback:
+            if os.environ.get("FEDBANK_PLATFORM_DEMO_WRITES") == "1":
+                return
+            try:
+                local_key = LOCAL_DEMO_KEY_PATH.read_text(encoding="ascii").strip()
+            except OSError:
+                local_key = ""
+            if local_key and x_platform_admin_key and secrets.compare_digest(local_key, x_platform_admin_key):
                 return
     _admin(x_platform_admin_key)
 
@@ -368,7 +375,7 @@ def health():
     with database():
         return {"status": "ok", "admin_configured": bool(os.environ.get("FEDBANK_PLATFORM_ADMIN_KEY")),
                 "encryption_configured": bool(os.environ.get("FEDBANK_PLATFORM_FERNET_KEY")),
-                "demo_writes_enabled": os.environ.get("FEDBANK_PLATFORM_DEMO_WRITES") == "1"}
+                "demo_writes_enabled": os.environ.get("FEDBANK_PLATFORM_DEMO_WRITES") == "1" or LOCAL_DEMO_KEY_PATH.is_file()}
 
 
 @router.get("/rtsp-templates")
@@ -512,7 +519,12 @@ def create_branch(payload: BranchCreate, request: Request, x_platform_admin_key:
 def cameras(branch_id: str):
     with database() as conn:
         _one(conn, "SELECT id FROM branches WHERE id=?", (branch_id,))
-        return [dict(row) for row in conn.execute("SELECT c.*, group_concat(u.use_case) use_cases FROM cameras c LEFT JOIN camera_use_cases u ON u.camera_id=c.id WHERE c.branch_id=? GROUP BY c.id ORDER BY c.channel_no", (branch_id,))]
+        return [dict(row) for row in conn.execute("SELECT c.*, group_concat(DISTINCT u.use_case) use_cases, "
+            "CASE WHEN c.status='recorded' THEN 'video_file' ELSE 'rtsp' END source_type, "
+            "CASE WHEN c.status='recorded' THEN v.id ELSE NULL END upload_id "
+            "FROM cameras c LEFT JOIN camera_use_cases u ON u.camera_id=c.id "
+            "LEFT JOIN video_uploads v ON (v.camera_id=c.id OR (c.status='recorded' AND c.code='VID-' || v.id)) "
+            "AND v.branch_id=c.branch_id WHERE c.branch_id=? GROUP BY c.id ORDER BY c.channel_no", (branch_id,))]
 
 
 @router.get("/branches/{branch_id}/recorders")

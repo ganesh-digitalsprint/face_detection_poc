@@ -5,10 +5,12 @@ import { useNavigate } from 'react-router-dom';
 import { api, bxApiUrl, bxStorageUrl, timeAgo } from '../api/index.js';
 import { useNewEvents } from '../feed.js';
 import { beep, setSound, soundOn } from '../sound.js';
-import AddCameraModal, { rescanVideosFolder } from '../components/AddCameraModal.jsx';
+import AddCameraModal from '../components/AddCameraModal.jsx';
 import { Empty } from '../components/ui.jsx';
+import SourcePicker from '../../../components/video/SourcePicker.jsx';
 import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
-import { branchIdBody } from '../branchContext.js';
+
+const browseBranchVideos = () => api.get('/uploads/browse');
 
 // Every detection the system can make, in plain words, with how many incidents of each were seen in this video.
 const RULES = [
@@ -51,13 +53,11 @@ export default function LiveMonitoringPage() {
   const [ticker, setTicker] = useState([]);
   const [soundState, setSoundState] = useState(soundOn());
   const [addOpen, setAddOpen] = useState(false);
-  const [rescanBusy, setRescanBusy] = useState(false);
   const [streamNonce, setStreamNonce] = useState(0);
   const [, setTick] = useState(0);
   const selectedRef = useRef(selectedId);
   selectedRef.current = selectedId;
   const zoneAlertOn = useRef(false);
-  const initDone = useRef(false);
 
   const loadCameras = useCallback(async () => {
     let cams = [];
@@ -72,38 +72,25 @@ export default function LiveMonitoringPage() {
   }, []);
 
   const selectCamera = useCallback(async (id) => {
-    setSelectedId(id); selectedRef.current = id;
-    setStreamNonce((n) => n + 1);
-    if (id) localStorage.setItem('liveCameraId', id); else localStorage.removeItem('liveCameraId');
+    setStarting(true);
     try {
-      if (id) {
-        setStarting(true);
-        await api.post(`/cameras/${id}/activate`, branchIdBody(activeScope));
-      } // stops every other video, starts this one
+      if (id) await api.post(`/cameras/${id}/activate`); // stops every other video, starts this one
       else await api.post('/cameras/stop-all');
-    } catch (e) { alert(`Could not switch video: ${e.message}`); }
-    await loadCameras();
-    setStarting(false);
-  }, [activeScope?.id, activeScope?.type, loadCameras]);
+      setSelectedId(id); selectedRef.current = id;
+      setStreamNonce((n) => n + 1);
+      if (id) localStorage.setItem('liveCameraId', id); else localStorage.removeItem('liveCameraId');
+      await loadCameras();
+    } finally { setStarting(false); }
+  }, [loadCameras]);
 
-  // Initial load + polling. Re-activate the video chosen last time (the server starts with every video idle).
+  // Restore the selected view, but do not begin processing until Process video is pressed.
   useEffect(() => {
     let alive = true;
-    (async () => {
-      const cams = await loadCameras();
-      if (!alive || initDone.current) return;
-      initDone.current = true;
-      const cam = cams?.find((c) => c.id === selectedRef.current);
-      if (cam) {
-        let st = {};
-        try { st = await api.get('/cameras/status/all'); } catch { /* ignore */ }
-        if (!(st[cam.id] && st[cam.id].running)) selectCamera(cam.id);
-      }
-    })();
+    loadCameras();
     const id = setInterval(loadCameras, 1500);
     api.get('/events?limit=15').then((ev) => alive && setTicker(ev)).catch(() => {});
     return () => { alive = false; clearInterval(id); };
-  }, [loadCameras, selectCamera]);
+  }, [loadCameras]);
 
   useNewEvents((event) => { setTicker((t) => [event, ...t].slice(0, 25)); loadCameras(); });
 
@@ -163,29 +150,21 @@ export default function LiveMonitoringPage() {
     <>
       <div className="bx-section-title">
         <div className="bx-row bx-gap-12 bx-wrap">
-          <span className="bx-tag">{cameras.length} video{cameras.length === 1 ? '' : 's'} available</span>
+          <span className="bx-tag">{cameras.length} cameras / videos</span>
           <span className="bx-tag">{running ? `${people} ${people === 1 ? 'person' : 'people'} in view` : 'nothing playing'}</span>
         </div>
-        <div className="bx-row bx-gap-8 bx-wrap">
-          <button type="button" className="bx-btn" disabled={rescanBusy} title="Scan storage/sample_videos for new files now (also automatic every 15s)"
-            onClick={() => rescanVideosFolder(setRescanBusy, loadCameras)}>
-            {rescanBusy ? 'Scanning...' : '↻ Rescan videos folder'}
-          </button>
-          <button type="button" className="bx-btn bx-btn-primary" onClick={() => setAddOpen(true)}>+ Add camera</button>
-        </div>
+        <button type="button" className="bx-btn bx-btn-primary" onClick={() => setAddOpen(true)}>+ Add camera</button>
       </div>
 
-      <div className="bx-card bx-mb-16">
-        <label className="bx-field" style={{ margin: 0 }}>
-          <span>Video (from <span className="bx-mono">storage/sample_videos</span> - new files appear here automatically)</span>
-          <select className="bx-input" value={selectedId} onChange={(e) => selectCamera(e.target.value)}>
-            <option value="">— Select a video to play (all others stay stopped) —</option>
-            {cameras.map((c) => (
-              <option key={c.id} value={c.id}>{statuses[c.id] && statuses[c.id].running ? '▶ ' : ''}{c.name}</option>
-            ))}
-          </select>
-        </label>
-      </div>
+      <SourcePicker useCase="branch_exterior" cameras={cameras} statuses={statuses} browseVideos={browseBranchVideos}
+        onProcess={async (source) => {
+          if (source.cameraId) { await selectCamera(source.cameraId); return; }
+          const created = await api.post('/cameras?start=false', {
+            name: source.name.replace(/\.[^.]+$/, ''), cam_type: source.category === 'uploads' ? 'upload' : 'folder',
+            source: source.processPath, username: '', password: '', location: 'Video file', enabled: true, loop_video: true,
+          });
+          await selectCamera(created.id);
+        }} />
 
       <div className="bx-two-col">
         <div className="bx-tile">
