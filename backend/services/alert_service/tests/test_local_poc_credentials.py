@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[4]
 def provision(extra='', local=False):
     script = "$ErrorActionPreference='Stop'; $repo='" + str(ROOT) + "'; . (Join-Path $repo 'scripts/launcher-common.ps1'); "
     if local:
-        script += "$v=Get-LauncherEnvFile (Join-Path $repo 'backend/use_cases/vault_monitoring/.env'); $b=Get-LauncherEnvFile (Join-Path $repo 'backend/use_cases/branch_exterior/.env'); $a=Get-LauncherEnvFile (Join-Path $repo 'backend/services/alert_service/.env'); $v.ALERT_SERVICE_TOKEN=$v.VAULT_ROOM_API_KEY; $v.GRILL_GATE_ALERT_SERVICE_TOKEN=$v.CLOUDINARY_API_KEY; $b.ALERT_SERVICE_TOKEN=$b.FEDBANK_PLATFORM_ADMIN_KEY; $f=@{ALERT_SERVICE_TOKEN='face-test'}; "
+        script += "$v=Get-LauncherEnvFile (Join-Path $repo 'backend/use_cases/vault_monitoring/.env'); $b=Get-LauncherEnvFile (Join-Path $repo 'backend/use_cases/branch_exterior/.env'); $a=Get-LauncherEnvFile (Join-Path $repo 'backend/services/alert_service/.env'); $v.ALERT_SERVICE_TOKEN=$v.VAULT_ROOM_API_KEY; $v.GRILL_GATE_ALERT_SERVICE_TOKEN=$v.CLOUDINARY_API_KEY; $f=@{ALERT_SERVICE_TOKEN='face-test'}; "
     else:
         script += '''$v=@{ALERT_SERVICE_BASE_URL='http://127.0.0.1:8012';ALERT_SERVICE_TOKEN='vault-test';GRILL_GATE_ALERT_SERVICE_TOKEN='gate-test'}; $b=@{ALERT_SERVICE_TOKEN='branch-test'}; $f=@{ALERT_SERVICE_TOKEN='face-test'}; $a=@{ALERT_PRODUCER_CREDENTIALS='{"vault-test":{"use_case":"vault_monitoring","producer":"vault-monitoring"},"branch-test":{"use_case":"branch_exterior","producer":"branch-exterior-monitoring"}}'}; '''
     script += extra + '; Get-LauncherGrillGateEnvironment -VaultValues $v -BranchValues $b -AlertValues $a -FaceMaskValues $f | ConvertTo-Json -Depth 12 -Compress'
@@ -28,6 +28,11 @@ def provision(extra='', local=False):
 def test_local_authenticated_publication(tmp_path,local):
     if local and not (ROOT / 'backend/use_cases/vault_monitoring/.env').exists():
         pytest.skip('Local configuration smoke test requires local dotenv')
+    if local:
+        branch = (ROOT / 'backend/use_cases/branch_exterior/.env').read_text(encoding='utf-8')
+        if not any(line.startswith('ALERT_SERVICE_TOKEN=') and line.partition('=')[2].strip()
+                   for line in branch.splitlines()):
+            pytest.skip('Local configuration has no dedicated Branch producer credential')
     config=provision(local=local)
     token=config['VaultEnvironment']['GRILL_GATE_ALERT_SERVICE_TOKEN']
     credentials=json.loads(config['AlertEnvironment']['ALERT_PRODUCER_CREDENTIALS'])
@@ -91,6 +96,18 @@ def test_missing_gate_credential_is_rejected_instead_of_generated():
 def test_conflicting_registration_is_not_overwritten():
     with pytest.raises(ValueError):
         provision("$v.GRILL_GATE_ALERT_SERVICE_TOKEN='branch-test'")
+
+
+def test_branch_requires_explicit_dedicated_credential():
+    config = provision("$b.Remove('ALERT_SERVICE_TOKEN'); $a.ALERT_PRODUCER_CREDENTIALS='{}'")
+    credentials = json.loads(config['AlertEnvironment']['ALERT_PRODUCER_CREDENTIALS'])
+    assert all(identity['use_case'] != 'branch_exterior' for identity in credentials.values())
+
+
+def test_face_mask_requires_explicit_dedicated_credential():
+    config = provision("$f.Remove('ALERT_SERVICE_TOKEN'); $a.ALERT_PRODUCER_CREDENTIALS='{}'")
+    credentials = json.loads(config['AlertEnvironment']['ALERT_PRODUCER_CREDENTIALS'])
+    assert all(identity['use_case'] != 'face_mask' for identity in credentials.values())
 
 
 def test_common_alert_database_url_reuses_server_credentials_but_not_vault_database():

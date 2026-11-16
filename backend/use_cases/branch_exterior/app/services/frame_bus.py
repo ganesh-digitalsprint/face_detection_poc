@@ -20,6 +20,8 @@ class CameraFrameState:
         self.frames_total = 0
         self.frames_read = 0
         self.source_fps = 0.0
+        self.can_resume = False
+        self.resume_mode = ""
         self.fps = 0.0
         self.frame_count = 0
         self.active_tracks = 0
@@ -108,6 +110,11 @@ class FrameBus:
     def unregister(self, camera_id: str) -> None:
         with self._lock:
             self._states.pop(camera_id, None)
+
+    def attach(self, camera_id: str, state: CameraFrameState) -> None:
+        """Reattach a paused source's last frame and counters to its new worker."""
+        with self._lock:
+            self._states[camera_id] = state
 
     def get(self, camera_id: str) -> CameraFrameState | None:
         with self._lock:

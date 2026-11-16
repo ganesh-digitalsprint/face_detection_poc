@@ -1,15 +1,21 @@
+
 import SourceIncidentCard from '../../../components/alerts/SourceIncidentCard.jsx';
 import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, bxApiUrl, bxStorageUrl, timeAgo } from '../api/index.js';
+import { listServiceAlerts } from '../../../api/alertService.js';
 import { useNewEvents } from '../feed.js';
 import { beep, setSound, soundOn } from '../sound.js';
 import AddCameraModal from '../components/AddCameraModal.jsx';
 import { Empty } from '../components/ui.jsx';
 import SourcePicker from '../../../components/video/SourcePicker.jsx';
-import { PlaybackBadge, PlaybackProgress, StopButton } from '../../../components/video/PlaybackControls.jsx';
+import { PlaybackBadge, PlaybackProgress, StartStopControls } from '../../../components/video/PlaybackControls.jsx';
 import { playbackPlaceholder, playbackStatus } from '../../../components/video/playbackState.js';
+import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
+import BranchExteriorEventDetail from '../components/BranchExteriorEventDetail.jsx';
+import { branchIdBody } from '../branchContext.js';
+import { branchEventDestination, findCommonAlert, mergeTickerEvents } from '../tickerModel.js';
 
 const browseBranchVideos = () => api.get('/uploads/browse');
 
@@ -44,6 +50,10 @@ const stageMsg = { height: '100%', display: 'flex', flexDirection: 'column', ali
 
 export default function LiveMonitoringPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [query, setQuery] = useSearchParams();
+  const selectedEventId = query.get('event');
+  const activeScope = useOptionalActiveBranch()?.scope;
   const incidentStates = useCommonIncidentStates('branch_exterior');
   const [cameras, setCameras] = useState([]);
   const [statuses, setStatuses] = useState({});
@@ -76,25 +86,25 @@ export default function LiveMonitoringPage() {
   const selectCamera = useCallback(async (id) => {
     setStarting(true);
     try {
-      if (id) await api.post(`/cameras/${id}/activate`); // stops every other video, starts this one
+      if (id) await api.post(`/cameras/${id}/activate?restart=true`, branchIdBody(activeScope)); // Process always starts a fresh pass
       else await api.post('/cameras/stop-all');
       setSelectedId(id); selectedRef.current = id;
       setStreamNonce((n) => n + 1);
       if (id) localStorage.setItem('liveCameraId', id); else localStorage.removeItem('liveCameraId');
       await loadCameras();
     } finally { setStarting(false); }
-  }, [loadCameras]);
+  }, [activeScope, loadCameras]);
 
   // Restore the selected view, but do not begin processing until Process video is pressed.
   useEffect(() => {
     let alive = true;
     loadCameras();
     const id = setInterval(loadCameras, 1500);
-    api.get('/events?limit=15').then((ev) => alive && setTicker(ev)).catch(() => {});
+    api.get('/events?limit=15').then((ev) => alive && setTicker((current) => mergeTickerEvents(current, ev))).catch(() => {});
     return () => { alive = false; clearInterval(id); };
   }, [loadCameras]);
 
-  useNewEvents((event) => { setTicker((t) => [event, ...t].slice(0, 25)); loadCameras(); });
+  useNewEvents((event) => { setTicker((current) => mergeTickerEvents(current, [event])); loadCameras(); });
 
   const cam = cameras.find((c) => c.id === selectedId) || null;
   const st = cam ? (statuses[cam.id] || {}) : {};
@@ -124,6 +134,23 @@ export default function LiveMonitoringPage() {
     catch (e) { alert(e.message); }
     finally { setStopping(false); }
   };
+  const start = async () => {
+    if (!cam || running || starting) return;
+    setStarting(true);
+    try { await api.post(`/cameras/${cam.id}/activate`, branchIdBody(activeScope));
+      setStreamNonce((n) => n + 1); await loadCameras(); }
+    catch (e) { alert(e.message); }
+    finally { setStarting(false); }
+  };
+  const closeSourceDetail = () => {
+    const next = new URLSearchParams(query);
+    next.delete('event');
+    setQuery(next, { replace: true, state: null });
+  };
+  const openTickerEvent = useCallback(async (sourceEventId, event) => {
+    const common = await findCommonAlert(sourceEventId, incidentStates.bySource[sourceEventId], listServiceAlerts);
+    navigate(branchEventDestination(sourceEventId, common), { state: { sourceEvent: event } });
+  }, [incidentStates.bySource, navigate]);
   const toggleOverlay = async (endpoint, current) => {
     if (!cam) return;
     try { await api.post(`/cameras/${cam.id}/${endpoint}?on=${!current}`); } catch (e) { alert(e.message); }
@@ -180,7 +207,7 @@ export default function LiveMonitoringPage() {
             <div style={{ width: '100%', height: '100%' }}>
               {(running || hasLastFrame) && <img src={streamSrc} alt={cam.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
               {!running && starting && <div style={stageMsg}><div style={{ fontSize: 28 }}>⏳</div>Starting analysis (the first start loads the AI models and can take a minute)...</div>}
-              {!running && !hasLastFrame && !starting && <div style={stageMsg}><div style={{ fontSize: 28 }}>⏸</div>{playbackPlaceholder(!!cam, displayStatus)}</div>}
+              {!running && !hasLastFrame && !starting && <div style={stageMsg}><div style={{ fontSize: 28 }}>⏸</div>{playbackPlaceholder(!!cam, displayStatus, st.position_seconds)}</div>}
             </div>
             <PlaybackBadge status={st.status} running={running} />
           </div>
@@ -191,6 +218,11 @@ export default function LiveMonitoringPage() {
               <div className="loc">{cam ? (cam.location || cam.source) : 'Pick a video from the list above - only that video is analysed, so CPU use stays low.'}</div>
             </div>
             <div className="bx-row bx-gap-8 bx-wrap">
+              <StartStopControls selected={!!cam} status={st.status} running={running} starting={starting}
+                stopping={stopping} canResume={st.can_resume}
+                canRestartCamera={!!cam && !['upload', 'folder'].includes(cam.cam_type) && st.frame_count > 0}
+                positionSeconds={st.position_seconds}
+                onStart={start} onStop={stop} />
               {running && <button type="button" className={`bx-btn bx-btn-sm${st.heatmap_overlay ? ' bx-btn-primary' : ''}`} title="Show where people spend time (hot = most time)" onClick={() => toggleOverlay('heatmap', st.heatmap_overlay)}>Heatmap</button>}
               <button type="button" className="bx-btn bx-btn-sm" title="Turn the alert beep on or off"
                 onClick={() => { setSound(!soundOn()); setSoundState(soundOn()); if (soundOn()) beep(); }}>
@@ -198,14 +230,14 @@ export default function LiveMonitoringPage() {
               </button>
               {running && <button type="button" className={`bx-btn bx-btn-sm${st.debug_overlay ? ' bx-btn-primary' : ''}`} title="Draw every raw AI detection with its class and confidence - shows what the model really sees" onClick={() => toggleOverlay('debug-overlay', st.debug_overlay)}>AI detections</button>}
               {running && <button type="button" className="bx-btn bx-btn-sm" onClick={() => setShowProcessed((v) => !v)}>{showProcessed ? 'Show original' : 'Show processed'}</button>}
-              {cam && <StopButton status={displayStatus} running={running} stopping={stopping} onStop={stop} />}
               {cam && <button type="button" className="bx-btn bx-btn-sm" onClick={() => navigate(`/regions?camera=${cam.id}`)}>Regions</button>}
               {cam && <button type="button" className="bx-btn bx-btn-sm bx-btn-ghost" onClick={deleteCamera}>Delete</button>}
             </div>
           </div>
 
           {cam && <PlaybackProgress status={st} />}
-          {cam && !running && hasLastFrame && <div className="bx-hint" style={{ margin: '0 16px 10px' }}>{playbackPlaceholder(true, displayStatus)}</div>}
+          {cam && st.resume_mode === 'restarted_tracking' && <div className="bx-hint" role="status" style={{ margin: '0 16px 10px' }}>Resumed near the saved position; tracking restarted.</div>}
+          {cam && !running && hasLastFrame && <div className="bx-hint" style={{ margin: '0 16px 10px' }}>{playbackPlaceholder(true, displayStatus, st.position_seconds)}</div>}
           {cam && displayStatus === 'FINISHED' && <div className="bx-hint" style={{ margin: '0 16px 10px' }}>Finished: {st.unique_people || 0} people tracked · {Object.values(st.behavior_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0)} incidents. <a href="/alerts">View alerts</a></div>}
 
           {running && (
@@ -241,7 +273,8 @@ export default function LiveMonitoringPage() {
           <div className="bx-card-title">Live alert ticker</div>
           <div className="bx-ticker">
             {ticker.length === 0 && <Empty icon="🕑" bare>Waiting for events...</Empty>}
-            {ticker.map((e) => <SourceIncidentCard key={e.id} event={e} useCase="branch_exterior" common={incidentStates.bySource[e.id]} thumbnailUrl={e.snapshot_path ? bxStorageUrl(e.snapshot_path) : undefined} onSelect={(id)=>navigate(`/alerts?use_case=branch_exterior&source_event_id=${encodeURIComponent(id)}`)} />)}
+            {ticker.map((e) => <SourceIncidentCard key={e.id} event={e} useCase="branch_exterior" common={incidentStates.bySource[e.id]} thumbnailUrl={e.snapshot_path ? bxStorageUrl(e.snapshot_path) : undefined}
+              onSelect={(id) => openTickerEvent(id, e)} />)}
           </div>
           <div className="bx-card-title" style={{ marginTop: 18 }}>What the AI watches for <span className="bx-muted" style={{ fontWeight: 400 }}>(incidents this video)</span></div>
           <div>
@@ -262,6 +295,8 @@ export default function LiveMonitoringPage() {
       </div>
 
       {addOpen && <AddCameraModal onClose={() => setAddOpen(false)} onCreated={(created) => selectCamera(created.id)} />}
+      {selectedEventId && <BranchExteriorEventDetail id={selectedEventId} incident={incidentStates.bySource[selectedEventId]}
+        initialEvent={location.state?.sourceEvent} onClose={closeSourceDetail} onReviewed={closeSourceDetail} />}
     </>
   );
 }

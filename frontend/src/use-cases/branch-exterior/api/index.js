@@ -9,7 +9,12 @@ export const bxUrl = (path) => `${BX_BASE}${path}`;
 /** Absolute URL for an API path (e.g. "/streams/1/processed" -> BASE/api/streams/1/processed). */
 export const bxApiUrl = (path) => `${BX_BASE}/api${path}`;
 /** Saved snapshot / clip / guard photo path as returned by the API. */
-export const bxStorageUrl = (rel) => `${BX_BASE}/storage/${rel}`;
+export const bxStorageUrl = (rel) => {
+  let path = String(rel || '').replace(/^\/+/, '').replace(/^storage\//, '');
+  if (path.startsWith('screenshots/branch_exterior/')) path = `snapshots/${path.slice('screenshots/branch_exterior/'.length)}`;
+  if (path.startsWith('clips/branch_exterior/')) path = `clips/${path.slice('clips/branch_exterior/'.length)}`;
+  return path ? `${BX_BASE}/storage/${path}` : '';
+};
 export const bxWsUrl = () => `${BX_BASE.replace(/^http/, 'ws')}/api/ws/alerts`;
 
 // FastAPI reports validation problems as a LIST of objects; turn any error detail into one readable sentence.

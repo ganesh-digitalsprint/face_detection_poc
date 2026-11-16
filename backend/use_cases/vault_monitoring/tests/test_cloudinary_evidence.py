@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.db.database import Base
 from app.db.models import VaultAuditEvent, VaultEvidence, VaultIncident, VaultRoomAlert
 from app.services.cloudinary_evidence import (
-    CloudinaryEvidenceService, EvidenceCaptureQueue, EvidenceNotFound, EvidencePersistenceFailed,
+    CloudinaryEvidenceService, EvidenceStorageService, LocalEvidenceGateway, EvidenceCaptureQueue, EvidenceNotFound, EvidencePersistenceFailed,
     EvidenceStorageUnavailable, InvalidEvidence, validate_image,
 )
 
@@ -104,6 +104,21 @@ def test_image_validation_checks_signatures_and_decoding():
             validate_image(content, mime)
 
 
+def test_mobile_phone_capture_uses_restart_safe_existing_spool(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "EVIDENCE_SPOOL_DIR", str(tmp_path / "spool"))
+    queue = EvidenceCaptureQueue(lambda: None)
+    assert queue.submit(captured_image=png_bytes(), event_type="MOBILE_PHONE_DETECTED",
+        alert_id="alert-1", session_id="replay-1", camera_id="upload:asset",
+        captured_at=datetime.now(timezone.utc), metadata={"video_timestamp_seconds":18.75})
+    assert len(list((tmp_path / "spool").glob("*.jpg"))) == 1
+    assert len(list((tmp_path / "spool").glob("*.json"))) == 1
+    recovered = EvidenceCaptureQueue(lambda: None)
+    recovered._recover_spool()
+    job = recovered._queue.get_nowait()
+    assert job.event_type == "MOBILE_PHONE_DETECTED" and job.alert_id == "alert-1"
+    assert job.metadata["video_timestamp_seconds"] == 18.75
+
+
 def test_upload_persists_metadata_and_retry_is_idempotent(db, monkeypatch):
     session, incident_id = db
     monkeypatch.setattr(settings, "CLOUDINARY_EVIDENCE_FOLDER", "vault-monitoring")
@@ -118,6 +133,34 @@ def test_upload_persists_metadata_and_retry_is_idempotent(db, monkeypatch):
     assert first.checksum and first.mime_type == "image/png"
     assert cloud.upload_calls == 2  # authenticated original plus its thumbnail
     assert first.thumbnail_public_id.endswith("__thumb")
+
+
+def test_local_storage_is_atomic_idempotent_and_isolated_by_alert(tmp_path, db, monkeypatch):
+    session, _incident_id = db
+    monkeypatch.setattr(settings, "EVIDENCE_STORAGE_BACKEND", "local")
+    monkeypatch.setattr(settings, "EVIDENCE_STORAGE_ROOT", str(tmp_path / "alerts"))
+    alert_id = str(uuid4()); session.add(VaultRoomAlert(id=alert_id, session_id="replay-1",
+        type="MOBILE_PHONE_DETECTED", severity="HIGH", status="OPEN", message="Phone",
+        opened_at=datetime.now(timezone.utc))); session.commit()
+    service = EvidenceStorageService(session)
+    first = service.upload_automatic(data=png_bytes(), event_type="MOBILE_PHONE_DETECTED",
+        alert_id=alert_id, captured_at=datetime.now(timezone.utc), metadata={"confidence":.78})
+    second = service.upload_automatic(data=png_bytes(), event_type="MOBILE_PHONE_DETECTED",
+        alert_id=alert_id, captured_at=datetime.now(timezone.utc), metadata={"confidence":.78})
+    assert first.id == second.id and first.storage_provider == "LOCAL_FILESYSTEM"
+    expected = tmp_path / "alerts" / "vault_monitoring" / alert_id
+    assert len(list(expected.glob("evidence_*.png"))) == 1
+    assert len(list(expected.glob("thumbnail_*.jpg"))) == 1
+    assert not list(expected.glob("*.tmp"))
+    # A fresh service instance resolves the persisted identifier after a simulated restart.
+    data, mime = EvidenceStorageService(session).local_content(first.id, "full")
+    assert data == png_bytes() and mime == "image/png"
+
+
+def test_local_storage_rejects_traversal(tmp_path):
+    gateway = LocalEvidenceGateway(tmp_path)
+    for value in ("../secret.jpg", "/absolute.jpg", "vault_monitoring/../../secret.jpg", "bad\\path.jpg"):
+        with pytest.raises(InvalidEvidence): gateway.path(value)
 
 
 def test_upload_retries_transient_provider_error_without_duplicate(db):
@@ -254,3 +297,27 @@ def test_evidence_routes_require_configured_access_key(db, monkeypatch):
     assert response.status_code == 401
     response = client.delete("/api/v1/evidence/missing?reason=POC", headers={"X-API-Key": "read-key"})
     assert response.status_code == 404
+
+
+def test_local_evidence_content_is_authenticated_and_hides_filesystem_path(tmp_path, db, monkeypatch):
+    session, _incident_id = db
+    monkeypatch.setattr(settings, "EVIDENCE_STORAGE_BACKEND", "local")
+    monkeypatch.setattr(settings, "EVIDENCE_STORAGE_ROOT", str(tmp_path / "alerts"))
+    monkeypatch.setattr(settings, "VAULT_ROOM_API_KEY", "read-key")
+    alert_id=str(uuid4());session.add(VaultRoomAlert(id=alert_id,session_id="replay-1",
+        type="MOBILE_PHONE_DETECTED",severity="HIGH",status="OPEN",message="Phone",
+        opened_at=datetime.now(timezone.utc)));session.commit()
+    row=EvidenceStorageService(session).upload_automatic(data=png_bytes(),event_type="MOBILE_PHONE_DETECTED",alert_id=alert_id)
+    app=FastAPI();app.include_router(router)
+    def override_db(): yield session
+    app.dependency_overrides[get_db]=override_db
+    client=TestClient(app)
+    access=client.post("/api/v1/evidence/access",json={"ids":[row.id],"variant":"thumb"},headers={"X-API-Key":"read-key"})
+    assert access.status_code==200
+    item=access.json()["items"][0]
+    assert item["retrieval_path"].startswith("/api/v1/evidence/") and str(tmp_path) not in str(item)
+    assert client.get(item["retrieval_path"],headers={"X-API-Key":"wrong"}).status_code==401
+    image=client.get(item["retrieval_path"],headers={"X-API-Key":"read-key"})
+    assert image.status_code==200 and image.headers["content-type"]=="image/jpeg"
+    LocalEvidenceGateway(tmp_path / "alerts").path(row.thumbnail_public_id).unlink()
+    assert client.get(item["retrieval_path"],headers={"X-API-Key":"read-key"}).status_code==404

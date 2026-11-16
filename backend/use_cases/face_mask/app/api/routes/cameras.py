@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit, urlunsplit, unquote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_runtime, get_session, require_api_key
@@ -17,6 +17,7 @@ from app.schemas.camera import Camera, CameraCreate, CameraUpdate
 from app.schemas.stream import CamerasOnline, CameraView, StreamStatus
 from app.services.runtime import Runtime
 from app.services.sources import FILE_TYPES, resolve_video_path
+from fedbank_core.events.metadata import resolve_branch_metadata
 
 router = APIRouter(prefix="/cameras", tags=["cameras"], dependencies=[Depends(require_api_key)])
 
@@ -80,8 +81,12 @@ async def create_camera(data: CameraCreate, start: bool = False, session: AsyncS
                         runtime: Runtime = Depends(get_runtime)):
     source, username, password = _split_credentials(data.source, data.username, data.password)
     _validate_source(data.cam_type, source)
-    camera = await CameraRepository(session).create(
-        data.model_copy(update={"source": source, "username": username, "password": password}))
+    metadata = resolve_branch_metadata(data.branch_id) if data.branch_id else None
+    camera = await CameraRepository(session).create(data.model_copy(update={
+        "source": source, "username": username, "password": password,
+        **{key: (metadata or {}).get(key) for key in
+           ("branch_id", "branch_code", "branch_name", "place_name", "region_name", "branch_manager")},
+    }))
     runtime.camera_names[camera.id] = camera.name
     if start and camera.enabled:
         runtime.start_camera(camera)
@@ -120,17 +125,18 @@ async def update_camera(camera_id: str, data: CameraUpdate, session: AsyncSessio
 @router.delete("/{camera_id}", status_code=204)
 async def delete_camera(camera_id: str, session: AsyncSession = Depends(get_session), runtime: Runtime = Depends(get_runtime)):
     await _get(session, camera_id)
-    runtime.stop_camera(camera_id)
+    runtime.forget_camera(camera_id)
     runtime.set_rois(camera_id, [])
     await CameraRepository(session).delete(camera_id)
 
 
 @router.post("/{camera_id}/start", response_model=StreamStatus)
-async def start_camera(camera_id: str, session: AsyncSession = Depends(get_session), runtime: Runtime = Depends(get_runtime)):
+async def start_camera(camera_id: str, restart: bool = Query(default=False),
+                       session: AsyncSession = Depends(get_session), runtime: Runtime = Depends(get_runtime)):
     camera = await _get(session, camera_id)
     if not camera.enabled:
         raise HTTPException(409, "Camera is disabled")
-    return StreamStatus.of(runtime.start_camera(camera))
+    return StreamStatus.of(runtime.start_camera(camera, fresh=restart))
 
 
 @router.post("/{camera_id}/stop", response_model=StreamStatus)

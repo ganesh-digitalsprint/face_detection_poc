@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { controlRoomReplay, deleteRoomReplay, getRoomReplay, getRoomReplayFrame, startRoomReplay, uploadRoomVideo } from '../api/vaultRoom.js';
 import { describeError } from '../../../utils/errors.js';
-import { readReplayContext, restoredReplay, saveReplayContext } from '../utils/replayStorage.js';
+import { readReplayContext, replayActivitySourceId, restoredReplay, saveReplayContext } from '../utils/replayStorage.js';
 
 const ACTIVE = ['starting', 'processing', 'paused'];
 const message = (error) => error?.response ? describeError(error).message : error?.message || 'Video replay could not be completed.';
 
 /** Owns only file replay state. No live camera, room state, or production alert mutation. */
-export default function useVaultRoomReplay(profileId, configurationReady = true) {
+export default function useVaultRoomReplay(profileId, configurationReady = true, activeBranchId = null) {
   const [restored] = useState(readReplayContext);
   const [enabled, setEnabled] = useState(false);
   const [file, setFile] = useState(null);
@@ -74,7 +74,7 @@ export default function useVaultRoomReplay(profileId, configurationReady = true)
     try {
       uploaded = await uploadRoomVideo(file, controller.signal, (event) => {
         if (generation.current === current) setUploadProgress(Math.round(event.loaded / (event.total || file.size) * 100));
-      });
+      }, activeBranchId);
       if (generation.current !== current || fileRef.current !== file) { await deleteRoomReplay(uploaded.session_id); return; }
       setDuration(uploaded.metadata.duration);
       preparedRef.current = uploaded; setPrepared(uploaded); return uploaded;
@@ -85,7 +85,7 @@ export default function useVaultRoomReplay(profileId, configurationReady = true)
       }
     } finally { actionBusy.current = false; setBusy(false); }
     return null;
-  }, [file]);
+  }, [file, activeBranchId]);
 
   const process = useCallback(async () => {
     if (!file || actionBusy.current || !configurationReady) return;
@@ -103,7 +103,7 @@ export default function useVaultRoomReplay(profileId, configurationReady = true)
         generation.current += 1;
         idRef.current = started.session_id;
         saveReplayContext({ sessionId: started.session_id, sourceId: started.session_id, profileId });
-        setSourceId(started.session_id); setSession(started); setFrameUrl('');
+        setSourceId(replayActivitySourceId(started, started.session_id)); setSession(started); setFrameUrl('');
         preparedRef.current = null; setPrepared(null); setPreviewingFile(false);
         setShowPoseDebug(false); setClearedEvents(new Set()); setNotice('');
         // Only a successful explicit new start retires the previous temporary worker.
@@ -194,7 +194,8 @@ export default function useVaultRoomReplay(profileId, configurationReady = true)
     clearEvents: () => setClearedEvents(new Set((session?.events || []).map((event) => event.id))),
   };
   return { enabled, select, file, localUrl, duration: previewingFile ? duration : session?.metadata?.duration ?? duration,
-    metadata: previewingFile ? prepared?.metadata : session?.metadata, setDuration, session, sourceId, frameUrl, previewingFile,
+    metadata: previewingFile ? prepared?.metadata : session?.metadata, setDuration, session,
+    sourceId: replayActivitySourceId(session, sourceId), frameUrl, previewingFile,
     showPoseDebug, togglePoseDebug, error, notice, busy,
     uploadProgress, requiredPersons, setRequiredPersons, chooseFile, prepare, process, control, room,
     active: ACTIVE.includes(session?.status), pauseForEditing };

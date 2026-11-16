@@ -22,8 +22,11 @@ def media_path(relative, owner):
         return None
 
 
-def evidence_metadata(refs, pending=False):
+def evidence_metadata(refs, pending=False, *, failed=False, unavailable_reason=None):
     snapshots = sum(ref.get('type') == 'snapshot' for ref in refs)
     clips = sum(ref.get('type') == 'clip' for ref in refs)
-    return {'evidence_status': 'CAPTURED' if refs else 'PENDING' if pending else 'UNAVAILABLE',
+    result = {'evidence_status': 'CAPTURED' if refs else 'PENDING' if pending else 'FAILED' if failed else 'UNAVAILABLE',
         'evidence_count': len(refs), 'snapshot_count': snapshots, 'clip_count': clips}
+    if not refs and unavailable_reason:
+        result['evidence_unavailable_reason'] = str(unavailable_reason)[:160]
+    return result

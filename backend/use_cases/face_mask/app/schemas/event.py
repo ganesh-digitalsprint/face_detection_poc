@@ -46,6 +46,14 @@ class ConcealmentEvent(BaseModel):
     reviewer: str
     remarks: str
     reviewed_at: UtcDatetime | None
+    branch_id: str | None = None
+    branch_code: str | None = None
+    branch_name: str | None = None
+    place_name: str | None = None
+    region_name: str | None = None
+    branch_manager: str | None = None
+    camera_name: str | None = None
+    review_version: int = 1
 
 
 class EventPage(BaseModel):

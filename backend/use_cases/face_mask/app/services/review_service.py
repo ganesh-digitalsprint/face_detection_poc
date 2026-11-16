@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import InvalidTransitionError, NotFoundError
 from app.db.repositories.sql_repo import EventRepository, ReviewRepository
 from app.schemas.event import ConcealmentEvent
 from app.schemas.review import REVIEW_TRANSITIONS
+from app.models.orm import ConcealmentEventORM
 
 _REMARKS_REQUIRED = {"FALSE_POSITIVE", "CLOSED"}
 
@@ -23,7 +25,7 @@ class RemarksRequired(InvalidTransitionError):
 
 
 async def transition(session: AsyncSession, event_id: str, to_status: str, remarks: str, reviewer: str
-                     ) -> ConcealmentEvent:
+                     , expected_version: int | None = None) -> ConcealmentEvent:
     events = EventRepository(session)
     event = await events.get(event_id)
     if event is None:
@@ -34,11 +36,18 @@ async def transition(session: AsyncSession, event_id: str, to_status: str, remar
         raise InvalidTransitionError(f"Invalid transition {event.status} -> {to_status}. Allowed: {options}")
     if to_status in _REMARKS_REQUIRED and not remarks.strip():
         raise RemarksRequired(f"Remarks are required to move an event to {to_status}")
-
-    await events.update_fields(event_id, status=to_status, reviewer=reviewer or event.reviewer,
-                               remarks=remarks.strip() if remarks.strip() else event.remarks,
-                               reviewed_at=datetime.now(timezone.utc))
+    version = expected_version if expected_version is not None else event.review_version
+    result = await session.execute(update(ConcealmentEventORM).where(
+        ConcealmentEventORM.id == event_id, ConcealmentEventORM.status == event.status,
+        ConcealmentEventORM.review_version == version).values(
+        status=to_status, reviewer=reviewer or event.reviewer,
+        remarks=remarks.strip() if remarks.strip() else event.remarks,
+        reviewed_at=datetime.now(timezone.utc), review_version=version + 1))
+    if result.rowcount != 1:
+        raise InvalidTransitionError("This event changed since it was loaded; reload it and retry")
+    session.info.setdefault("alert_sync_ids", set()).add(event_id)
     await ReviewRepository(session).add(event_id, event.status, to_status, reviewer, remarks.strip())
+    session.expire_all()
     updated = await events.get(event_id)
     assert updated is not None
     return updated

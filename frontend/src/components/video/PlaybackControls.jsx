@@ -1,5 +1,28 @@
 import { playbackProgress, playbackStatus } from './playbackState.js';
 
+export function StartStopControls({ selected, status, running, starting, stopping, canResume, canRestartCamera = false,
+                                    positionSeconds = 0, onStart, onStop }) {
+  const state = playbackStatus(status, running);
+  const busyStart = starting || status === 'STARTING';
+  const busyStop = stopping || status === 'STOPPING';
+  const canStart = selected && !running && !busyStart && !busyStop &&
+    (canResume || canRestartCamera || state === 'FINISHED' || state === 'ERROR');
+  const canStop = selected && running && !busyStart && !busyStop;
+  const clock = `${String(Math.floor(positionSeconds / 60)).padStart(2, '0')}:${String(Math.floor(positionSeconds % 60)).padStart(2, '0')}`;
+  return <>
+    <button type="button" className={`bx-btn bx-btn-sm bx-playback-control${canStart ? ' bx-btn-primary' : ''}`}
+      disabled={!canStart} aria-disabled={!canStart} onClick={onStart}
+      title={state === 'FINISHED' ? 'Run again from the beginning' : canResume ? `Continue from ${clock}` :
+        canRestartCamera ? 'Start monitoring again' : 'Start is available after processing'}>
+      {busyStart ? 'Starting…' : 'Start'}
+    </button>
+    <button type="button" className={`bx-btn bx-btn-sm bx-playback-control${canStop ? ' bx-btn-primary' : ''}`}
+      disabled={!canStop} aria-disabled={!canStop} onClick={onStop} title="Stop at the current position">
+      {busyStop ? 'Stopping…' : 'Stop'}
+    </button>
+  </>;
+}
+
 export function StopButton({ status, running, stopping, onStop }) {
   const busy = stopping || status === 'STOPPING';
   const active = (running || status === 'PROCESSING') && !busy;

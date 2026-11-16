@@ -5,8 +5,9 @@ const headers = key ? { 'X-API-Key': key } : {};
 
 export const getVaultRoomState = () => client.get('/api/v1/vault-room/state', { headers }).then((r) => r.data);
 const replayRoot = '/api/v1/vault-room/video-sessions';
-export const uploadRoomVideo = (file, signal, onUploadProgress) => {
+export const uploadRoomVideo = (file, signal, onUploadProgress, branchId = null) => {
   const body = new FormData(); body.append('file', file);
+  if (branchId) body.append('branch_id', branchId);
   return client.post(replayRoot, body, { headers, signal, onUploadProgress, timeout: 120000 }).then((r) => r.data);
 };
 export const startRoomReplay = (id, requiredPersons, signal, profileId) => client.post(`${replayRoot}/${encodeURIComponent(id)}/start`, { required_persons: requiredPersons, ...(profileId ? { profile_id: profileId } : {}) }, { headers, signal }).then((r) => r.data);

@@ -33,6 +33,13 @@ export default defineConfig(({ command, mode }) => {
     ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(platformTarget).hostname)
     ? localDemoKey() : '';
   const proxy = {
+    '/face-mask-service': {
+      target: process.env.FACE_MASK_SERVICE_URL || env.FACE_MASK_SERVICE_URL || 'http://127.0.0.1:8014',
+      changeOrigin: true,
+      rewrite: (path) => path.replace(/^\/face-mask-service/, ''),
+      headers: (process.env.FACE_MASK_API_KEY || env.FACE_MASK_API_KEY)
+        ? { 'X-API-Key': process.env.FACE_MASK_API_KEY || env.FACE_MASK_API_KEY } : {},
+    },
     '/platform': {
       target: platformTarget,
       changeOrigin: true,

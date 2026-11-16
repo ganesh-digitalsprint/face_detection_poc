@@ -16,8 +16,21 @@ export const updateAlert = (id, action, payload = {}) =>
   client.post(`${root}/alerts/${encodeURIComponent(id)}/${action}`, payload, { headers: operatorHeaders }).then((r) => r.data);
 export const createIncidentFromAlert = (id) =>
   client.post(`${root}/alerts/${encodeURIComponent(id)}/incident`, undefined, { headers: operatorHeaders }).then((r) => r.data);
-export const getEvidenceAccess = (ids, variant = 'thumb') =>
-  client.post(`${root}/evidence/access`, { ids, variant }, { headers: operatorHeaders }).then((r) => r.data);
+const blobDataUrl = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject;
+  reader.readAsDataURL(blob);
+});
+export const getEvidenceAccess = async (ids, variant = 'thumb') => {
+  const response = await client.post(`${root}/evidence/access`, { ids, variant }, { headers: operatorHeaders });
+  const items = await Promise.all((response.data.items || []).map(async (item) => {
+    if (!item.retrieval_path || item.url) return item;
+    try {
+      const image = await client.get(item.retrieval_path, { headers: operatorHeaders, responseType: 'blob' });
+      return { ...item, url: await blobDataUrl(image.data) };
+    } catch { return { ...item, error: { code: 'EVIDENCE_NOT_FOUND' } }; }
+  }));
+  return { ...response.data, items };
+};
 
 /** Keep all raw API field access in this adapter; UI components consume this view model. */
 export function normalizeAlert(item) {
@@ -47,6 +60,18 @@ export function normalizeAlert(item) {
     allowedActions: Array.isArray(item.allowed_actions) ? item.allowed_actions : [],
     branchId: item.branch_id,
     branchName: item.branch_name,
+    branchCode: item.branch_code,
+    placeName: item.place_name,
+    regionName: item.region_name,
+    branchManager: item.branch_manager,
+    cameraName: item.camera_name,
+    sourceType: item.source_type,
+    replaySessionId: item.replay_session_id,
+    originalAssetId: item.original_asset_id,
+    videoTimestampSeconds: item.video_timestamp_seconds,
+    mobilePhoneConfidence: item.mobile_phone_confidence,
+    mobilePhoneConfirmationSeconds: item.mobile_phone_confirmation_seconds,
+    mobilePhoneDetections: Array.isArray(item.mobile_phone_detections) ? item.mobile_phone_detections : [],
     useCase: item.use_case,
   };
 }

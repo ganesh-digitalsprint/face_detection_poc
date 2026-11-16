@@ -33,6 +33,7 @@ SOURCE_METADATA_KEYS = (
     "branch_id", "branch_code", "branch_name", "place_name", "region_name",
     "branch_manager", "camera_name", "registry_camera_id", "assignment_id",
     "source_id", "source_type", "location_id", "location_name",
+    "replay_session_id", "original_asset_id", "original_filename",
 )
 
 
@@ -62,6 +63,22 @@ def build_payload(alert: VaultRoomAlert) -> dict:
         raise ValueError("Vault alert must have an occurrence timestamp")
     first_seen_at = alert.first_seen_at or occurred_at
     last_seen_at = alert.last_seen_at or first_seen_at
+    metadata = alert.metadata_json or {}
+    domain_data = {
+        "schema_version": "vault-alert/1",
+        "alert_type": alert.type,
+        "source": alert.source or "VAULT_MONITORING",
+        "observed_count": alert.observed_count,
+        "required_count": alert.required_count,
+        "count_at_open": alert.count_at_open,
+        "expected": alert.expected,
+        "occurrence_count": alert.occurrence_count,
+    }
+    for key in ("video_timestamp_seconds", "mobile_phone_confidence",
+                "mobile_phone_confirmation_seconds"):
+        value = metadata.get(key)
+        if isinstance(value, (int, float)):
+            domain_data[key] = value
     return {
         "schema_version": 1,
         "source_event_id": alert.id,
@@ -77,16 +94,7 @@ def build_payload(alert: VaultRoomAlert) -> dict:
         "deduplication_key": _safe_reference(alert.dedup_key, 512),
         "source_status": "OPEN",
         "resource_refs": _resource_refs(alert),
-        "domain_data": {
-            "schema_version": "vault-alert/1",
-            "alert_type": alert.type,
-            "source": "VAULT_MONITORING",
-            "observed_count": alert.observed_count,
-            "required_count": alert.required_count,
-            "count_at_open": alert.count_at_open,
-            "expected": alert.expected,
-            "occurrence_count": alert.occurrence_count,
-        },
+        "domain_data": domain_data,
         "evidence_refs": [],
     }
 

@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: SecretStr = SecretStr("")
     CLOUDINARY_API_SECRET: SecretStr = SecretStr("")
     CLOUDINARY_EVIDENCE_FOLDER: str = "vault-monitoring"
+    EVIDENCE_STORAGE_BACKEND: str = Field(default="local", pattern="^(local|cloudinary)$")
+    EVIDENCE_STORAGE_ROOT: str = "assets/alerts"
+    EVIDENCE_RETENTION_DAYS: int = Field(default=30, ge=1, le=3650)
+    EVIDENCE_CLEANUP_ENABLED: bool = False
     EVIDENCE_MAX_UPLOAD_BYTES: int = Field(default=10 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024)
     EVIDENCE_UPLOAD_TIMEOUT_SECONDS: int = Field(default=20, ge=1, le=120)
     EVIDENCE_UPLOAD_RETRIES: int = Field(default=2, ge=0, le=5)

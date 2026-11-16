@@ -44,10 +44,11 @@ export function evidenceFields(value) {
     'evidenceRefs','evidenceSnapshots','thumbnailUrl','evidencePending','evidenceUnavailableReason','onEvidenceError'].map((key)=>[key,value[key]]));
 }
 
-export function verifiedEvidence(refs=[], snapshots=[], pending=false) {
+export function verifiedEvidence(refs=[], snapshots=[], pending=false, status=null, reason=null) {
   return {evidenceManaged:true,evidenceChecked:true,evidenceRefs:refs,evidenceSnapshots:snapshots,
     evidenceCount:refs.length,snapshotCount:snapshots.length,clipCount:refs.filter((ref)=>ref.type==='clip').length,
-    evidenceStatus:refs.length ? 'CAPTURED' : pending ? 'PENDING' : 'UNAVAILABLE',
+    evidenceStatus:refs.length ? 'CAPTURED' : status || (pending ? 'PENDING' : 'UNAVAILABLE'),
+    evidenceUnavailableReason:refs.length ? null : reason,
     evidencePending:pending,thumbnailUrl:snapshots[0]?.url || ''};
 }
 
@@ -55,7 +56,8 @@ export function removeUnavailableSnapshot(current,url) {
   const removed=current.evidenceSnapshots.filter((item)=>item.url===url).map((item)=>item.ref.id);
   if(!removed.length)return current;
   return verifiedEvidence(current.evidenceRefs.filter((ref)=>!removed.includes(ref.id)),
-    current.evidenceSnapshots.filter((item)=>item.url!==url),current.evidencePending);
+    current.evidenceSnapshots.filter((item)=>item.url!==url),current.evidencePending,
+    'FAILED','evidence_retrieval_failed');
 }
 
 const defaults={vault:getAlert,vaultAccess:getEvidenceAccess,gate:getGrillGateSourceAlert,gateSnapshot:getGrillGateSnapshot,
@@ -64,7 +66,7 @@ const defaults={vault:getAlert,vaultAccess:getEvidenceAccess,gate:getGrillGateSo
 
 export function createEvidenceResolver(api=defaults) {
   return async(alert,signal)=>{
-    let candidates=[], pending=false;
+    let candidates=[], pending=false, sourceStatus=null, unavailableReason=null;
     try {
       if(alert.useCase==='vault_monitoring') {
         const row=await api.vault(alert.sourceEventId,signal);
@@ -91,9 +93,22 @@ export function createEvidenceResolver(api=defaults) {
         }
       } else if(alert.useCase==='branch_exterior') {
         const row=await api.branch(alert.sourceEventId,signal);
+        if(row.id && row.id!==alert.sourceEventId) throw new Error('Mismatched Branch Exterior evidence source');
+        if(['PENDING','FAILED','UNAVAILABLE'].includes(alert.evidenceStatus)) sourceStatus=alert.evidenceStatus;
+        unavailableReason=alert.evidenceUnavailableReason || null;
+        const evidenceState=String(row.meta?.evidence || '');
+        if(evidenceState==='pending' || evidenceState.startsWith('pending:')) pending=true;
+        else if(evidenceState.startsWith('failed:')) {
+          sourceStatus='FAILED'; unavailableReason=evidenceState.slice('failed:'.length) || 'evidence_capture_failed';
+        } else if(evidenceState.startsWith('not_saved:')) {
+          sourceStatus='UNAVAILABLE'; unavailableReason=evidenceState.slice('not_saved:'.length) || 'not_captured';
+        }
         for(const [type,path] of [['snapshot',row.snapshot_path],['clip',row.clip_path]]) {
           const url=sourceMediaUrl(BRANCH_BASE_URL,path,'branch_exterior');
           if(url)candidates.push({ref:{provider:'branch_exterior',id:`${alert.sourceEventId}:${type}`,type,event_path:`/api/events/${encodeURIComponent(alert.sourceEventId)}`},url});
+        }
+        if((row.snapshot_path || row.clip_path) && !candidates.length) {
+          sourceStatus='FAILED'; unavailableReason='invalid_evidence_path';
         }
       } else if(alert.useCase==='face_mask') {
         const row=await api.face(alert.sourceEventId,signal);
@@ -108,10 +123,15 @@ export function createEvidenceResolver(api=defaults) {
         if(signal?.aborted)throw new DOMException('Aborted','AbortError');
         if(await (item.ref.type==='clip' ? api.probeClip(item.url,signal) : api.probeImage(item.url,signal))) accessible.push(item);
       }
-      return verifiedEvidence(accessible.map((item)=>item.ref),accessible.filter((item)=>item.ref.type==='snapshot'),pending);
+      if(!accessible.length && candidates.length) {
+        sourceStatus=alert.useCase==='branch_exterior' ? 'FAILED' : 'UNAVAILABLE';
+        unavailableReason=alert.useCase==='branch_exterior' ? 'evidence_retrieval_failed' : null;
+      }
+      return verifiedEvidence(accessible.map((item)=>({...item.ref,url:item.url})),accessible.filter((item)=>item.ref.type==='snapshot'),pending,sourceStatus,unavailableReason);
     } catch(error) {
       if(signal?.aborted)throw error;
-      return {...verifiedEvidence(),evidenceUnavailableReason:'Evidence could not be retrieved from its source.'};
+      return verifiedEvidence([],[],false,alert.useCase==='branch_exterior'?'FAILED':'UNAVAILABLE',
+        alert.useCase==='branch_exterior'?'evidence_retrieval_failed':null);
     }
   };
 }

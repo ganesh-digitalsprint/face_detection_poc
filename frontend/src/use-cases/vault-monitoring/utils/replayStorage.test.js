@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readReplayContext, readVaultUi, restoredReplay, saveReplayContext, saveVaultUi, vaultUiFromSearch } from './replayStorage.js';
+import { readReplayContext, readVaultUi, replayActivitySourceId, restoredReplay, saveReplayContext, saveVaultUi, vaultUiFromSearch } from './replayStorage.js';
 
 const values = new Map();
 globalThis.localStorage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
@@ -39,4 +39,12 @@ test('corrupt or old-version storage is ignored without breaking the page', () =
   assert.equal(readVaultUi().view, 'entrance');
   values.set('vault-room-replay:v1', JSON.stringify({ version: 0, sessionId: 'old', sourceId: 'old', profileId: 'upload' }));
   assert.equal(readReplayContext(), null);
+});
+
+test('uploaded activity uses the immutable asset identity after session metadata loads', () => {
+  const session = { session_id: 'replay-b', metadata: { source_context: {
+    source_id: `upload:${'a'.repeat(64)}`,
+  } } };
+  assert.equal(replayActivitySourceId(session, 'replay-b'), `upload:${'a'.repeat(64)}`);
+  assert.equal(replayActivitySourceId({ session_id: 'restoring', metadata: null }, 'restoring'), 'restoring');
 });

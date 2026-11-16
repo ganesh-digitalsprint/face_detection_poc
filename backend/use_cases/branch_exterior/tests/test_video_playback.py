@@ -98,3 +98,39 @@ def test_live_source_does_not_auto_finish_on_read_failure(monkeypatch):
     w.join(timeout=3)
     assert not w.is_alive()
     assert w._state.status == "STOPPED"
+
+
+def test_paused_file_continues_with_same_counter_and_finishes(monkeypatch):
+    class SeekableCapture(Capture):
+        def __init__(self):
+            super().__init__(10)
+
+        def get(self, prop):
+            if prop == stream_worker.cv2.CAP_PROP_FRAME_COUNT:
+                return 10
+            return super().get(prop)
+
+        def set(self, prop, value):
+            if prop == stream_worker.cv2.CAP_PROP_POS_FRAMES:
+                self.left = 10 - int(value)
+            return True
+
+    first = worker(monkeypatch, SeekableCapture())
+    first.start()
+    time.sleep(0.03)
+    first.stop()
+    first.join(timeout=3)
+    assert first._resume_data is not None
+    index = first._resume_data["frame_index"]
+    assert 0 < index < 10
+    assert first._state.can_resume
+
+    second = worker(monkeypatch, SeekableCapture())
+    second._resume_from = first
+    second.start()
+    second.join(timeout=4)
+    assert not second.is_alive()
+    assert second._state.status == "FINISHED"
+    assert second._state.resume_mode == "continued"
+    assert second._state.frames_read == 10
+    assert second._state.frame_count >= first._state.frame_count

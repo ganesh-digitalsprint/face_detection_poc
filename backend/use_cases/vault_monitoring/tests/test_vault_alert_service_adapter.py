@@ -133,7 +133,9 @@ def test_mobile_phone_alert_is_published_with_high_severity_and_attribution():
     requests = []
     adapter = _adapter(factory, lambda request: requests.append(request) or
         httpx.Response(201, request=request))
-    alert = _alert(type="MOBILE_PHONE_DETECTED", severity="HIGH", metadata_json=SOURCE_METADATA)
+    alert = _alert(type="MOBILE_PHONE_DETECTED", severity="HIGH", metadata_json={**SOURCE_METADATA,
+        "video_timestamp_seconds":18.75,"mobile_phone_confidence":.781,
+        "mobile_phone_confirmation_seconds":1.0})
     alert_id = _enqueue(engine, adapter, alert)
     assert adapter.dispatch_once() == 1
     body = json.loads(requests[0].content)
@@ -142,6 +144,9 @@ def test_mobile_phone_alert_is_published_with_high_severity_and_attribution():
     assert body["severity"] == "HIGH"
     assert body["resource_refs"]["branch_id"] == "branch-1"
     assert body["resource_refs"]["camera_name"] == "Vault Room Camera"
+    assert body["domain_data"]["video_timestamp_seconds"] == 18.75
+    assert body["domain_data"]["mobile_phone_confidence"] == .781
+    assert body["domain_data"]["mobile_phone_confirmation_seconds"] == 1.0
     engine.dispose()
 
 
@@ -155,7 +160,10 @@ def test_vault_source_alert_projection_exposes_only_safe_snapshot_metadata():
     from app.api.routes.alerts import _item
     engine, factory = _database()
     with factory() as db:
-        row = _alert(metadata_json={**SOURCE_METADATA, "password": "must-not-leak"})
+        row = _alert(metadata_json={**SOURCE_METADATA, "password": "must-not-leak",
+            "video_timestamp_seconds":18.75,"mobile_phone_confidence":.781,
+            "mobile_phone_confirmation_seconds":1.0,"mobile_phone_detections":[{"bbox":[.1,.2,.3,.4]}],
+            "source_type":"uploaded_video","replay_session_id":"session-ref","original_asset_id":"asset-1"})
         db.add(row)
         db.flush()
         item = _item(db, row)
@@ -163,6 +171,10 @@ def test_vault_source_alert_projection_exposes_only_safe_snapshot_metadata():
                 "branch_manager", "camera_name"):
         assert item[key] == SOURCE_METADATA[key]
     assert "password" not in item
+    assert item["video_timestamp_seconds"] == 18.75
+    assert item["mobile_phone_confidence"] == .781
+    assert item["mobile_phone_detections"] == [{"bbox":[.1,.2,.3,.4]}]
+    assert item["source_type"] == "uploaded_video" and item["original_asset_id"] == "asset-1"
     engine.dispose()
 
 
@@ -414,6 +426,42 @@ def test_worker_persists_alert_and_outbox_before_any_remote_request():
     with Session(engine) as db:
         alert = db.get(VaultRoomAlert, alert.id)
     assert alert.status == "OPEN"
+    engine.dispose()
+
+
+def test_worker_keeps_publication_outbox_when_remote_configuration_is_temporarily_missing():
+    engine, factory = _database()
+    adapter = VaultAlertServiceAdapter(None, None, session_factory=factory)
+    worker = PersistentAlertWorker(session_factory=factory, alert_service_adapter=adapter)
+    job = SnapshotJob(AlertSnapshot("IDLE", None, None, mobile_phone_detected=True),
+        "replay-session", "upload:asset-1", datetime(2026, 11, 16, 9, 0, tzinfo=timezone.utc),
+        source="VAULT_UPLOADED_VIDEO", source_metadata={
+            "camera_name": "Uploaded video", "source_type": "uploaded_video",
+            "original_asset_id": "asset-1", "video_timestamp_seconds": 18.75,
+            "mobile_phone_confidence": .78, "source_event_key": "asset-1:18.750",
+        }, managed_alert_types=("MOBILE_PHONE_DETECTED",))
+
+    events = worker._persist(job)
+
+    with Session(engine) as db:
+        alert = db.scalar(select(VaultRoomAlert))
+        queued = db.scalar(select(VaultAuditEvent).where(
+            VaultAuditEvent.action == QUEUED, VaultAuditEvent.entity_type == ENTITY_TYPE))
+    assert any(event["type"] == "alert.created" for event in events)
+    assert alert is not None and alert.status == "OPEN"
+    assert queued is not None
+    assert queued.details["payload"]["source_event_type"] == "MOBILE_PHONE_DETECTED"
+    assert queued.details["payload"]["resource_refs"].get("branch_id") is None
+    assert adapter.dispatch_once() == 0
+    requests = []
+    configured = _adapter(factory,
+        lambda request: requests.append(request) or httpx.Response(201, request=request),
+        clock=lambda: datetime(2026, 11, 16, 9, 1, tzinfo=timezone.utc))
+    assert configured.dispatch_once() == 1
+    assert json.loads(requests[0].content)["source_event_id"] == alert.id
+    with Session(engine) as db:
+        assert db.scalar(select(VaultAuditEvent).where(
+            VaultAuditEvent.entity_id == alert.id, VaultAuditEvent.action == SUCCEEDED)) is not None
     engine.dispose()
 
 

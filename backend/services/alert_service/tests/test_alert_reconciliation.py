@@ -73,3 +73,6 @@ def test_local_evidence_checks_do_not_modify_files_or_accept_paths_outside_stora
     assert evidence_metadata([{'type':'snapshot'},{'type':'clip'}])==dict(evidence_status='CAPTURED',evidence_count=2,snapshot_count=1,clip_count=1)
     assert evidence_metadata([],pending=True)['evidence_status']=='PENDING'
     assert evidence_metadata([])['evidence_status']=='UNAVAILABLE'
+    assert evidence_metadata([],failed=True,unavailable_reason='snapshot_write_failed')=={
+        'evidence_status':'FAILED','evidence_count':0,'snapshot_count':0,'clip_count':0,
+        'evidence_unavailable_reason':'snapshot_write_failed'}

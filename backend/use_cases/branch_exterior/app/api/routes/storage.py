@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from app.core.paths import STORAGE_DIR  # also configures backend/shared on the import path
-from fedbank_core.storage import VIDEO_EXTENSIONS, list_media, repo_root, root, safe_path
+from fedbank_core.storage import VIDEO_EXTENSIONS, legacy_resolve, list_media, repo_root, root, safe_path
 from app.api.routes.platform import database as platform_database
 
 router = APIRouter(prefix="/storage", tags=["storage"])
@@ -107,11 +107,26 @@ def inventory(category: str | None = None):
 
 @router.get("/file/{relative:path}")
 def file(relative: str):
+    normalized = relative.replace("\\", "/")
+    parts = normalized.split("/")
+    if (Path(relative).is_absolute() or normalized.startswith("/") or
+            any(part in {"", ".", ".."} for part in parts)):
+        raise HTTPException(400, "Media path must be storage-relative")
+    if parts[0] not in PUBLIC_CATEGORIES and parts[0] != "snapshots":
+        raise HTTPException(404, "Media file not found")
     try:
-        path = safe_path(relative)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    if path.relative_to(root()).parts[0] not in PUBLIC_CATEGORIES:
+        path = safe_path(normalized)
+    except ValueError:
+        path = None
+    if not path or not path.is_file():
+        path = legacy_resolve(normalized, "branch_exterior")
+    if not path or not path.is_file():
+        raise HTTPException(404, "Media file not found")
+    try:
+        relative_path = path.resolve().relative_to(root().resolve())
+    except ValueError:
+        raise HTTPException(404, "Media file not found") from None
+    if relative_path.parts[0] not in PUBLIC_CATEGORIES:
         raise HTTPException(404, "Media file not found")
     if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS | {".jpg", ".jpeg", ".png", ".json"}:
         raise HTTPException(404, "Media file not found")

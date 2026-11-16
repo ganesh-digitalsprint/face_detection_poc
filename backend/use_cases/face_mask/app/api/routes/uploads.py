@@ -52,6 +52,7 @@ class ProcessRequest(BaseModel):
     name: str = ""
     loop_video: bool = False
     roi: ProcessRoi | None = None
+    branch_id: str | None = Field(default=None, max_length=128)
 
 
 def _display_path(path: Path) -> str:
@@ -128,12 +129,14 @@ async def process_video(data: ProcessRequest, session: AsyncSession = Depends(ge
     repository = CameraRepository(session)
     camera = next((existing for existing in await repository.list() if existing.source == source_id), None)
     if camera is None:
+        from fedbank_core.events.metadata import resolve_branch_metadata
+        metadata = resolve_branch_metadata(data.branch_id) if data.branch_id else None
         camera = await repository.create(CameraCreate(
             name=name[:120], cam_type=cam_type, source=source_id, location="Video file",
-            enabled=True, loop_video=data.loop_video))
+            enabled=True, loop_video=data.loop_video, **(metadata or {})))
     runtime.camera_names[camera.id] = camera.name
     if data.roi is not None:
         await EntryRoiRepository(session).create(EntryRoiCreate(camera_id=camera.id, **data.roi.model_dump()))
         await reload_camera_rois(session, runtime, camera.id)
-    runtime.start_camera(camera)
+    runtime.start_camera(camera, fresh=True)
     return _view(camera, runtime)

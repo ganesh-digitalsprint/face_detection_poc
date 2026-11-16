@@ -451,12 +451,15 @@ class VaultRoomManager:
         if state.detections:
             metadata["mobile_phone_confidence"] = max(item["confidence"] for item in state.detections)
             metadata["mobile_phone_detected_at"] = self._utc_datetime(state.last_seen or now).isoformat()
+            metadata["mobile_phone_detections"] = [deepcopy(item) for item in state.detections]
+            metadata["mobile_phone_confirmation_seconds"] = self._mobile_phone.confirmation_seconds
         if self._replay:
-            metadata.setdefault("source_type", "upload")
+            metadata.setdefault("source_type", "uploaded_video")
             metadata.setdefault("replay_session_id", self._activity_session_id)
             metadata["video_timestamp_seconds"] = max(
                 0, (state.last_seen or now) - self._activity_origin)
-        self._alert_worker.submit(snapshot, session_ref=state.session_ref, camera_id=source_key,
+        session_ref = state.session_ref or (self._activity_session_id if self._replay else None)
+        self._alert_worker.submit(snapshot, session_ref=session_ref, camera_id=source_key,
             event_at=self._utc_datetime(state.last_seen or now),
             event_frame=state.frame if state.active else None,
             detections=state.detections if state.active else (), source_metadata=metadata,

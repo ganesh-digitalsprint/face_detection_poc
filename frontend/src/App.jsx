@@ -90,7 +90,7 @@ export default function App() {
         <Route path="live/*" element={<LiveMonitoring />} />
         <Route path="video" element={<VideoRecognition />} />
         <Route path="branch-exterior" element={<Navigate to="/branch-exterior/live" replace />} />
-        {/* One shared BxLayout for every Branch page (live feed socket, theme, toasts stay mounted while moving between them). */}
+        {/* One shared BxLayout for every Branch page (live feed socket and theme stay mounted while moving between them). */}
         <Route element={<Suspense fallback={bxFallback}><BxLayout /></Suspense>}>
           <Route path="branch-exterior/live" element={<BxLive />} />
           <Route path="branch-exterior/brief" element={<BxBrief />} />

@@ -1,4 +1,4 @@
-"""Authorized incident evidence APIs; Cloudinary credentials stay server-side."""
+"""Authorized incident evidence APIs; filesystem paths stay server-side."""
 from __future__ import annotations
 
 import secrets
@@ -7,7 +7,7 @@ from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -19,7 +19,7 @@ from app.db.models import VaultIncident
 from app.db.models import VaultAuditEvent
 from app.services.vault_event_publisher import publish_alert_event
 from app.services.cloudinary_evidence import (
-    CloudinaryEvidenceService, EvidenceNotFound, EvidencePersistenceFailed,
+    EvidenceStorageService, EvidenceNotFound, EvidencePersistenceFailed,
     EvidenceStorageNotConfigured, EvidenceStorageUnavailable, EvidencePreviouslyRemoved,
     EvidenceDeletionBlocked, InvalidEvidence,
 )
@@ -68,7 +68,7 @@ def require_evidence_access(x_api_key: Annotated[str | None, Header(alias="X-API
 
 
 def _view(row) -> EvidenceMetadata:
-    # Never expose Cloudinary credentials, URL, or public_id in ordinary metadata.
+    # Never expose credentials, absolute paths, or storage identifiers in ordinary metadata.
     return EvidenceMetadata(id=row.id, incident_id=row.incident_id, alert_id=row.alert_id,
         evidence_type=row.evidence_type, storage_provider=row.storage_provider,
         storage_delivery_type=row.storage_delivery_type, resource_type=row.resource_type,
@@ -104,7 +104,7 @@ def upload_incident_evidence(incident_id: str, file: UploadFile = File(...),
                              session: Session = Depends(get_db), operator: Operator = Depends(get_operator)):
     data = read_upload_bytes(file, limit=settings.EVIDENCE_MAX_UPLOAD_BYTES)
     try:
-        row, created = CloudinaryEvidenceService(session).upload_manual_result(incident_id=incident_id,
+        row, created = EvidenceStorageService(session).upload_manual_result(incident_id=incident_id,
             data=data, declared_mime=file.content_type, captured_at=captured_at,
             camera_id=camera_id, comment=comment, uploaded_by=operator.id)
         if created:
@@ -124,7 +124,7 @@ def upload_alert_evidence(alert_id: str, file: UploadFile = File(...),
                           operator: Operator = Depends(get_operator)):
     data = read_upload_bytes(file, limit=settings.EVIDENCE_MAX_UPLOAD_BYTES)
     try:
-        row, created = CloudinaryEvidenceService(session).upload_manual_result(alert_id=alert_id,
+        row, created = EvidenceStorageService(session).upload_manual_result(alert_id=alert_id,
             data=data, declared_mime=file.content_type, comment=comment, captured_at=captured_at,
             uploaded_by=operator.id)
         if created:
@@ -149,12 +149,17 @@ def list_incident_evidence(incident_id: str, session: Session = Depends(get_db))
 @router.post("/evidence/access", dependencies=[Depends(require_evidence_access)])
 def batch_evidence_access(body: EvidenceAccessRequest, session: Session = Depends(get_db),
                           operator: Operator = Depends(get_operator)):
-    service = CloudinaryEvidenceService(session)
+    service = EvidenceStorageService(session)
     items = []
     for evidence_id in body.ids:
         try:
             url, expires, used, row = service.signed_access_variant(evidence_id, body.variant)
-            items.append({"id":evidence_id,"url":url,"expires_at":expires,"variant_used":used})
+            item = {"id":evidence_id,"variant_used":used}
+            if row.storage_provider == "LOCAL_FILESYSTEM":
+                item["retrieval_path"] = f"/api/v1/evidence/{evidence_id}/content?variant={used}"
+            else:
+                item.update(url=url, expires_at=expires)
+            items.append(item)
             if body.variant == "full":
                 session.add(VaultAuditEvent(id=str(uuid4()), actor_id=operator.id,
                     action="EVIDENCE_FULL_ACCESS", entity_type="evidence", entity_id=row.id,
@@ -170,17 +175,28 @@ def batch_evidence_access(body: EvidenceAccessRequest, session: Session = Depend
 @router.get("/evidence/{evidence_id}", response_model=EvidenceMetadata,
             dependencies=[Depends(require_evidence_access)])
 def get_evidence(evidence_id: str, session: Session = Depends(get_db)):
-    row = CloudinaryEvidenceService(session).repo.get_evidence(evidence_id)
+    row = EvidenceStorageService(session).repo.get_evidence(evidence_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Evidence not found")
     return _view(row)
+
+
+@router.get("/evidence/{evidence_id}/content", dependencies=[Depends(require_evidence_access)])
+def get_evidence_content(evidence_id: str, variant: str = Query(default="full", pattern="^(thumb|full)$"),
+                         session: Session = Depends(get_db)):
+    try:
+        data, mime_type = EvidenceStorageService(session).local_content(evidence_id, variant)
+        return Response(data, media_type=mime_type, headers={"Cache-Control":"private, no-store",
+            "X-Content-Type-Options":"nosniff"})
+    except Exception as exc:
+        _raise_service_error(exc)
 
 
 @router.post("/evidence/{evidence_id}/access-url", response_model=EvidenceAccess,
             dependencies=[Depends(require_evidence_access)])
 def get_evidence_access_url(evidence_id: str, session: Session = Depends(get_db)):
     try:
-        url, expires_at = CloudinaryEvidenceService(session).signed_access_url(evidence_id)
+        url, expires_at = EvidenceStorageService(session).signed_access_url(evidence_id)
         return EvidenceAccess(url=url, expires_at=expires_at)
     except Exception as exc:
         _raise_service_error(exc)
@@ -191,6 +207,6 @@ def get_evidence_access_url(evidence_id: str, session: Session = Depends(get_db)
 def delete_evidence(evidence_id: str, reason: str = Query(min_length=1, max_length=500),
                     session: Session = Depends(get_db), operator: Operator = Depends(get_operator)):
     try:
-        return _view(CloudinaryEvidenceService(session).delete(evidence_id, actor=operator.id, reason=reason))
+        return _view(EvidenceStorageService(session).delete(evidence_id, actor=operator.id, reason=reason))
     except Exception as exc:
         _raise_service_error(exc)

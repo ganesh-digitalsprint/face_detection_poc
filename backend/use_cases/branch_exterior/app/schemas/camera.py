@@ -76,6 +76,10 @@ class CameraStatus(BaseModel):
     frames_total: int = 0
     frames_read: int = 0
     source_fps: float = 0.0
+    position_seconds: float = 0.0
+    total_seconds: float = 0.0
+    can_resume: bool = False
+    resume_mode: str = ""
     percent: float = 0.0
     fps: float = 0.0
     frame_count: int = 0

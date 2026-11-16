@@ -115,3 +115,24 @@ def test_platform_metadata_requires_explicit_link_and_never_replaces_source_came
     assert enrich_resource_refs('branch_exterior', {'camera_id':'unknown'}) == {'camera_id':'unknown'}
     assert enrich_resource_refs('branch_exterior', {'camera_id':'legacy-camera','camera_name':'Original name'})['camera_name'] == 'Original name'
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize('state', ['PENDING', 'UNAVAILABLE', 'FAILED'])
+def test_evidence_state_is_preserved_for_incidents_without_media(tmp_path, state):
+    app = create_app(Settings(database_url=f"sqlite:///{(tmp_path/f'{state}.db').as_posix()}",
+        producer_credentials={'producer': {'use_case':'branch_exterior','producer':'branch-exterior-monitoring'}},
+        operator_credentials={'operator': {'actor_id':'op','use_cases':['branch_exterior']}},
+        notification_webhook_url=''), start_notification_worker=False)
+    body = {'schema_version':1,'source_event_id':f'event-{state}','source_event_type':'anomaly',
+        'source_event_version':1,'occurred_at':'2026-11-16T08:00:00Z','severity':'high',
+        'title':'Incident','summary':'Details','source_status':'open',
+        'resource_refs':{'camera_id':'camera-1'},
+        'domain_data':{'kind':'weapon','evidence_status':state,'evidence_unavailable_reason':'snapshot_write_failed'},
+        'evidence_refs':[]}
+    with TestClient(app) as client:
+        created = client.post('/api/v1/alerts', headers={'Authorization':'Bearer producer',
+            'Idempotency-Key':f'key-{state}'}, json=body)
+        assert created.status_code == 201
+        row = client.get('/api/v1/alerts/'+created.json()['id'], headers={'Authorization':'Bearer operator'}).json()
+        assert row['evidence_status'] == state
+        assert row['domain_data']['evidence_unavailable_reason'] == 'snapshot_write_failed'

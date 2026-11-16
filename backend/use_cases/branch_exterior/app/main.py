@@ -52,7 +52,14 @@ async def lifespan(app: FastAPI):
     await camera_manager.start_all_enabled()
     sync_task = asyncio.create_task(_folder_sync_loop())
     storage_task = asyncio.create_task(retention_loop())
-    get_alert_publisher().start()  # no-op unless ALERT_SERVICE_BASE_URL and ALERT_SERVICE_TOKEN are set
+    publisher = get_alert_publisher()
+    logger.info("Common Alerts publisher: %s; endpoint: %s; producer credential: %s; "
+                "durable outbox: %s pending, %s failed.",
+                "configured" if publisher.enabled else "disabled",
+                "configured" if publisher.base_url else "missing",
+                "present" if publisher.token else "missing",
+                publisher.pending_count(), publisher.failed_count())
+    publisher.start()  # no-op unless ALERT_SERVICE_BASE_URL and ALERT_SERVICE_TOKEN are set
     logger.info("Application startup complete.")
     yield
     logger.info("Shutting down camera workers and database connection...")

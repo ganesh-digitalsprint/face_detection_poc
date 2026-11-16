@@ -59,12 +59,40 @@ def upload(client, data):
     return response.json()
 
 
+def test_upload_captures_immutable_branch_snapshot(replay, monkeypatch):
+    manager, _live, _jobs, client, data = replay
+    captured = []
+    def context(**values):
+        captured.append(values)
+        return {"branch_id": values["branch_id"], "branch_code": "KOR-01",
+            "branch_name": "Koramangala", "place_name": "Bengaluru",
+            "region_name": "South", "branch_manager": "Manager",
+            "camera_name": values["camera_name"], "source_type": values["source_type"],
+            "source_id": values["source_id"]}
+    monkeypatch.setattr("app.services.vault_room_replay.build_source_context", context)
+    response = client.post("/api/v1/vault-room/video-sessions",
+        data={"branch_id": "canonical-branch-id"},
+        files={"file": ("sample.avi", data, "video/x-msvideo")})
+    assert response.status_code == 201
+    snapshot = response.json()["metadata"]["source_context"]
+    assert snapshot["branch_id"] == "canonical-branch-id"
+    assert snapshot["branch_name"] == "Koramangala"
+    assert snapshot["camera_name"] == "Uploaded video"
+    assert snapshot["source_type"] == "uploaded_video"
+    assert snapshot["source_id"].startswith("upload:")
+    assert captured[0]["branch_id"] == "canonical-branch-id"
+
+
 def test_complete_replay_reuses_pipeline_and_isolates_live_alerts_evidence_and_state(replay):
     manager, live, jobs, client, data = replay
     before = live.state()
     uploaded = upload(client, data)
     sid = uploaded["session_id"]; root = f"/api/v1/vault-room/video-sessions/{sid}"
-    assert uploaded["metadata"] == dict(fps=10, width=160, height=120, frame_count=20, duration=2, size_bytes=len(data))
+    assert {key: uploaded["metadata"][key] for key in
+        ("fps", "width", "height", "frame_count", "duration", "size_bytes")} == \
+        dict(fps=10, width=160, height=120, frame_count=20, duration=2, size_bytes=len(data))
+    assert uploaded["metadata"]["source_context"]["camera_name"] == "Uploaded video"
+    assert uploaded["metadata"]["source_context"]["source_type"] == "uploaded_video"
     # Explicit opt-out exercises the legacy unverified security/evidence path.
     assert client.post(root + "/start", json={"required_persons": 2, "simulated_authorization": False}).status_code == 200
     wait_for(lambda: manager.get(sid).status == "completed")
@@ -83,7 +111,11 @@ def test_complete_replay_reuses_pipeline_and_isolates_live_alerts_evidence_and_s
     assert image.shape[:2] == (120, 160)
     assert image[12:108, 32:112, 1].max() > 150  # Existing annotation service drew the tracking box.
     assert live.state() == before
-    assert all(kind == 'activity' for kind, _data in jobs)  # Replay operational history only; no live alerts/audits.
+    assert jobs and all(kind == 'activity' for kind, _data in jobs)  # Operational history only; no alert publication.
+    activity_rows = [event for _kind, data in jobs for event in data[0]]
+    assert activity_rows and all(event.session_id == sid for event in activity_rows)
+    assert all(event.source_id == uploaded['metadata']['source_context']['source_id'] for event in activity_rows)
+    assert all(event.source == 'upload' and event.replay for event in activity_rows)
     assert status['state']['session_id'] == sid
     assert status['events'] and all(event['session_id'] == sid for event in status['events'])
     assert not manager.get(sid).source.exists()

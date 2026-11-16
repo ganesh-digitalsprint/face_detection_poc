@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 import uuid
@@ -42,9 +43,20 @@ class RollingClipBuffer:
 
 def save_snapshot(frame: np.ndarray, camera_id: str) -> str:
     ensure_directories()
-    name = f"{camera_id}_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
-    cv2.imwrite(str(SNAPSHOT_DIR / name), frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-    _bump_cache(SNAPSHOT_DIR / name)
+    if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
+        raise ValueError("No incident frame was available for snapshot capture")
+    camera_key = re.sub(r"[^A-Za-z0-9_-]", "_", str(camera_id))[:128] or "camera"
+    name = f"{camera_key}_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
+    folder = SNAPSHOT_DIR.resolve()
+    path = (folder / name).resolve()
+    path.relative_to(folder)
+    if not cv2.imwrite(str(path), frame, [cv2.IMWRITE_JPEG_QUALITY, 80]):
+        path.unlink(missing_ok=True)
+        raise OSError("OpenCV could not write the incident snapshot")
+    if not path.is_file() or path.stat().st_size <= 0:
+        path.unlink(missing_ok=True)
+        raise OSError("Incident snapshot file is empty after encoding")
+    _bump_cache(path)
     return f"snapshots/{name}"
 
 
@@ -59,8 +71,10 @@ def save_clip(jpegs: list[tuple[float, bytes]], camera_id: str) -> str:
     if first is None:
         return ""
     h, w = first.shape[:2]
-    name = f"{camera_id}_{int(time.time())}_{uuid.uuid4().hex[:6]}.mp4"
+    camera_key = re.sub(r"[^A-Za-z0-9_-]", "_", str(camera_id))[:128] or "camera"
+    name = f"{camera_key}_{int(time.time())}_{uuid.uuid4().hex[:6]}.mp4"
     path = CLIP_DIR / name
+    path.resolve().relative_to(CLIP_DIR.resolve())
 
     writer = None
     # H.264 ("avc1") plays in browsers; "mp4v" is the always-available fallback
@@ -81,8 +95,14 @@ def save_clip(jpegs: list[tuple[float, bytes]], camera_id: str) -> str:
             if f.shape[:2] != (h, w):
                 f = cv2.resize(f, (w, h))
             writer.write(f)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
     finally:
         writer.release()
+    if not path.is_file() or path.stat().st_size <= 0:
+        path.unlink(missing_ok=True)
+        return ""
     _bump_cache(path)
     return f"clips/{name}"
 

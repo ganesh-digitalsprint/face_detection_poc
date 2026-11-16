@@ -1,4 +1,4 @@
-"""Validated, authenticated Cloudinary evidence storage with DB compensation."""
+"""Validated evidence storage; new PoC captures use the local filesystem."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -134,6 +134,68 @@ class CloudinaryGateway:
             type="authenticated", expires_at=expires_at, secure=True)
 
 
+class LocalEvidenceGateway:
+    """Atomic, content-addressed storage below the configured backend evidence root."""
+    storage_provider = "LOCAL_FILESYSTEM"
+
+    def __init__(self, root: str | Path | None = None):
+        configured = Path(root or settings.EVIDENCE_STORAGE_ROOT)
+        backend_root = Path(__file__).resolve().parents[4]
+        self.root = (configured if configured.is_absolute() else backend_root / configured).resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def path(self, public_id: str) -> Path:
+        if not isinstance(public_id, str) or not public_id or "\\" in public_id:
+            raise InvalidEvidence("Invalid local evidence identifier")
+        parts = public_id.split("/")
+        if any(not re.fullmatch(r"[A-Za-z0-9_.-]+", part) or part in {".", ".."} for part in parts):
+            raise InvalidEvidence("Invalid local evidence identifier")
+        candidate = self.root.joinpath(*parts).resolve()
+        try:
+            candidate.relative_to(self.root)
+        except ValueError as exc:
+            raise InvalidEvidence("Evidence path escapes storage root") from exc
+        return candidate
+
+    def find(self, public_id: str):
+        path = self.path(public_id)
+        if not path.is_file():
+            return None
+        data = path.read_bytes(); image = validate_image(data)
+        return {"public_id":public_id,"format":image.asset_format,"width":image.width,
+            "height":image.height,"bytes":len(data)}
+
+    def upload(self, data: bytes, public_id: str, _timeout: int, _asset_format: str):
+        path = self.path(public_id); path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            existing = path.read_bytes()
+            if sha256(existing).digest() != sha256(data).digest():
+                raise EvidenceStorageUnavailable("Evidence identifier collision")
+            return self.find(public_id)
+        staging = path.parent / f".{path.name}.{uuid4().hex}.tmp"
+        try:
+            with staging.open("xb") as stream:
+                stream.write(data); stream.flush(); os.fsync(stream.fileno())
+            os.replace(staging, path)
+        except OSError as exc:
+            raise EvidenceStorageUnavailable("Could not write local evidence") from exc
+        finally:
+            staging.unlink(missing_ok=True)
+        return self.find(public_id)
+
+    def destroy(self, public_id: str, _timeout: int):
+        path = self.path(public_id)
+        existed = path.exists(); path.unlink(missing_ok=True)
+        return {"result":"ok" if existed else "not found"}
+
+    def read(self, public_id: str) -> bytes:
+        path = self.path(public_id)
+        try:
+            return path.read_bytes()
+        except FileNotFoundError as exc:
+            raise EvidenceNotFound("Evidence file not found") from exc
+
+
 def _safe_reference(value: str | None) -> str:
     if not value:
         return "unlinked"
@@ -142,14 +204,23 @@ def _safe_reference(value: str | None) -> str:
     return value
 
 
-class CloudinaryEvidenceService:
+class EvidenceStorageService:
     def __init__(self, session: Session, *, gateway=None):
         self.session, self.repo, self.gateway = session, VaultMonitoringRepository(session), gateway
+        self.storage_provider = getattr(gateway, "storage_provider", "CLOUDINARY") if gateway is not None \
+            else ("LOCAL_FILESYSTEM" if settings.EVIDENCE_STORAGE_BACKEND == "local" else "CLOUDINARY")
 
     def _gateway(self):
         if self.gateway is None:
-            self.gateway = CloudinaryGateway()
+            self.gateway = LocalEvidenceGateway() if self.storage_provider == "LOCAL_FILESYSTEM" else CloudinaryGateway()
         return self.gateway
+
+    def _gateway_for_record(self, evidence: VaultEvidence):
+        if evidence.storage_provider == "LOCAL_FILESYSTEM":
+            return self.gateway if isinstance(self.gateway, LocalEvidenceGateway) else LocalEvidenceGateway()
+        if self.gateway is not None and self.storage_provider == "CLOUDINARY":
+            return self.gateway
+        return CloudinaryGateway()
 
     def upload_manual(self, *, incident_id: str, data: bytes, declared_mime: str | None,
                       captured_at: datetime | None = None, camera_id: str | None = None,
@@ -208,13 +279,16 @@ class CloudinaryEvidenceService:
             session_ref = session_ref or alert.session_ref
             incident_id = incident_id if incident_id != "unlinked" else (alert.incident_id or "unlinked")
 
-        parent = incident_id if incident_id != "unlinked" else alert_id
-        folder = settings.CLOUDINARY_EVIDENCE_FOLDER.strip("/")
-        if not re.fullmatch(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*", folder):
-            raise EvidenceStorageNotConfigured("Evidence storage folder configuration is invalid")
-        public_id = f"{folder}/incidents/{parent}/evidence/{image.checksum}"
+        parent = alert_id if alert_id != "unlinked" else incident_id
+        if self.storage_provider == "LOCAL_FILESYSTEM":
+            public_id = f"vault_monitoring/{parent}/evidence_{image.checksum}.{image.asset_format}"
+        else:
+            folder = settings.CLOUDINARY_EVIDENCE_FOLDER.strip("/")
+            if not re.fullmatch(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*", folder):
+                raise EvidenceStorageNotConfigured("Evidence storage folder configuration is invalid")
+            public_id = f"{folder}/incidents/{parent}/evidence/{image.checksum}"
         existing = self.session.scalars(select(VaultEvidence).where(
-            VaultEvidence.storage_provider == "CLOUDINARY",
+            VaultEvidence.storage_provider == self.storage_provider,
             VaultEvidence.storage_public_id == public_id)).first()
         if existing:
             if existing.available:
@@ -238,7 +312,8 @@ class CloudinaryEvidenceService:
                     break
                 time.sleep(min(0.25 * (2 ** attempt), 1.0))
         if uploaded_asset is None:
-            logger.warning("Cloudinary evidence upload failed incident=%s alert=%s", incident_id, alert_id)
+            logger.warning("Evidence storage write failed provider=%s incident=%s alert=%s",
+                           self.storage_provider, incident_id, alert_id)
             raise EvidenceStorageUnavailable("Evidence storage is temporarily unavailable") from last_exc
 
         asset_public_id = uploaded_asset.get("public_id", public_id)
@@ -248,7 +323,8 @@ class CloudinaryEvidenceService:
             thumb.thumbnail((320, 320), Image.Resampling.LANCZOS)
             buffer = BytesIO()
             thumb.save(buffer, format="JPEG", quality=85, optimize=True)
-            thumb_id = f"{asset_public_id}__thumb"
+            thumb_id = (f"vault_monitoring/{parent}/thumbnail_{image.checksum}.jpg"
+                if self.storage_provider == "LOCAL_FILESYSTEM" else f"{asset_public_id}__thumb")
             gateway.upload(buffer.getvalue(), thumb_id, settings.EVIDENCE_UPLOAD_TIMEOUT_SECONDS, "jpg")
             thumbnail_public_id = thumb_id
         except Exception:
@@ -259,7 +335,7 @@ class CloudinaryEvidenceService:
             evidence = self.repo.add_evidence(
                 incident_id=None if incident_id == "unlinked" else incident_id,
                 alert_id=None if alert_id == "unlinked" else alert_id,
-                evidence_type=evidence_type, storage_provider="CLOUDINARY",
+                evidence_type=evidence_type, storage_provider=self.storage_provider,
                 storage_delivery_type="authenticated", storage_public_id=asset_public_id,
                 resource_type="image", asset_format=uploaded_asset.get("format", image.asset_format),
                 mime_type=image.mime_type, width=uploaded_asset.get("width", image.width),
@@ -277,14 +353,14 @@ class CloudinaryEvidenceService:
             # A concurrent idempotent request may have committed the unique
             # metadata row while this request was uploading the same asset.
             committed = self.session.scalars(select(VaultEvidence).where(
-                VaultEvidence.storage_provider == "CLOUDINARY",
+                VaultEvidence.storage_provider == self.storage_provider,
                 VaultEvidence.storage_public_id == asset_public_id)).first()
             if committed is not None and committed.available:
                 return (committed, False) if return_created else committed
             try:
                 deleted = gateway.destroy(asset_public_id, settings.EVIDENCE_UPLOAD_TIMEOUT_SECONDS)
                 if deleted.get("result") not in ("ok", "not found"):
-                    raise RuntimeError("Cloudinary compensation did not confirm deletion")
+                    raise RuntimeError("Evidence compensation did not confirm deletion")
                 if thumbnail_public_id:
                     gateway.destroy(thumbnail_public_id, settings.EVIDENCE_UPLOAD_TIMEOUT_SECONDS)
             except Exception:
@@ -297,9 +373,11 @@ class CloudinaryEvidenceService:
         evidence = self.repo.get_evidence(evidence_id)
         if evidence is None or not evidence.available or not evidence.storage_public_id:
             raise EvidenceNotFound("Evidence not found or unavailable")
+        if evidence.storage_provider == "LOCAL_FILESYSTEM":
+            raise EvidenceStorageUnavailable("Local evidence uses authenticated content retrieval")
         expires = int(time.time()) + settings.EVIDENCE_URL_TTL_SECONDS
         try:
-            url = self._gateway().signed_url(evidence.storage_public_id,
+            url = self._gateway_for_record(evidence).signed_url(evidence.storage_public_id,
                 evidence.asset_format or "jpg", expires)
         except Exception as exc:
             logger.warning("Cloudinary signed access URL generation failed evidence_id=%s", evidence_id)
@@ -314,13 +392,27 @@ class CloudinaryEvidenceService:
         asset_format = evidence.asset_format or "jpg"
         if variant == "thumb" and evidence.thumbnail_public_id:
             chosen = "thumb"; public_id = evidence.thumbnail_public_id; asset_format = "jpg"
+        if evidence.storage_provider == "LOCAL_FILESYSTEM":
+            return None, None, chosen, evidence
         expires = int(time.time()) + settings.EVIDENCE_URL_TTL_SECONDS
         try:
-            url = self._gateway().signed_url(public_id, asset_format, expires)
+            url = self._gateway_for_record(evidence).signed_url(public_id, asset_format, expires)
         except Exception as exc:
             logger.warning("Cloudinary signed access generation failed evidence_id=%s", evidence_id)
             raise EvidenceStorageUnavailable("Could not generate evidence access") from exc
         return url, datetime.fromtimestamp(expires, timezone.utc), chosen, evidence
+
+    def local_content(self, evidence_id: str, variant: str = "full"):
+        evidence = self.repo.get_evidence(evidence_id)
+        if evidence is None or not evidence.available or evidence.storage_provider != "LOCAL_FILESYSTEM":
+            raise EvidenceNotFound("Local evidence not found")
+        public_id = evidence.thumbnail_public_id if variant == "thumb" and evidence.thumbnail_public_id \
+            else evidence.storage_public_id
+        if not public_id:
+            raise EvidenceNotFound("Evidence file not found")
+        data = LocalEvidenceGateway().read(public_id)
+        image = validate_image(data)
+        return data, image.mime_type
 
     def delete(self, evidence_id: str, *, actor: str = "shared_operator_key", reason: str = "") -> VaultEvidence:
         evidence = self.repo.get_evidence(evidence_id)
@@ -338,18 +430,19 @@ class CloudinaryEvidenceService:
             entity_type="evidence", entity_id=evidence.id, details={"actor": actor, "reason": reason.strip()}))
         self.session.commit()
         try:
-            result = self._gateway().destroy(evidence.storage_public_id,
+            gateway = self._gateway_for_record(evidence)
+            result = gateway.destroy(evidence.storage_public_id,
                 settings.EVIDENCE_UPLOAD_TIMEOUT_SECONDS)
             if result.get("result") not in ("ok", "not found"):
-                raise EvidenceStorageUnavailable("Cloudinary did not confirm evidence removal")
+                raise EvidenceStorageUnavailable("Evidence storage did not confirm removal")
             if evidence.thumbnail_public_id:
-                self._gateway().destroy(evidence.thumbnail_public_id, settings.EVIDENCE_UPLOAD_TIMEOUT_SECONDS)
+                gateway.destroy(evidence.thumbnail_public_id, settings.EVIDENCE_UPLOAD_TIMEOUT_SECONDS)
         except Exception as exc:
             self._record_audit("EVIDENCE_DELETE_FAILED", evidence.storage_public_id,
                                {"evidence_id": evidence.id})
             if isinstance(exc, EvidenceError):
                 raise
-            logger.warning("Cloudinary evidence removal failed evidence_id=%s", evidence.id)
+            logger.warning("Evidence removal failed evidence_id=%s", evidence.id)
             raise EvidenceStorageUnavailable("Could not remove evidence asset") from exc
         evidence.available = False
         self._stage_alert_evidence(evidence.alert_id)
@@ -360,7 +453,7 @@ class CloudinaryEvidenceService:
             self.session.commit()
         except SQLAlchemyError as exc:
             self.session.rollback()
-            logger.error("Cloudinary asset removed but metadata update failed; retry deletion evidence_id=%s", evidence_id)
+            logger.error("Evidence asset removed but metadata update failed; retry deletion evidence_id=%s", evidence_id)
             raise EvidencePersistenceFailed("Asset was removed; evidence metadata requires retry reconciliation") from exc
         return evidence
 
@@ -381,12 +474,16 @@ class CloudinaryEvidenceService:
         try:
             self.session.rollback()
             self.session.add(VaultAuditEvent(id=str(uuid4()), action=action,
-                entity_type="cloudinary_asset", entity_id=sha256(public_id.encode()).hexdigest()[:36],
+                entity_type="evidence_asset", entity_id=sha256(public_id.encode()).hexdigest()[:36],
                 details=details))
             self.session.commit()
         except Exception:
             self.session.rollback()
             logger.error("Could not persist evidence reconciliation audit action=%s", action)
+
+
+# Backward-compatible import for historical callers/tests. New active storage is selected by settings.
+CloudinaryEvidenceService = EvidenceStorageService
 
 
 @dataclass
@@ -405,7 +502,7 @@ class _CaptureJob:
 
 
 class EvidenceCaptureQueue:
-    """Bounded worker queue; camera callers never wait for Cloudinary."""
+    """Bounded worker queue; camera callers never wait for evidence I/O."""
     def __init__(self, session_factory: Callable[[], Session], *, max_pending: int = 16):
         self._factory = session_factory
         self._queue: queue.Queue[_CaptureJob | None] = queue.Queue(maxsize=max_pending)
@@ -444,7 +541,7 @@ class EvidenceCaptureQueue:
             logger.exception("Evidence spool directory is unavailable")
 
     def _spool(self, job: _CaptureJob):
-        if job.event_type not in {"UNAUTHORIZED_ENTRY", "EXCESS_PERSON"}:
+        if job.event_type not in {"UNAUTHORIZED_ENTRY", "EXCESS_PERSON", "MOBILE_PHONE_DETECTED"}:
             return
         root = self._spool_root()
         root.mkdir(parents=True, exist_ok=True)
@@ -511,10 +608,12 @@ class EvidenceCaptureQueue:
         try:
             with self._factory() as session:
                 if job.alert_id:
-                    alert = session.get(VaultRoomAlert, job.alert_id)
+                    alert = session.get(VaultRoomAlert, job.alert_id, with_for_update=True)
                     if alert is not None:
                         alert.evidence_status = "FAILED"
                         alert.row_version += 1
+                        from app.services.vault_alert_lifecycle import stage_lifecycle
+                        stage_lifecycle(session, alert)
                 session.add(VaultAuditEvent(id=str(uuid4()), action="EVIDENCE_CAPTURE_FAILED",
                     entity_type="alert" if job.alert_id else "incident",
                     entity_id=job.alert_id or job.incident_id or "unknown",
@@ -534,16 +633,18 @@ class EvidenceCaptureQueue:
                     return
                 with self._factory() as session:
                     try:
-                        evidence = CloudinaryEvidenceService(session).upload_automatic(data=job.data,
+                        evidence = EvidenceStorageService(session).upload_automatic(data=job.data,
                             event_type=job.event_type, incident_id=job.incident_id,
                             alert_id=job.alert_id, session_id=job.session_id,
                             camera_id=job.camera_id, captured_at=job.captured_at,
                             metadata=job.metadata)
                         if job.alert_id:
-                            alert = session.get(VaultRoomAlert, job.alert_id)
+                            alert = session.get(VaultRoomAlert, job.alert_id, with_for_update=True)
                             if alert is not None:
                                 alert.evidence_status = "CAPTURED"
                                 alert.row_version += 1
+                                from app.services.vault_alert_lifecycle import stage_lifecycle
+                                stage_lifecycle(session, alert)
                                 session.add(VaultAuditEvent(id=str(uuid4()), action="EVIDENCE_CAPTURED",
                                     entity_type="alert", entity_id=job.alert_id,
                                     details={"evidence_id": evidence.id}))

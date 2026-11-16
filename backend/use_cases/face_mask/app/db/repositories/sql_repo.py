@@ -151,9 +151,13 @@ class EventRepository:
 
     async def create(self, event_id: str, camera_id: str, roi_id: str | None, track_id: int, score: float,
                      covering_type: str, frame_count: int, first_seen: datetime) -> ConcealmentEvent:
+        camera = await self._s.get(CameraORM, camera_id)
         row = ConcealmentEventORM(id=event_id, camera_id=camera_id, roi_id=roi_id, track_id=track_id, score=score,
                                   covering_type=covering_type, frame_count=frame_count, first_seen=first_seen,
-                                  last_seen=first_seen, evidence_id=event_id)
+                                  last_seen=first_seen, evidence_id=event_id,
+                                  camera_name=camera.name if camera else None,
+                                  **({key: getattr(camera, key) for key in ("branch_id", "branch_code", "branch_name",
+                                      "place_name", "region_name", "branch_manager")} if camera else {}))
         self._s.add(row)
         await self._s.flush()
         return ConcealmentEvent.model_validate(row)

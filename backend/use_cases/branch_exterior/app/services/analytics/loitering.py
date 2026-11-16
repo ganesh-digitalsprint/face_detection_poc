@@ -32,9 +32,10 @@ class LoiteringEngine:
         thresholds: ThresholdConfig,
         operating_hours: dict[str, list[str]],
         now: datetime,
+        now_ts: float | None = None,
     ) -> list[ScenarioSignal]:
         signals: list[ScenarioSignal] = []
-        now_ts = time.time()
+        now_ts = time.time() if now_ts is None else now_ts
         band = time_band(now, operating_hours)
         base_threshold = (
             thresholds.loiter_seconds_business_hours if band == "business_hours" else thresholds.loiter_seconds_after_hours

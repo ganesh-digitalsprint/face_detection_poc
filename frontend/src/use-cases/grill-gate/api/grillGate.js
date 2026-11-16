@@ -38,8 +38,9 @@ export const uploadGrillGateVideo = (file, configurationOrAssignmentId,
     headers, signal, onUploadProgress: (event) => onProgress?.(event.total ? event.loaded / event.total : null),
   }).then((r) => r.data);
 };
-export const startGrillGateVideoJob = (jobId) =>
-  client.post(`${root}/videos/${encodeURIComponent(jobId)}/start`, undefined, { headers, timeout: 15000 }).then((r) => r.data);
+export const startGrillGateVideoJob = (jobId, branchId = null) =>
+  client.post(`${root}/videos/${encodeURIComponent(jobId)}/start`,
+    branchId ? { branch_id: branchId } : undefined, { headers, timeout: 15000 }).then((r) => r.data);
 export const reprocessGrillGateVideoJob = (jobId, zoneConfigurationId = null) =>
   client.post(`${root}/videos/${encodeURIComponent(jobId)}/reprocess`,
     zoneConfigurationId ? { zone_configuration_id: zoneConfigurationId } : {},

@@ -129,6 +129,8 @@
 .bx-btn-ghost:hover { background: var(--bx-hover); color: var(--bx-text); }
 .bx-btn-sm { padding: 5px 10px; font-size: 12px; }
 .bx-btn[disabled] { opacity: .5; cursor: not-allowed; }
+.bx-playback-control[disabled] { opacity: 1; cursor: default; }
+.bx-playback-control[disabled]:hover { background: var(--bx-card); border-color: var(--bx-border); color: var(--bx-text); }
 .bx-icon-btn { width: 32px; height: 32px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--bx-border); background: var(--bx-card); color: var(--bx-text); cursor: pointer; font-size: 18px; line-height: 1; }
 .bx-icon-btn:hover { background: var(--bx-hover); }
 

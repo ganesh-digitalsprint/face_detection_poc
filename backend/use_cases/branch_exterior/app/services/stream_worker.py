@@ -20,11 +20,13 @@ If RF-DETR cannot be loaded the worker falls back to the old motion detector
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sys
 import threading
 import time
 from concurrent.futures import Future
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
@@ -38,6 +40,7 @@ if str(_SHARED) not in sys.path:
 from fedbank_core.camera_stream import open_capture as open_shared_capture
 
 from app.core.config import get_settings
+from app.core.paths import STORAGE_DIR
 from app.db.repositories.interfaces import Repositories
 from app.schemas.camera import Camera
 from app.schemas.zone import Point, Zone
@@ -94,14 +97,22 @@ def _now_utc():
 class CameraWorker(threading.Thread):
     _WEAPON_CONFIRM_STREAK = 3  # consecutive detection passes with a weapon box on the same person
 
-    def __init__(self, camera: Camera, repos: Repositories, loop: asyncio.AbstractEventLoop, guard_recognizer: GuardFaceRecognizer):
+    def __init__(self, camera: Camera, repos: Repositories, loop: asyncio.AbstractEventLoop, guard_recognizer: GuardFaceRecognizer,
+                 branch_metadata: dict[str, str] | None = None, resume_from: "CameraWorker | None" = None,
+                 fresh: bool = False):
         super().__init__(daemon=True, name=f"camera-{camera.id}")
         self.camera = camera
         self._repos = repos
         self._loop = loop
         self._guard_recognizer = guard_recognizer
+        # Immutable processing-context snapshot resolved before this run starts.
+        self._branch_metadata = dict(branch_metadata or {})
         self._stop_event = threading.Event()
         self._settings = get_settings()
+        self._resume_from = resume_from
+        self._fresh = fresh
+        self._resume_data: dict | None = None
+        self._position_path = STORAGE_DIR / "playback_state" / "branch_exterior" / f"{camera.id}.json"
 
         self._heatmap = HeatmapAccumulator()
         self._clip_buffer = RollingClipBuffer(seconds=15.0, fps_hint=max(6, self._settings.processing_fps))
@@ -124,6 +135,23 @@ class CameraWorker(threading.Thread):
         self._stop_event.set()
         if self._state.running:
             self._state.status = "STOPPING"
+
+    def _position(self) -> dict | None:
+        if self._repos is None or self._fresh or self.camera.cam_type not in _FILE_CAM_TYPES:
+            return None
+        try:
+            data = json.loads(self._position_path.read_text(encoding="utf-8"))
+            return data if data.get("source") == self.camera.source and data.get("can_resume") else None
+        except (OSError, ValueError):
+            return None
+
+    def _save_position(self, data: dict) -> None:
+        if self._repos is None:
+            return
+        self._position_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._position_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(data), encoding="utf-8")
+        os.replace(temporary, self._position_path)
 
     def _scene_zone(self) -> Zone:
         from datetime import datetime, timezone
@@ -282,9 +310,31 @@ class CameraWorker(threading.Thread):
     def run(self) -> None:  # noqa: C901 - one deliberately linear pipeline, kept in one place
         self._state.running = True
         self._state.status = "STARTING"
+        if self._fresh and self.camera.cam_type in _FILE_CAM_TYPES:
+            self._save_position({"source": self.camera.source, "can_resume": False})
         self._refresh_zones(force=True)
+        retained = self._resume_from if self._resume_from and self._resume_from._resume_data else None
+        checkpoint = self._position() if not retained else retained._resume_data
+        if retained and (retained.camera.source != self.camera.source or
+                         time.time() - checkpoint.get("saved_at", 0) > self._settings.resume_state_ttl_minutes * 60):
+            retained = None
         try:
-            self._reset_pipeline()
+            if retained:
+                # Keep all per-source engines/counters and their video-time clocks, not the old thread or capture.
+                for key, value in retained.__dict__.items():
+                    if key.startswith(("_detector", "_pose", "_tracker", "_action_recognizer", "_behavior", "_episodes",
+                                       "_kind_counts", "_zone", "_loitering", "_gathering", "_movement", "_after_hours",
+                                       "_people", "_weapon", "_last_", "_raw_dets", "_threat_hold", "_heatmap",
+                                       "_clip_buffer", "_prep", "_det_pass", "_tile_grid", "_tiles_now", "_uses_rfdetr",
+                                       "_detector_desc", "_face", "_real_zones")):
+                        setattr(self, key, value)
+                self._state = retained._state
+                frame_bus.attach(self.camera.id, self._state)
+                self._state.running = True
+                self._state.status = "STARTING"
+                self._state.can_resume = False
+            else:
+                self._reset_pipeline()
         except Exception:
             logger.exception("Camera worker %s could not build its pipeline", self.camera.id)
             self._state.last_error = "Detector failed to start - see server logs"
@@ -300,14 +350,25 @@ class CameraWorker(threading.Thread):
         import os
 
         roi_key = os.path.basename(self.camera.source) if self.camera.cam_type in _FILE_CAM_TYPES else self.camera.name
-        self._prep = FramePrep(roi_key)
-        if self.camera.cam_type in _FILE_CAM_TYPES:
+        if not retained:
+            self._prep = FramePrep(roi_key)
+        if self.camera.cam_type in _FILE_CAM_TYPES and not retained:
             self._prep.learn_from_capture(cap)   # find black bars; rewinds the video
         self._state.prep_info = self._prep.describe()
-        src = {"t0": time.time(), "consumed": 0}
+        resume_index = int((checkpoint or {}).get("frame_index", 0)) if is_file else 0
+        native_fps = self._state.source_fps if self._state.source_fps > 0 else 25.0
+        if checkpoint and not retained:
+            resume_index = max(0, resume_index - round(native_fps * 1.5))
+            self._state.resume_mode = "restarted_tracking"
+        elif retained:
+            self._state.resume_mode = "continued"
+        if is_file and resume_index:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, resume_index)
+        source_epoch = float((checkpoint or {}).get("source_epoch", time.time() - resume_index / native_fps))
+        src = {"t0": time.time() - resume_index / native_fps, "consumed": resume_index, "epoch": source_epoch}
         consecutive_failures = 0
-        frame_idx = 0
-        face_counter = 0
+        frame_idx = int((checkpoint or {}).get("processed_index", 0)) if retained else 0
+        face_counter = int((checkpoint or {}).get("face_counter", 0)) if retained else 0
         frame_errors = 0
         finished = False
         dispatches: list[Future] = []
@@ -353,7 +414,9 @@ class CameraWorker(threading.Thread):
                 h, w = frame.shape[:2]
 
                 try:
-                    self._process_frame(frame, w, h, frame_idx, detect_every, pose_every, face_counter, runtime_cfg)
+                    source_now = src["epoch"] + src["consumed"] / native_fps if is_file else time.time()
+                    self._process_frame(frame, w, h, frame_idx, detect_every, pose_every, face_counter,
+                                        runtime_cfg, source_now, is_file)
                     frame_errors = 0
                 except Exception:
                     frame_errors += 1
@@ -381,15 +444,26 @@ class CameraWorker(threading.Thread):
                     logger.exception("Pending alert dispatch failed for camera %s", self.camera.id)
             self._state.running = False
             cap.release()
+            paused = is_file and self._stop_event.is_set() and src["consumed"] > 0 and (
+                not self._state.frames_total or src["consumed"] < self._state.frames_total)
+            self._resume_data = {"source": self.camera.source, "frame_index": src["consumed"],
+                                 "processed_index": frame_idx, "face_counter": face_counter,
+                                 "source_epoch": src["epoch"], "saved_at": time.time(), "can_resume": paused,
+                                 "source_fps": self._state.source_fps,
+                                 "frames_total": self._state.frames_total} if paused else None
+            if is_file:
+                self._save_position(self._resume_data or {"source": self.camera.source, "can_resume": False})
+            self._state.can_resume = paused
             if finished and self._state.frames_total:
                 self._state.frames_read = self._state.frames_total
             self._state.status = "FINISHED" if finished else ("STOPPED" if self._stop_event.is_set() else "ERROR")
 
     # ------------------------------------------------------------------ one frame
-    def _process_frame(self, frame, w, h, frame_idx, detect_every, pose_every, face_counter, runtime_cfg) -> None:  # noqa: C901
+    def _process_frame(self, frame, w, h, frame_idx, detect_every, pose_every, face_counter,
+                       runtime_cfg, source_now=None, is_file=False) -> None:  # noqa: C901
         thresholds = runtime_cfg.thresholds
         s = self._settings
-        now = time.time()
+        now = source_now if source_now is not None else time.time()
         run_detect = (frame_idx % detect_every) == 0
 
         # ---- detect -> track ------------------------------------------------
@@ -486,13 +560,13 @@ class CameraWorker(threading.Thread):
         stats: PeopleStats = self._people.update(person_visible, thresholds.group_distance_factor)
 
         # ---- Tasks 1-4: rule engines ----------------------------------------------------------
-        now_dt = _now_utc()
+        now_dt = datetime.fromtimestamp(now, timezone.utc) if is_file else _now_utc()
         zone_vis = {tid: zone_of_track.get(tid) for tid in person_visible}
         signals: list[ScenarioSignal] = []
-        signals += self._loitering.evaluate(person_alive, zone_of_track, thresholds, runtime_cfg.operating_hours, now_dt)
+        signals += self._loitering.evaluate(person_alive, zone_of_track, thresholds, runtime_cfg.operating_hours, now_dt, now_ts=now)
         signals += self._gathering.evaluate(person_visible, zone_vis, thresholds, runtime_cfg.operating_hours, now_dt, w, h)
         signals += self._movement.evaluate(person_alive, zone_of_track, thresholds, now_dt)
-        signals += self._after_hours.evaluate(person_alive, zone_of_track, thresholds, runtime_cfg.operating_hours, now_dt)
+        signals += self._after_hours.evaluate(person_alive, zone_of_track, thresholds, runtime_cfg.operating_hours, now_dt, now_ts=now)
 
         # ---- behaviour patterns: snatch/flee, vehicle escape, violent action, scanning, gate, groups ----
         vehicles_vis = {tid: t for tid, t in alive.items() if t.detection.label == "vehicle" and t.visible}
@@ -609,5 +683,6 @@ class CameraWorker(threading.Thread):
                 alert_service.handle_signal(
                     self._repos, sg, self.camera, processed, self._clip_buffer,
                     thresholds, runtime_cfg.notifications.webhook_url,
+                    event_context=self._branch_metadata,
                 )
             ))

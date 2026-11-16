@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/index.js';
 import Modal from './Modal.jsx';
+import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
+import { branchIdQuery } from '../branchContext.js';
 
 /** Shared by Live Monitoring and Regions & Zones: register an RTSP / webcam / uploaded / server video. */
 export default function AddCameraModal({ onClose, onCreated, start = true }) {
+  const activeScope = useOptionalActiveBranch()?.scope;
   const [name, setName] = useState('');
   const [type, setType] = useState('rtsp');
   const [location, setLocation] = useState('');
@@ -46,7 +49,11 @@ export default function AddCameraModal({ onClose, onCreated, start = true }) {
         src = picked;
         if (!src) { alert('Please pick a video from the list (if the list is empty, add a file to storage/sample_videos and reopen this dialog).'); return; }
       }
-      const created = await api.post(start === false ? '/cameras?start=false' : '/cameras', {
+      const query = new URLSearchParams();
+      if (start === false) query.set('start', 'false');
+      const branch = branchIdQuery(activeScope);
+      if (branch.branch_id) query.set('branch_id', branch.branch_id);
+      const created = await api.post(`/cameras${query.size ? `?${query}` : ''}`, {
         name: name.trim(), cam_type: type, source: src, username, password, location: location.trim(), enabled: true, loop_video: true,
       });
       onClose();

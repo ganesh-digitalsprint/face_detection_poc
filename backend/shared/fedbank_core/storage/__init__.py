@@ -54,7 +54,14 @@ def legacy_resolve(value: str, owner: str) -> Path | None:
             name = normalized.split(marker, 1)[-1] if marker in normalized else normalized[len(category) + 1:]
             target_category = "screenshots" if category == "snapshots" else category
             try:
-                destination = safe_path(f"{target_category}/{owner}/{name}" if target_category in {"clips", "screenshots"} else f"{target_category}/{name}")
+                if target_category in {"clips", "screenshots"}:
+                    # Accept leaf-only and owner-qualified media paths without
+                    # adding the owner folder twice.
+                    owner_prefix = f"{owner}/"
+                    scoped_name = name if name.startswith(owner_prefix) else f"{owner}/{name}"
+                    destination = safe_path(f"{target_category}/{scoped_name}")
+                else:
+                    destination = safe_path(f"{target_category}/{name}")
             except ValueError:
                 return None
             return destination if destination.is_file() else None

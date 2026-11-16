@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import client from '../../api/client.js';
-import { getLiveActiveAlerts, uploadGrillGateVideo } from './api/grillGate.js';
+import { getLiveActiveAlerts, startGrillGateVideoJob, uploadGrillGateVideo } from './api/grillGate.js';
 import { gateUploadBranchId } from './videoJobModel.js';
 
 test('Gate uploads reuse only the canonical globally selected branch scope', () => {
@@ -44,6 +44,23 @@ test('uploaded Gate video sends optional branch metadata without a camera assign
     assert.equal(request.data.get('branch_id'), 'branch-1');
     assert.equal(request.data.get('camera_label'), 'Upload desk camera');
     assert.equal(request.data.get('template_assignment_id'), null);
+  } finally {
+    client.defaults.adapter = originalAdapter;
+  }
+});
+
+test('starting Gate video processing sends only the selected canonical branch ID', async () => {
+  const originalAdapter = client.defaults.adapter;
+  let request;
+  client.defaults.adapter = async (config) => {
+    request = config;
+    return { data: { job_id: 'job-1', status: 'QUEUED' }, status: 202,
+      statusText: 'Accepted', headers: {}, config };
+  };
+  try {
+    await startGrillGateVideoJob('job-1', gateUploadBranchId({ type: 'branch', id: 'old-goa' }));
+    assert.equal(request.url, '/api/v1/grill-gate/videos/job-1/start');
+    assert.deepEqual(JSON.parse(request.data), { branch_id: 'old-goa' });
   } finally {
     client.defaults.adapter = originalAdapter;
   }

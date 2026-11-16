@@ -19,11 +19,13 @@ class ReviewRequest(BaseModel):
     to_status: EventStatus
     remarks: str = ""
     reviewer: str = Field(default="", max_length=120)
+    expected_version: int | None = Field(default=None, ge=1)
 
 
 class CloseRequest(BaseModel):
     remarks: str = Field(min_length=1)
     reviewer: str = Field(default="", max_length=120)
+    expected_version: int | None = Field(default=None, ge=1)
 
 
 class ReviewAction(BaseModel):

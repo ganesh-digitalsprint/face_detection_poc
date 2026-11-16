@@ -153,6 +153,62 @@ def test_replay_sink_exposes_phone_metadata_and_actual_evidence(tmp_path):
     assert alert["detections"] == [detection]
     assert "82% confidence" in alert["message"]
     assert (tmp_path / f"{alert['id']}.jpg").is_file()
+    sink.submit(AlertSnapshot("IDLE", None, None), event_at=at + timedelta(seconds=1),
+        camera_id="replay", source_metadata={"original_asset_id": "asset-1"},
+        managed_alert_types=("MOBILE_PHONE_DETECTED",))
+    assert alert["status"] == "OPEN"
+    assert sink.active["MOBILE_PHONE_DETECTED"] is alert
+
+
+def test_replay_sink_forwards_only_mobile_incident_with_uploaded_identity(tmp_path):
+    class Capture:
+        def __init__(self): self.calls = []
+        def submit(self, snapshot, **kwargs): self.calls.append((snapshot, kwargs)); return True
+    persistent = Capture()
+    sink = ReplayAlertSink(tmp_path, "replay-session", persistent_worker=persistent)
+    at = datetime(2026, 11, 15, tzinfo=timezone.utc)
+    frame = np.zeros((40, 60, 3), np.uint8)
+    metadata = {"source_type": "uploaded_video", "original_asset_id": "asset-1",
+        "video_timestamp_seconds": 18.75, "branch_id": "branch-1", "camera_name": "Uploaded video"}
+    sink.submit(AlertSnapshot("IDLE", None, None, mobile_phone_detected=True), event_at=at,
+        event_frame=frame, detections=(), camera_id="upload:asset-1", source_metadata=metadata,
+        managed_alert_types=("MOBILE_PHONE_DETECTED",))
+    assert len(persistent.calls) == 1
+    snapshot, kwargs = persistent.calls[0]
+    assert snapshot.mobile_phone_detected is True
+    assert kwargs["source"] == "VAULT_UPLOADED_VIDEO"
+    assert kwargs["session_ref"] == "replay-session"
+    assert kwargs["source_metadata"]["source_event_key"] == "replay-session:18.750"
+    sink.submit(AlertSnapshot("IDLE", None, None), event_at=at + timedelta(seconds=2),
+        camera_id="upload:asset-1", source_metadata=metadata,
+        managed_alert_types=("MOBILE_PHONE_DETECTED",))
+    assert persistent.calls[-1][0].mobile_phone_detected is False
+    assert sink.alerts[0]["status"] == "OPEN"
+
+
+def test_same_uploaded_asset_in_separate_replay_sessions_creates_distinct_incidents():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    @contextmanager
+    def factory():
+        with Session(engine) as db:
+            yield db
+            db.commit()
+    worker = PersistentAlertWorker(session_factory=factory)
+    at = datetime(2026, 11, 15, tzinfo=timezone.utc)
+    snapshot = AlertSnapshot("IDLE", None, None, mobile_phone_detected=True)
+    for replay_id in ("replay-1", "replay-2"):
+        worker._persist(SnapshotJob(snapshot, replay_id, "upload:asset-1", at,
+            source_metadata={"original_asset_id": "asset-1",
+                "replay_session_id": replay_id,
+                "source_event_key": f"{replay_id}:18.750"},
+            managed_alert_types=("MOBILE_PHONE_DETECTED",)))
+    with Session(engine) as db:
+        rows = list(db.scalars(select(VaultRoomAlert).order_by(VaultRoomAlert.session_ref)))
+        assert [row.session_ref for row in rows] == ["replay-1", "replay-2"]
+        assert len({row.id for row in rows}) == 2
+        assert len({row.dedup_key for row in rows}) == 2
+    engine.dispose()
 
 
 def test_persistence_scopes_phone_episode_away_from_existing_count_alert():

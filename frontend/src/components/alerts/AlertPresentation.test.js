@@ -34,6 +34,12 @@ test('shared cards and detail render real metadata, source links, and unavailabl
     const sourceComment=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(SourceAlertDetail,{alert:commented})));
     assert.match(commonComment,/Checked the captured snapshot/); assert.match(sourceComment,/Checked the captured snapshot/);
     assert.match(sourceComment,/reviewer/);
+    const pendingVault = renderToStaticMarkup(createElement(MemoryRouter,null,createElement(SourceAlertDetail,{
+      alert:{...alert,id:'replay-local-id',sourceEventId:null,useCase:'vault_monitoring',
+        displayAlertId:'Pending persistence',displaySourceEventId:'Pending persistence'}
+    })));
+    assert.equal((pendingVault.match(/Pending persistence/g) || []).length,2);
+    assert.doesNotMatch(pendingVault,/source_event_id=|>replay-local-id</);
     const { default: CompactAlertCard } = await server.ssrLoadModule('/src/components/alerts/CompactAlertCard.jsx');
     for (const severity of ['WARNING', 'HIGH', 'CRITICAL', 'INFO']) {
       const markup = renderToStaticMarkup(createElement(CompactAlertCard, {

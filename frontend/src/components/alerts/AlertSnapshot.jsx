@@ -5,6 +5,25 @@ import { getGrillGateSnapshot } from '../../use-cases/grill-gate/api/grillGate.j
 import { fetchSourceThumbnail } from '../../api/sourceThumbnail.js';
 import { loadSnapshot } from './snapshotResource.js';
 
+function evidenceFallback(alert, current) {
+  if (current.loading) return 'Loading snapshot…';
+  if (current.error) return current.error;
+  if (alert.clipCount > 0) return 'Video evidence is available on the source page.';
+  if (alert.evidenceStatus === 'PENDING') return 'Snapshot capture pending.';
+  const reason = alert.evidenceUnavailableReason;
+  if (alert.evidenceStatus === 'FAILED') {
+    if (reason === 'snapshot_write_failed') return 'Snapshot capture failed; the incident was saved.';
+    if (['evidence_file_missing', 'evidence_retrieval_failed', 'invalid_evidence_path'].includes(reason)) return 'Evidence was recorded but is missing or could not be retrieved.';
+    return 'Evidence capture failed; the incident was saved.';
+  }
+  if (reason === 'not_suspicious') return 'No snapshot was captured because this incident did not meet the evidence severity policy.';
+  if (reason === 'cooldown') return 'No snapshot was captured because the evidence cooldown is active.';
+  if (reason === 'daily_cap_reached') return 'No snapshot was captured because the daily evidence limit was reached.';
+  if (reason === 'storage_cap_reached') return 'No snapshot was captured because the evidence storage limit was reached.';
+  if (alert.evidenceStatus === 'CAPTURED') return 'Captured snapshot reference is missing.';
+  return 'No captured snapshot is attached to this incident.';
+}
+
 export default function AlertSnapshot({ alert, large = false, evidenceIndex = 0, compact = false, thumbnailUrl }) {
   const ref = (alert.evidenceManaged ? snapshotRefs(alert) : grillSnapshotRefs(alert))[evidenceIndex];
   const [retry, setRetry] = useState(0);
@@ -32,9 +51,9 @@ export default function AlertSnapshot({ alert, large = false, evidenceIndex = 0,
     : externalUrl && externalUrl===failedUrl ? {url:'',loading:false,error:'Snapshot could not be displayed.'}
     : image.key === key ? image : { loading: alert.useCase === 'grill_gate' && Boolean(ref), url: '', error: '' };
   const imageFailed=()=>{if(externalUrl){setFailedUrl(externalUrl);alert.onEvidenceError?.(externalUrl);}else setImage((old)=>({...old,url:'',error:'Snapshot could not be displayed.'}));};
-  const fallback = current.loading ? 'Loading snapshot\u2026' : current.error || (alert.clipCount>0 ? 'Video evidence is available on the source page.' : alert.evidenceStatus === 'PENDING' ? 'Snapshot capture pending' : alert.evidenceStatus === 'CAPTURED' ? 'Captured snapshot reference is missing.' : 'No captured snapshot is attached to this incident.');
+  const fallback = evidenceFallback(alert, current);
   // The right-side card owns the single details button; no nested image button.
-  if (compact) return <span className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl bg-[#202530] text-[#B7BED0]">
+  if (compact) return <span className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl bg-[#202530] text-[#B7BED0]">
     {current.url ? <img src={current.url} alt="Captured alert snapshot" className="h-full w-full object-cover" onError={imageFailed} />
       : <><Camera className="h-7 w-7" strokeWidth={1.7} aria-hidden="true" /><span className="sr-only">{fallback}</span></>}
   </span>;

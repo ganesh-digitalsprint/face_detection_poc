@@ -5,11 +5,15 @@ export function playbackStatus(status, running = false) {
   return running ? 'PROCESSING' : 'STOPPED';
 }
 
-export function playbackPlaceholder(hasSource, status) {
+export function playbackPlaceholder(hasSource, status, positionSeconds = 0) {
   if (!hasSource) return 'Pick a video above and press Process video';
   if (status === 'FINISHED') return 'Finished — press Process video to run it again';
   if (status === 'ERROR') return 'The source stopped with an error';
-  return 'Stopped — press Process video to run it again';
+  if (positionSeconds > 0) {
+    const clock = `${String(Math.floor(positionSeconds / 60)).padStart(2, '0')}:${String(Math.floor(positionSeconds % 60)).padStart(2, '0')}`;
+    return `Stopped at ${clock} — press Start to continue or Process video to run from the beginning`;
+  }
+  return 'Stopped — pick a video above and press Process video';
 }
 
 const clock = (seconds) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;

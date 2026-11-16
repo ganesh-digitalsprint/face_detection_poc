@@ -1,7 +1,7 @@
 """Authenticated, test-only uploaded video sessions."""
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -37,10 +37,10 @@ def _call(method, *args, **kwargs):
 
 
 @router.post("", status_code=201)
-def upload_video(file: UploadFile = File(...)):
+def upload_video(file: UploadFile = File(...), branch_id: str | None = Form(default=None)):
     manager = get_vault_room_replay_manager()
     try:
-        session = _call(manager.upload, file)
+        session = _call(manager.upload, file, branch_id=branch_id)
         return manager.status(session.session_id)
     finally:
         file.file.close()

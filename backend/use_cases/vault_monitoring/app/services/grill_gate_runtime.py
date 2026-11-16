@@ -21,6 +21,7 @@ from grill_gate_monitoring.schemas.alerts import GrillGateAlertConfig
 from grill_gate_monitoring.services.gate_geometry import pick_gate_leaf_zone
 from grill_gate_monitoring.services.gate_state_detector import GateDetectorConfig
 from grill_gate_monitoring.services.gate_state_detector_manager import GrillGateStateDetectorManager
+from app.services.grill_gate_source_context import live_alert_source_context
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ def _frame_processor_factory(camera_id: str, assignment_id: str):
         alert_sink=get_grill_gate_alert_sink().submit,
         active_alert_loader=lambda: get_grill_gate_alert_writer().active_conditions(assignment_id, camera_id),
         camera_id=camera_id, assignment_id=assignment_id,
+        alert_source_context=live_alert_source_context(SessionLocal, camera_id, assignment_id),
         settings=DEFAULT_PROCESSING_SETTINGS,
     )
 

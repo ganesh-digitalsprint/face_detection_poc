@@ -26,8 +26,8 @@ for(const useCase of ['grill_gate','vault_monitoring']) test(`${useCase}: Common
   await assert.rejects(authority.transition({...loaded,sourceAllowedActions:[]},'DISMISSED',body),/not allowed/);
 });
 
-test('Common remains the single incident writer for Branch and Face Mask',async()=>{
-  for(const useCase of ['branch_exterior','face_mask']) {
+test('Common remains the single incident writer for Branch Exterior',async()=>{
+  for(const useCase of ['branch_exterior']) {
     let received;
     const api=createAlertAuthority({common:async(...args)=>{received=args;return{status:'DISMISSED'};}});
     const alert={id:'common-id',useCase,rowVersion:5,status:'OPEN',allowedActions:['DISMISSED']};
@@ -35,6 +35,22 @@ test('Common remains the single incident writer for Branch and Face Mask',async(
     await api.transition(alert,'DISMISSED',{expected_version:5,note:'Reviewed'});
     assert.deepEqual(received,['common-id','DISMISSED',{expected_version:5,note:'Reviewed'}]);
   }
+});
+
+test('Face Mask lifecycle actions use source review transitions and versions',async()=>{
+  const calls=[];
+  let row={id:'face-event',status:'OPEN',review_version:1,score:.91,covering_type:'scarf',track_id:7};
+  const api=createAlertAuthority({
+    faceGet:async()=>row,
+    faceReview:async(id,to,note,version)=>{calls.push(['review',id,to,note,version]);row={...row,status:to,review_version:version+1};return row;},
+    faceClose:async(id,note,version)=>{calls.push(['close',id,note,version]);row={...row,status:'CLOSED',review_version:version+1};return row;},
+  });
+  let alert=await api.load({id:'common',sourceEventId:'face-event',useCase:'face_mask',domainData:{}});
+  assert.deepEqual(availableActions(alert,true).map((item)=>item.target),['ACKNOWLEDGED','RESOLVED','DISMISSED']);
+  alert=await api.transition(alert,'RESOLVED',{note:'Confirmed and handled'});
+  assert.deepEqual(calls,[['review','face-event','UNDER_REVIEW','Confirmed and handled',1],
+    ['review','face-event','CONFIRMED','Confirmed and handled',2],['close','face-event','Confirmed and handled',3]]);
+  assert.equal(alert.status,'RESOLVED');
 });
 
 test('source media URLs remain on the expected service storage path',()=>{

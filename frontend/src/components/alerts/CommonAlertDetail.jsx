@@ -13,22 +13,33 @@ export default function CommonAlertDetail({ alert, audit, actionsEnabled, pendin
   const [note, setNote] = useState('');
   const [confirmTarget, setConfirmTarget] = useState(null);
   const [snapshotIndex, setSnapshotIndex] = useState(0);
+  const [evidenceMode, setEvidenceMode] = useState('snapshot');
   const viewer = useRef(null);
-  useEffect(() => { setNote(''); setConfirmTarget(null); setSnapshotIndex(0); }, [alert.id]);
+  useEffect(() => { setNote(''); setConfirmTarget(null); setSnapshotIndex(0); setEvidenceMode('snapshot'); }, [alert.id]);
   const actions = availableActions(alert, actionsEnabled);
   const refs = alert.resourceRefs || {};
   const domain = alert.domainData || {};
   const snapshots = snapshotRefs(alert);
+  const snapshotDownload = alert.evidenceSnapshots?.[snapshotIndex]?.url;
+  const clips = (alert.evidenceRefs || []).filter((ref) => ref.type === 'clip' && ref.url);
   const identifier = domain.alert_number || domain.incident_number || alert.id;
   const comments = (audit.rows || []).filter((row) => typeof row.details?.note === 'string' && row.details.note.trim());
   const extraComment = alert.acknowledgementComment && !comments.some((row) => row.details.note === alert.acknowledgementComment);
   const videoTime = domain.video_time_seconds ?? domain.video_timestamp_seconds;
   const duration = domain.gate_open_duration_seconds ?? domain.observed_duration_seconds;
   const threshold = domain.configured_threshold_seconds ?? domain.threshold_seconds;
+  const confidence = ['face_mask', 'branch_exterior'].includes(alert.useCase) && Number.isFinite(domain.confidence)
+    ? `${(domain.confidence * 100).toFixed(1)}%` : null;
+  const trackId = alert.useCase === 'face_mask' ? domain.track_id
+    : alert.useCase === 'branch_exterior' && Array.isArray(domain.track_ids) ? domain.track_ids.join(', ') : null;
   const fields = [
     ...alertDetailLocationFields(alert),
+    ...(alert.zoneName || refs.zone_name ? [['Zone', alert.zoneName || refs.zone_name]] : []),
     ['Use case', useCaseLabel(alert.useCase)],
     ['Detected time', formatTime(alert.occurredAt)],
+    ['Confidence', confidence],
+    ['Covering type', alert.useCase === 'face_mask' ? domain.covering_type : null],
+    ['Track ID', trackId],
     ['Video time', Number.isFinite(videoTime) ? `${videoTime.toFixed(1)} s` : null],
     ['Trigger', Number.isFinite(duration) ? `Open ${duration} s${Number.isFinite(threshold) ? ` / threshold ${threshold} s` : ''}` : alert.summary],
     ['Alert ID', identifier],
@@ -48,16 +59,20 @@ export default function CommonAlertDetail({ alert, audit, actionsEnabled, pendin
       <div className="common-detail-left">
         <section className="detail-card detail-evidence" aria-label="Alert evidence">
           <div className="detail-card-heading"><h2>Evidence</h2><div className="detail-evidence-tabs" role="tablist" aria-label="Evidence format">
-            <button type="button" role="tab" aria-selected="false" disabled title="Video playback is planned for a later stage">Video clip</button>
-            <button type="button" role="tab" aria-selected="true">Snapshots</button>
+            {clips.length > 0 && <button type="button" role="tab" aria-selected={evidenceMode === 'clip'} onClick={() => setEvidenceMode('clip')}>Video clip</button>}
+            <button type="button" role="tab" aria-selected={evidenceMode === 'snapshot'} onClick={() => setEvidenceMode('snapshot')}>Snapshots</button>
           </div></div>
-          <div ref={viewer} className="detail-viewer"><AlertEvidenceDetails alert={alert} evidenceIndex={snapshotIndex} onEvidenceIndexChange={setSnapshotIndex} /></div>
+          <div ref={viewer} className="detail-viewer"><AlertEvidenceDetails alert={alert} mode={evidenceMode === 'clip' ? 'clip' : 'snapshot'} evidenceIndex={snapshotIndex} onEvidenceIndexChange={setSnapshotIndex} /></div>
           {snapshots.length > 0 && <><p className="detail-small">Snapshots</p><div className="detail-thumbnail-strip">{snapshots.map((ref, index) => <button type="button" key={ref.id || index} onClick={() => setSnapshotIndex(index)} aria-label={`View snapshot ${index + 1}`} aria-pressed={snapshotIndex === index}>
             <AlertSnapshot alert={alert} compact evidenceIndex={index} /><span>Snapshot {index + 1}</span>
           </button>)}</div></>}
           <div className="detail-evidence-tools">
-            <button type="button" disabled title="Clip downloads are planned for a later stage"><Download size={14} />Download clip</button>
-            <button type="button" disabled title="Snapshot downloads are planned for a later stage"><Download size={14} />Download snapshots</button>
+            {clips.length > 0
+              ? <a href={clips[0].url} download><Download size={14} />Download clip</a>
+              : <button type="button" disabled><Download size={14} />Download clip</button>}
+            {snapshotDownload
+              ? <a href={snapshotDownload} download={`alert-${alert.sourceEventId || alert.id}-snapshot.jpg`}><Download size={14} />Download snapshot</a>
+              : <button type="button" disabled><Download size={14} />Download snapshot</button>}
             <button type="button" disabled={!snapshots.length || typeof document === 'undefined' || !document.fullscreenEnabled} onClick={() => viewer.current?.requestFullscreen?.().catch(() => {})}><Maximize size={14} />Fullscreen</button>
           </div>
         </section>

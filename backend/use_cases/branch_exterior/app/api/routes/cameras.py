@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import Response
 
 from app.core.config import get_settings
@@ -80,13 +80,18 @@ async def set_debug_overlay(camera_id: str, on: bool = True) -> dict:
 
 
 @router.post("/{camera_id}/activate", response_model=CameraStatus)
-async def activate_camera(camera_id: str, repos: Repositories = Depends(get_repos)) -> CameraStatus:
+async def activate_camera(camera_id: str, branch_id: str | None = Body(default=None, embed=True),
+                          restart: bool = Query(default=False),
+                          repos: Repositories = Depends(get_repos)) -> CameraStatus:
     """Make this the camera being analysed. In single-active-camera mode every
     other camera is stopped first, so only this video is processed."""
     camera = await repos.cameras.get(camera_id)
     if not camera:
         raise HTTPException(404, "Camera not found")
-    camera_manager.start(camera)
+    if restart:
+        camera_manager.stop(camera_id)
+        await asyncio.to_thread(camera_manager.wait_stopped, camera_id)
+    camera_manager.start(camera, branch_id=branch_id, fresh=restart)
     return camera_manager.status(camera_id)
 
 
@@ -97,7 +102,8 @@ async def list_cameras(repos: Repositories = Depends(get_repos)) -> list[Camera]
 
 
 @router.post("", response_model=Camera)
-async def create_camera(payload: CameraCreate, start: bool = True, repos: Repositories = Depends(get_repos)) -> Camera:
+async def create_camera(payload: CameraCreate, start: bool = True, branch_id: str | None = Query(default=None),
+                        repos: Repositories = Depends(get_repos)) -> Camera:
     # The scripted "simulated demo scene" has been removed: only real video
     # (files in storage/sample_videos, uploads, RTSP, webcam) is ever analysed.
     if payload.cam_type == "simulated":
@@ -105,7 +111,7 @@ async def create_camera(payload: CameraCreate, start: bool = True, repos: Reposi
     payload.simulation_mode = False
     camera = await repos.cameras.create(payload)
     if camera.enabled and start:  # the Regions page adds cameras with start=false (it only needs a picture)
-        camera_manager.start(camera)
+        camera_manager.start(camera, branch_id=branch_id)
     return camera.redacted()
 
 
@@ -129,6 +135,7 @@ async def update_camera(camera_id: str, payload: CameraUpdate, repos: Repositori
 @router.delete("/{camera_id}")
 async def delete_camera(camera_id: str, repos: Repositories = Depends(get_repos)) -> dict:
     camera_manager.stop(camera_id)
+    await asyncio.to_thread(camera_manager.wait_stopped, camera_id)
     await purge_camera_events(repos, camera_id)  # its events + snapshot/clip files go with it
     ok = await repos.cameras.delete(camera_id)
     if not ok:
@@ -137,17 +144,22 @@ async def delete_camera(camera_id: str, repos: Repositories = Depends(get_repos)
 
 
 @router.post("/{camera_id}/start", response_model=CameraStatus)
-async def start_camera(camera_id: str, repos: Repositories = Depends(get_repos)) -> CameraStatus:
+async def start_camera(camera_id: str, restart: bool = Query(default=False),
+                       repos: Repositories = Depends(get_repos)) -> CameraStatus:
     camera = await repos.cameras.get(camera_id)
     if not camera:
         raise HTTPException(404, "Camera not found")
-    camera_manager.start(camera)
+    if restart:
+        camera_manager.stop(camera_id)
+        await asyncio.to_thread(camera_manager.wait_stopped, camera_id)
+    camera_manager.start(camera, fresh=restart)
     return camera_manager.status(camera_id)
 
 
 @router.post("/{camera_id}/stop", response_model=CameraStatus)
 async def stop_camera(camera_id: str) -> CameraStatus:
     camera_manager.stop(camera_id)
+    await asyncio.to_thread(camera_manager.wait_stopped, camera_id)
     return camera_manager.status(camera_id)
 
 
@@ -157,5 +169,5 @@ async def camera_status(camera_id: str) -> CameraStatus:
 
 
 @router.get("/status/all", response_model=dict[str, CameraStatus])
-async def all_statuses() -> dict[str, CameraStatus]:
-    return camera_manager.all_statuses()
+async def all_statuses(repos: Repositories = Depends(get_repos)) -> dict[str, CameraStatus]:
+    return {camera.id: camera_manager.status(camera.id) for camera in await repos.cameras.list()}
