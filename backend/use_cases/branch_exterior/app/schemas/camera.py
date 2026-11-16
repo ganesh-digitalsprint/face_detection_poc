@@ -72,6 +72,15 @@ class Camera(BaseModel):
 class CameraStatus(BaseModel):
     camera_id: str
     running: bool
+    status: str = "STOPPED"
+    frames_total: int = 0
+    frames_read: int = 0
+    source_fps: float = 0.0
+    position_seconds: float = 0.0
+    total_seconds: float = 0.0
+    can_resume: bool = False
+    resume_mode: str = ""
+    percent: float = 0.0
     fps: float = 0.0
     frame_count: int = 0
     active_tracks: int = 0

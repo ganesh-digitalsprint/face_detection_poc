@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pencil } from 'lucide-react';
 
-export default function InlineName({ type, entry, selected, onSelect, onRename, children }) {
+export default function InlineName({ type, entry, selected, onSelect, onRename, onEdit, children }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(entry.name);
   const [error, setError] = useState('');
@@ -30,8 +30,8 @@ export default function InlineName({ type, entry, selected, onSelect, onRename, 
     else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(); }
   }} className={`group w-full rounded-lg border px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${selected ? 'border-brand bg-indigo-50 text-navy' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
     <span className="flex items-center justify-between gap-2">
-      {editing ? <input ref={input} value={name} disabled={busy} maxLength={120} aria-label={`Rename ${type}`} onChange={(event) => setName(event.target.value)} onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()} onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); save(); } else if (event.key === 'Escape') { event.preventDefault(); cancel(); } }} onBlur={save} className="min-w-0 flex-1 rounded border border-brand bg-white px-2 py-1 text-sm" /> : <b className="min-w-0 truncate">{entry.name}</b>}
-      {!editing && <button type="button" aria-label={`Rename ${type} ${entry.name}`} title="Rename (F2)" onClick={(event) => { event.stopPropagation(); begin(); }} className="rounded p-1 text-slate-500 opacity-100 hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"><Pencil className="h-3.5 w-3.5" /></button>}
+      {editing ? <input ref={input} value={name} disabled={busy} maxLength={120} aria-label={`Rename ${type}`} onChange={(event) => setName(event.target.value)} onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()} onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); save(); } else if (event.key === 'Escape') { event.preventDefault(); cancel(); } }} onBlur={save} className="min-w-0 flex-1 rounded border border-brand bg-white px-2 py-1 text-sm" /> : <b className="flex min-w-0 items-center gap-2 truncate">{type === 'branch' && <span aria-label={entry.status === 'active' ? 'Active' : 'Inactive'} className={`h-2 w-2 shrink-0 rounded-full ${entry.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />}{entry.name}</b>}
+      {!editing && <button type="button" aria-label={`${onEdit ? 'Edit' : 'Rename'} ${type} ${entry.name}`} title={onEdit ? 'Edit branch details' : 'Rename (F2)'} onClick={(event) => { event.stopPropagation(); clearTimeout(clickTimer.current); if (onEdit) onEdit(); else begin(); }} className="rounded p-1 text-slate-500 opacity-100 hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"><Pencil className="h-3.5 w-3.5" /></button>}
     </span>
     {children}
     {error && <span role="alert" className="mt-1 block text-xs text-red-700">{error}</span>}

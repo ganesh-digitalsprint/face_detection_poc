@@ -39,13 +39,14 @@ class AfterHoursEngine:
         thresholds: ThresholdConfig,
         operating_hours: dict[str, list[str]],
         now: datetime,
+        now_ts: float | None = None,
     ) -> list[ScenarioSignal]:
         signals: list[ScenarioSignal] = []
         if is_open_now(now, operating_hours, grace_minutes=thresholds.after_hours_grace_minutes):
             self._entry_time.clear()
             return signals
 
-        now_ts = time.time()
+        now_ts = time.time() if now_ts is None else now_ts
         active_keys = set()
         for tid, zone in zone_of_track.items():
             if zone is None or not zone.restricted:

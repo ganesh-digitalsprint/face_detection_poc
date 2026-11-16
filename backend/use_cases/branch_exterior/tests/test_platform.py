@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import json
 
 import pytest
 from cryptography.fernet import Fernet
@@ -20,6 +21,78 @@ def client(monkeypatch, tmp_path):
 
 def write(client, path, payload):
     return client.post(f"/api/platform{path}", json=payload, headers={"X-Platform-Admin-Key": "test-admin-key"})
+
+
+def test_branch_full_edit_move_concurrency_and_audit(client):
+    zone = write(client, "/zones", {"name": "South"}).json()
+    other_zone = write(client, "/zones", {"name": "North"}).json()
+    city = write(client, "/cities", {"zone_id": zone["id"], "name": "Old City"}).json()
+    other_city = write(client, "/cities", {"zone_id": other_zone["id"], "name": "New City"}).json()
+    branch = write(client, "/branches", {"city_id": city["id"], "name": "Main", "code": "MAIN-01"}).json()
+    competing = write(client, "/branches", {"city_id": other_city["id"], "name": "Taken", "code": "TAKEN-01"}).json()
+    with sqlite3.connect(os.environ["FEDBANK_PLATFORM_DB_PATH"]) as conn:
+        conn.execute("INSERT INTO video_uploads(id,branch_id,original_name,stored_path,size) VALUES(?,?,?,?,?)",
+                     ("test-upload", branch["id"], "sample.mp4", "uploads/MAIN-01/2026-11/test-upload_sample.mp4", 100))
+    url = f"/api/platform/branches/{branch['id']}"
+    headers = {"X-Platform-Admin-Key": "test-admin-key"}
+    assert client.patch(url, json={"updated_at": branch["updated_at"], "name": "Wrong"}).status_code == 403
+    assert client.get("/api/platform/branches/code-available", params={"code": "TAKEN-01"}).json() == {"available": False}
+    invalid = [
+        {"name": " "}, {"code": "!bad"}, {"status": "retired"}, {"pincode": "123"},
+        {"phone": "abc"}, {"email": "bad"}, {"timezone": "Not/AZone"},
+        {"city_id": other_city["id"], "zone_id": zone["id"]},
+    ]
+    for change in invalid:
+        assert client.patch(url, json={"updated_at": branch["updated_at"], **change}, headers=headers).status_code == 422
+    for change in [{"code": competing["code"]}, {"city_id": other_city["id"], "name": "Taken"}]:
+        assert client.patch(url, json={"updated_at": branch["updated_at"], **change}, headers=headers).status_code == 409
+    changed = client.patch(url, json={"updated_at": branch["updated_at"], "city_id": other_city["id"],
+        "zone_id": other_zone["id"], "code": "MAIN-02", "name": "Main New", "status": "inactive",
+        "address": "12 Road", "pincode": "560001", "timezone": "UTC", "manager": "Manager",
+        "phone": "+919876543210", "email": "manager@example.com"}, headers=headers)
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["id"] == branch["id"] and changed.json()["code"] == "MAIN-02"
+    assert client.patch(url, json={"updated_at": branch["updated_at"], "name": "Stale"}, headers=headers).status_code == 409
+    counts = {item["name"]: item["branch_count"] for item in client.get("/api/platform/zones").json()}
+    assert counts == {"South": 0, "North": 2}
+    assert client.get("/api/platform/branches", params={"city_id": city["id"]}).json()["total"] == 0
+    assert client.get("/api/platform/branches", params={"city_id": other_city["id"]}).json()["total"] == 2
+    with sqlite3.connect(os.environ["FEDBANK_PLATFORM_DB_PATH"]) as conn:
+        audit = json.loads(conn.execute("SELECT changes_json FROM branch_change_log WHERE branch_id=?", (branch["id"],)).fetchone()[0])
+        assert audit["code"] == {"old": "MAIN-01", "new": "MAIN-02"}
+        assert audit["city_id"]["new"] == other_city["id"]
+        assert audit["zone_id"] == {"old": zone["id"], "new": other_zone["id"]}
+        assert conn.execute("SELECT stored_path FROM video_uploads WHERE id='test-upload'").fetchone()[0] == "uploads/MAIN-01/2026-11/test-upload_sample.mp4"
+
+
+def test_zone_and_city_quick_rename_remain_available(client):
+    headers = {"X-Platform-Admin-Key": "test-admin-key"}
+    zone = write(client, "/zones", {"name": "South"}).json()
+    other = write(client, "/zones", {"name": "North"}).json()
+    city = write(client, "/cities", {"zone_id": zone["id"], "name": "Bengaluru"}).json()
+    duplicate = write(client, "/cities", {"zone_id": zone["id"], "name": "Mysuru"}).json()
+    assert client.patch(f"/api/platform/zones/{zone['id']}", json={"name": "New"}).status_code == 403
+    assert client.patch(f"/api/platform/zones/{zone['id']}", json={"name": other["name"]}, headers=headers).status_code == 409
+    assert client.patch(f"/api/platform/zones/{zone['id']}", json={"name": "South West"}, headers=headers).json()["name"] == "South West"
+    assert client.patch(f"/api/platform/cities/{city['id']}", json={"name": duplicate["name"]}, headers=headers).status_code == 409
+    assert client.patch(f"/api/platform/cities/{city['id']}", json={"name": "Bangalore"}, headers=headers).json()["name"] == "Bangalore"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("name", "New Main"), ("code", "NEW-01"), ("status", "inactive"),
+    ("address", "42 Main Road"), ("pincode", "560001"), ("timezone", "UTC"),
+    ("manager", "New Manager"), ("phone", "+919876543210"), ("email", "new@example.com"),
+])
+def test_branch_partial_update_field(client, field, value):
+    zone = write(client, "/zones", {"name": "South"}).json()
+    city = write(client, "/cities", {"zone_id": zone["id"], "name": "Bengaluru"}).json()
+    branch = write(client, "/branches", {"city_id": city["id"], "name": "Main", "code": "MAIN-01"}).json()
+    result = client.patch(f"/api/platform/branches/{branch['id']}",
+                          json={"updated_at": branch["updated_at"], field: value},
+                          headers={"X-Platform-Admin-Key": "test-admin-key"})
+    assert result.status_code == 200, result.text
+    assert result.json()[field] == value
+    assert result.json()["id"] == branch["id"]
 
 
 def test_local_demo_creates_hierarchy_but_not_cameras_or_uploads(client, monkeypatch):

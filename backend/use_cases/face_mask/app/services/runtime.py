@@ -11,17 +11,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable
 
 import cv2
 import numpy as np
 
 from app.core.config import FaceMaskConfig, Settings
+from app.core.paths import STORAGE_DIR
 from app.db import init_db
 from app.db.repositories.sql_repo import EntryLogRepository, EventRepository
 from app.db.writer import DbWriter
@@ -121,18 +125,24 @@ class RuntimeSink:
 
 
 class CameraSession(threading.Thread):
-    def __init__(self, runtime: "Runtime", camera: Camera) -> None:
+    def __init__(self, runtime: "Runtime", camera: Camera, resume_state: dict | None = None,
+                 checkpoint: dict | None = None) -> None:
         super().__init__(name=f"fm-camera-{camera.id[:8]}", daemon=True)
         self._rt = runtime
         self.camera = camera
         self._stop_flag = threading.Event()
         self.events_found = 0
         self._cap: cv2.VideoCapture | None = None
+        self.resume_state: dict | None = None
+        self._incoming_state = resume_state
+        self._checkpoint = checkpoint
         self._status = CameraStatus(camera_id=camera.id, status="RECONNECTING", running=True)
         self._publish()
 
     def request_stop(self) -> None:
         self._stop_flag.set()
+        if self._status.running:
+            self._publish(status="STOPPING")
 
     # -- status ----------------------------------------------------------------------------------------
     def _publish(self, **changes) -> None:
@@ -160,7 +170,7 @@ class CameraSession(threading.Thread):
         cam = self.camera
         is_file = cam.cam_type in FILE_TYPES
         try:
-            pipeline = self._rt.make_pipeline(cam.id)
+            pipeline = self._incoming_state["pipeline"] if self._incoming_state else self._rt.make_pipeline(cam.id)
         except ModelsUnavailable as exc:
             self._publish(status="ERROR", running=False, last_error=str(exc))
             return
@@ -169,16 +179,20 @@ class CameraSession(threading.Thread):
             self._publish(status="ERROR", running=False, last_error=f"{type(exc).__name__}: {exc}")
             return
 
-        events = EventService(cfg.confirmation, cfg.cooldown, self._rt.sink, cfg.analysis)
+        events = (self._incoming_state["events"] if self._incoming_state else
+                  EventService(cfg.confirmation, cfg.cooldown, self._rt.sink, cfg.analysis))
         interval = 1.0 / cfg.stream.processing_fps
         cap: cv2.VideoCapture | None = None
         backoff = cfg.stream.reconnect_initial_seconds
         last_good = time.monotonic()
         next_due = 0.0
         step = 1
-        frames_read = 0
+        resume_frame = int((self._incoming_state or self._checkpoint or {}).get("frame_index", 0))
+        frames_read = resume_frame
         fps_ema = 0.0
-        last_ts = 0.0
+        last_ts = float((self._incoming_state or {}).get("last_ts", 0.0))
+        if self._incoming_state:
+            self.events_found = int(self._incoming_state.get("events_found", 0))
 
         while not self._stop_flag.is_set():
             if cap is None:
@@ -200,7 +214,20 @@ class CameraSession(threading.Thread):
                     native_fps = cap.get(cv2.CAP_PROP_FPS)
                     native_fps = native_fps if 1.0 <= native_fps <= 120.0 else 25.0
                     step = max(1, round(native_fps / cfg.stream.processing_fps))
-                    self._publish(frames_total=int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0))
+                    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                    if resume_frame:
+                        # A process restart has no tracker state: a short video-time rewind lets tracks re-establish.
+                        if not self._incoming_state:
+                            resume_frame = max(0, resume_frame - round(native_fps * 1.5))
+                            self._publish(notice="Resumed near saved position; tracking restarted",
+                                          resume_mode="restarted_tracking")
+                        else:
+                            self._publish(resume_mode="continued")
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, resume_frame)
+                        frames_read = resume_frame
+                        resume_frame = 0
+                    self._publish(frames_total=total, native_fps=native_fps,
+                                  total_seconds=total / native_fps if native_fps else 0.0)
 
             started = time.monotonic()
             if is_file:
@@ -218,7 +245,7 @@ class CameraSession(threading.Thread):
 
             if not ok:
                 if is_file:
-                    if cam.loop_video:
+                    if self._rt.loop_video_files:
                         self._finish_tracks(events, pipeline, cam.id, last_ts)
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         pipeline = self._rt.make_pipeline(cam.id)
@@ -236,7 +263,7 @@ class CameraSession(threading.Thread):
 
             last_good = time.monotonic()
             next_due = last_good + interval
-            frames_read += 1 + (step - 1 if is_file else 0)
+            frames_read = int(cap.get(cv2.CAP_PROP_POS_FRAMES)) if is_file else frames_read + 1
             ts = (cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0) if is_file else time.time()
             last_ts = ts
             frame = self._resize(frame, cfg.stream.frame_width)
@@ -260,20 +287,37 @@ class CameraSession(threading.Thread):
             fps_ema = 0.8 * fps_ema + 0.2 * (1.0 / elapsed) if fps_ema else 1.0 / elapsed
             rois = self._rt.effective_rois_for(cam.id)
             self._publish(
-                status="PROCESSING" if is_file else "ONLINE", frames_read=frames_read, fps=round(fps_ema, 1),
+                status="PROCESSING" if is_file else "ONLINE", frames_read=frames_read,
+                position_seconds=frames_read / self._status.native_fps if is_file and self._status.native_fps else 0.0,
+                fps=round(fps_ema, 1),
                 last_error="", active_tracks=len(result.observations),
-                notice="" if self._rt.has_saved_rois(cam.id) else "No saved entry ROI: evaluating and plotting the whole frame",
+                notice=(self._status.notice if self._status.resume_mode == "restarted_tracking" else
+                        "" if self._rt.has_saved_rois(cam.id) else
+                        "No saved entry ROI: evaluating and plotting the whole frame"),
                 track_states={o.track_id: o.display for o in result.observations})
             if is_file and cfg.stream.file_realtime:
                 self._stop_flag.wait(max(0.0, interval - elapsed))
 
         if cap is not None:
             cap.release()
-        self._finish_tracks(events, pipeline, cam.id, last_ts)
+        paused = is_file and self._stop_flag.is_set() and frames_read > 0 and (
+            not self._status.frames_total or frames_read < self._status.frames_total)
+        if paused:
+            self.resume_state = {"pipeline": pipeline, "events": events, "frame_index": frames_read,
+                                 "last_ts": last_ts, "events_found": self.events_found,
+                                 "saved_at": time.time(), "source": cam.source}
+            self._rt.save_position(cam.id, cam.source, frames_read,
+                                   self._status.native_fps, self._status.frames_total)
+        else:
+            self._finish_tracks(events, pipeline, cam.id, last_ts)
+            if is_file and not self._stop_flag.is_set():
+                self._rt.clear_position(cam.id)
         self._rt.evidence.flush(cam.id)
         finished = is_file and not self._stop_flag.is_set()
         self._publish(status="DONE" if finished else "STOPPED", running=False,
-                      frames_read=self._status.frames_total if finished else frames_read)
+                      frames_read=self._status.frames_total if finished else frames_read,
+                      can_resume=paused,
+                      position_seconds=frames_read / self._status.native_fps if self._status.native_fps else 0.0)
 
     @staticmethod
     def _finish_tracks(events: EventService, pipeline: DetectionPipeline, camera_id: str, ts: float) -> None:
@@ -291,6 +335,8 @@ class CameraSession(threading.Thread):
 class Runtime:
     def __init__(self, cfg: FaceMaskConfig, settings: Settings, pipeline_factory: PipelineFactory | None = None) -> None:
         self.cfg = cfg
+        self.loop_video_files = settings.loop_video_files
+        self.resume_state_ttl_minutes = settings.resume_state_ttl_minutes
         self.bus = FrameBus()
         self.writer = DbWriter()
         self.evidence = EvidenceRecorder(cfg.evidence)
@@ -304,6 +350,35 @@ class Runtime:
         self._lock = threading.Lock()
         self._models = None
         self._pipeline_factory = pipeline_factory
+        self._positions_path = STORAGE_DIR / "playback_state" / "face_mask.json"
+        try:
+            self._positions: dict[str, dict] = json.loads(self._positions_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self._positions = {}
+
+    def _write_positions(self) -> None:
+        self._positions_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._positions_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(self._positions), encoding="utf-8")
+        os.replace(temporary, self._positions_path)
+
+    def save_position(self, camera_id: str, source: str, frame_index: int,
+                      native_fps: float, frames_total: int) -> None:
+        with self._lock:
+            self._positions[camera_id] = {"source": source, "frame_index": frame_index,
+                                          "native_fps": native_fps, "frames_total": frames_total}
+            self._write_positions()
+
+    def clear_position(self, camera_id: str) -> None:
+        with self._lock:
+            if self._positions.pop(camera_id, None) is not None:
+                self._write_positions()
+
+    def forget_camera(self, camera_id: str) -> None:
+        self.stop_camera(camera_id)
+        self.clear_position(camera_id)
+        with self._lock:
+            self._sessions.pop(camera_id, None)
 
     # -- lifecycle -------------------------------------------------------------------------------------
     async def start(self) -> None:
@@ -385,13 +460,23 @@ class Runtime:
         return bool(self._rois.get(camera_id, []))
 
     # -- sessions --------------------------------------------------------------------------------------
-    def start_camera(self, camera: Camera) -> CameraStatus:
+    def start_camera(self, camera: Camera, fresh: bool = False) -> CameraStatus:
         self.camera_names[camera.id] = camera.name
+        if fresh:
+            self.stop_camera(camera.id)
+            self.clear_position(camera.id)
         with self._lock:
             existing = self._sessions.get(camera.id)
             if existing is not None and existing.is_alive():
                 return self.bus.status(camera.id)
-            session = CameraSession(self, camera)
+            retained = existing.resume_state if existing and not fresh else None
+            if retained and (retained["source"] != camera.source or
+                             time.time() - retained["saved_at"] > self.resume_state_ttl_minutes * 60):
+                retained = None
+            checkpoint = self._positions.get(camera.id) if not fresh and not retained else None
+            if checkpoint and checkpoint.get("source") != camera.source:
+                checkpoint = None
+            session = CameraSession(self, camera, retained, checkpoint)
             self._sessions[camera.id] = session
         session.start()
         return self.bus.status(camera.id)
@@ -402,7 +487,7 @@ class Runtime:
         if session is not None:
             session.request_stop()
             session.join(timeout=10)
-            self.bus.clear(camera_id)
+            # Preserve the final annotated frame and STOPPED status for a refreshed page.
 
     def stop_all(self) -> None:
         with self._lock:
@@ -418,7 +503,17 @@ class Runtime:
             session.events_found += 1
 
     def status(self, camera_id: str) -> CameraStatus:
-        return self.bus.status(camera_id)
+        status = self.bus.status(camera_id)
+        if not status.running and status.status == "STOPPED":
+            checkpoint = self._positions.get(camera_id)
+            if checkpoint:
+                status.can_resume = True
+                status.frames_read = max(status.frames_read, int(checkpoint.get("frame_index", 0)))
+                status.native_fps = status.native_fps or float(checkpoint.get("native_fps", 0))
+                status.frames_total = status.frames_total or int(checkpoint.get("frames_total", 0))
+                status.position_seconds = status.frames_read / status.native_fps if status.native_fps else 0.0
+                status.total_seconds = status.frames_total / status.native_fps if status.native_fps else 0.0
+        return status
 
     def counts(self, camera_ids: list[str]) -> tuple[int, int]:
         """(cameras online, cameras total) for the 'Cameras online x / y' chip. File cameras that are being

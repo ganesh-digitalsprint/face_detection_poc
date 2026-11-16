@@ -14,6 +14,7 @@ const TITLES = [
   ['/video-uploads', 'Video Uploads'],
   ['/branches/new', 'Add New Branch'],
   ['/branches/hierarchy', 'Branch Hierarchy'],
+  ['/branches/', 'Edit branch'],
   ['/branch-exterior/live', 'Live Monitoring'],
   ['/regions', 'Regions & Zones'],
   ['/guards', 'Guard Roster'],
@@ -110,11 +111,11 @@ export default function AppLayout() {
       <FaceMaskPopups />
       <aside
         id={SIDEBAR_ID}
-        className={`app-aside hidden shrink-0 transition-[width] duration-200 motion-reduce:transition-none lg:block ${
+        className={`app-aside sticky top-0 hidden h-screen shrink-0 self-start transition-[width] duration-200 motion-reduce:transition-none lg:block ${
           collapsed ? 'w-[72px]' : 'w-64'
         }`}
       >
-        <div className="sticky top-0 flex h-screen flex-col bg-navy">
+        <div className="flex h-full flex-col bg-navy">
           <div className="min-h-0 flex-1"><Sidebar collapsed={collapsed} devEnabled={LIVENESS_TEST_MENU_ENABLED} onExpand={toggleCollapsed} /></div>
           <button
             type="button"

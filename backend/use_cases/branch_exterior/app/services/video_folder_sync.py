@@ -125,7 +125,7 @@ async def _sync_locked(repos: Repositories, start_workers: bool) -> list[str]:
             source=str(path),
             location=f"Auto-detected: storage/sample_videos/{path.name}",
             enabled=True,
-            loop_video=True,
+            loop_video=False,
         )
         data.simulation_mode = False
         camera = await repos.cameras.create(data)

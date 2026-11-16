@@ -12,6 +12,7 @@ const fmtSize = (bytes) => Number.isFinite(Number(bytes)) ? `${(Number(bytes) / 
 const fmtDuration = (seconds) => Number.isFinite(Number(seconds)) && Number(seconds) > 0
   ? `${Math.floor(Number(seconds) / 60)}:${String(Math.floor(Number(seconds) % 60)).padStart(2, '0')}` : '';
 const fmtDate = (date) => date ? new Date(date).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+const shownStatus = (status) => status === 'DONE' ? 'FINISHED' : status;
 
 async function defaultBranch(scope) {
   if (scope?.type === 'branch' && scope.id) return scope.id;
@@ -22,7 +23,7 @@ async function defaultBranch(scope) {
 }
 
 /** Source selection only. Processing always delegates to the page's existing backend flow. */
-export default function SourcePicker({ useCase, cameras, statuses = {}, browseVideos, onProcess, children }) {
+export default function SourcePicker({ useCase, cameras, statuses = {}, browseVideos, onProcess, children, isRunning = false, activeCameraId = '', activeSourcePath = '' }) {
   const scope = useOptionalActiveBranch()?.scope;
   const [inventory, setInventory] = useState([]);
   const [browse, setBrowse] = useState([]);
@@ -69,6 +70,7 @@ export default function SourcePicker({ useCase, cameras, statuses = {}, browseVi
   const groups = useMemo(() => sourceCatalog({ files: inventory, browse, cameras: scopedCameras, statuses }), [inventory, browse, scopedCameras, statuses]);
   const all = useMemo(() => flattenSources(groups), [groups]);
   const selected = all.find((item) => item.id === selectedKey);
+  const sameRunningSource = isRunning && selected && (selected.cameraId === activeCameraId || (selected.processPath && selected.processPath === activeSourcePath));
   const visible = useMemo(() => filterSources(groups, query), [groups, query]);
   const options = flattenSources(visible);
   useEffect(() => { if (selectedKey && !loading && !error && !selected) { setSelectedKey(''); rememberSourceKey(localStorage, useCase, ''); } }, [selectedKey, selected, loading, error, useCase]);
@@ -84,7 +86,7 @@ export default function SourcePicker({ useCase, cameras, statuses = {}, browseVi
     rememberSourceKey(localStorage, useCase, item.id);
   };
   const process = async () => {
-    if (!selected || busy) return;
+    if (!selected || busy || sameRunningSource) return;
     setBusy(true); setProcessError('');
     try { await onProcess(selected); } catch (cause) { setProcessError(cause.message); }
     finally { setBusy(false); }
@@ -130,7 +132,7 @@ export default function SourcePicker({ useCase, cameras, statuses = {}, browseVi
       className={`source-picker-option${item.id === selectedKey ? ' is-selected' : ''}${options[focused]?.id === item.id ? ' is-focused' : ''}`}>
       {item.kind === 'camera' ? <Camera size={19} aria-hidden /> : <FileVideo2 size={19} aria-hidden />}
       <span className="source-picker-option-text"><b>{item.name}</b><small>{details}</small></span>
-      {item.status && <span className="source-picker-status">{item.status}</span>}
+      {item.status && <span className="source-picker-status">{shownStatus(item.status)}</span>}
     </button>;
   });
   return <div className="bx-card bx-mb-16 source-picker-card">
@@ -145,7 +147,7 @@ export default function SourcePicker({ useCase, cameras, statuses = {}, browseVi
             else if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) { setQuery(event.key); setOpen(true); setFocused(0); }
           }} className="source-picker-trigger">
           <span className="source-picker-icon"><FileVideo2 size={22} aria-hidden /></span>
-          <span className="source-picker-trigger-text"><b>{selected?.name || 'Choose a camera or video'}</b><small>{selected ? `${selected.kind === 'camera' ? 'Camera' : 'Video'}${selected.status ? ` · ${selected.status}` : ''}` : `${groups.cameras.length} cameras · ${groups.uploads.length + groups.samples.length} videos · or upload a new file`}</small></span>
+          <span className="source-picker-trigger-text"><b>{selected?.name || 'Choose a camera or video'}</b><small>{selected ? `${selected.kind === 'camera' ? 'Camera' : 'Video'}${selected.status ? ` · ${shownStatus(selected.status)}` : ''}` : `${groups.cameras.length} cameras · ${groups.uploads.length + groups.samples.length} videos · or upload a new file`}</small></span>
           <ChevronDown size={20} aria-hidden />
         </button>
         {open && <div className="source-picker-panel" onKeyDown={handleKeys}>
@@ -165,7 +167,7 @@ export default function SourcePicker({ useCase, cameras, statuses = {}, browseVi
     {uploading && <div className="source-picker-upload-progress"><progress value={uploadBytes} max={uploadSize} aria-label="Video upload progress" /> <span>{fmtSize(uploadBytes)} of {fmtSize(uploadSize)}</span><button type="button" onClick={() => abort.current?.abort()}>Cancel</button></div>}
     {children}
     {processError && <div className="bx-diag" role="alert">{processError}</div>}
-    <button type="button" className="bx-btn bx-btn-primary source-picker-process" disabled={!selected || busy || uploading} onClick={process}><Play size={17} aria-hidden /> {busy ? 'Starting…' : selected?.kind === 'camera' ? 'Start monitoring' : 'Process video'}</button>
+    <button type="button" className="bx-btn bx-btn-primary source-picker-process" disabled={!selected || busy || uploading || sameRunningSource} onClick={process}><Play size={17} aria-hidden /> {busy ? 'Starting…' : sameRunningSource ? 'Processing...' : selected?.kind === 'camera' ? 'Start monitoring' : 'Process video'}</button>
     {more && <div className="source-picker-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setMore(false); }}><div role="dialog" aria-modal="true" aria-label="Upload options" className="source-picker-modal"><button type="button" className="bx-btn" onClick={() => { setMore(false); load(); }}>Close</button><UploadWorkspace initialUseCase={useCase} lockedBranch={scope?.type === 'branch' ? { id: scope.id, name: scope.name, code: scope.code } : null} onUploaded={async (detail) => { await load(); const key = `upload:${detail.id}`; setSelectedKey(key); rememberSourceKey(localStorage, useCase, key); }} /></div></div>}
   </div>;
 }

@@ -1,3 +1,4 @@
+
 import SourceIncidentCard from '../../../components/alerts/SourceIncidentCard.jsx';
 import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -8,6 +9,8 @@ import { beep, setSound, soundOn } from '../sound.js';
 import AddCameraModal from '../components/AddCameraModal.jsx';
 import { Empty } from '../components/ui.jsx';
 import SourcePicker from '../../../components/video/SourcePicker.jsx';
+import { PlaybackBadge, PlaybackProgress, StartStopControls } from '../../../components/video/PlaybackControls.jsx';
+import { playbackPlaceholder, playbackStatus } from '../../../components/video/playbackState.js';
 import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
 import BranchExteriorEventDetail from '../components/BranchExteriorEventDetail.jsx';
 import { branchIdBody } from '../branchContext.js';
@@ -56,6 +59,8 @@ export default function LiveMonitoringPage() {
   const [selectedId, setSelectedId] = useState(() => localStorage.getItem('liveCameraId') || '');
   const [showProcessed, setShowProcessed] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [backendOffline, setBackendOffline] = useState(false);
   const [ticker, setTicker] = useState([]);
   const [soundState, setSoundState] = useState(soundOn());
   const [addOpen, setAddOpen] = useState(false);
@@ -67,7 +72,7 @@ export default function LiveMonitoringPage() {
 
   const loadCameras = useCallback(async () => {
     let cams = [];
-    try { cams = await api.get('/cameras'); } catch { return; }
+    try { cams = await api.get('/cameras'); setBackendOffline(false); } catch { setBackendOffline(true); return; }
     let st = {};
     try { st = await api.get('/cameras/status/all'); } catch { st = {}; }
     setCameras(cams); setStatuses(st);
@@ -80,7 +85,7 @@ export default function LiveMonitoringPage() {
   const selectCamera = useCallback(async (id) => {
     setStarting(true);
     try {
-      if (id) await api.post(`/cameras/${id}/activate`, branchIdBody(activeScope)); // snapshot canonical branch context for this session
+      if (id) await api.post(`/cameras/${id}/activate?restart=true`, branchIdBody(activeScope)); // Process always starts a fresh pass
       else await api.post('/cameras/stop-all');
       setSelectedId(id); selectedRef.current = id;
       setStreamNonce((n) => n + 1);
@@ -103,11 +108,15 @@ export default function LiveMonitoringPage() {
   const cam = cameras.find((c) => c.id === selectedId) || null;
   const st = cam ? (statuses[cam.id] || {}) : {};
   const running = !!(cam && st.running);
+  const displayStatus = playbackStatus(st.status, running);
+  const hasLastFrame = !!cam && st.frame_count > 0 && !running;
 
   const streamSrc = useMemo(
-    () => (running ? bxApiUrl(`/streams/${cam.id}/${showProcessed ? 'processed' : 'raw'}?t=${Date.now()}`) : ''),
+    () => (cam && (running || hasLastFrame) ? bxApiUrl(running
+      ? `/streams/${cam.id}/${showProcessed ? 'processed' : 'raw'}?t=${Date.now()}`
+      : `/streams/${cam.id}/last?t=${Date.now()}`) : ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [running, cam?.id, showProcessed, streamNonce],
+    [running, hasLastFrame, cam?.id, showProcessed, streamNonce],
   );
 
   // Zone alert beep, only on the moment an alert starts.
@@ -117,13 +126,20 @@ export default function LiveMonitoringPage() {
     zoneAlertOn.current = za.length > 0;
   }, [za.length]);
 
-  const toggleRun = async () => {
-    if (!cam) return;
-    try {
-      if (running) await api.post(`/cameras/${cam.id}/stop`);
-      else await api.post(`/cameras/${cam.id}/activate`, branchIdBody(activeScope));
-    } catch (e) { alert(e.message); }
-    setStreamNonce((n) => n + 1); await loadCameras();
+  const stop = async () => {
+    if (!cam || !running || stopping) return;
+    setStopping(true);
+    try { await api.post(`/cameras/${cam.id}/stop`); setStreamNonce((n) => n + 1); await loadCameras(); }
+    catch (e) { alert(e.message); }
+    finally { setStopping(false); }
+  };
+  const start = async () => {
+    if (!cam || running || starting) return;
+    setStarting(true);
+    try { await api.post(`/cameras/${cam.id}/activate`, branchIdBody(activeScope));
+      setStreamNonce((n) => n + 1); await loadCameras(); }
+    catch (e) { alert(e.message); }
+    finally { setStarting(false); }
   };
   const closeSourceDetail = () => {
     const next = new URLSearchParams(query);
@@ -141,7 +157,7 @@ export default function LiveMonitoringPage() {
   const deleteCamera = async () => {
     if (!cam) return;
     if (!confirm(`Delete camera "${cam.name}"? This also removes its zones, events and saved clips/snapshots.\n(The video file itself is not deleted - while it stays in sample_videos it will reappear as a new camera.)`)) return;
-    try { await api.del(`/cameras/${cam.id}`); } catch (e) { alert(e.message); }
+    try { if (running) await api.post(`/cameras/${cam.id}/stop`); await api.del(`/cameras/${cam.id}`); } catch (e) { alert(e.message); return; }
     setSelectedId(''); selectedRef.current = ''; localStorage.removeItem('liveCameraId');
     await loadCameras();
   };
@@ -170,12 +186,14 @@ export default function LiveMonitoringPage() {
         <button type="button" className="bx-btn bx-btn-primary" onClick={() => setAddOpen(true)}>+ Add camera</button>
       </div>
 
+      {backendOffline && <div className="bx-diag" role="status">Branch Exterior is reconnecting. Last known playback state is shown.</div>}
       <SourcePicker useCase="branch_exterior" cameras={cameras} statuses={statuses} browseVideos={browseBranchVideos}
+        isRunning={running} activeCameraId={cam?.id} activeSourcePath={cam?.source}
         onProcess={async (source) => {
           if (source.cameraId) { await selectCamera(source.cameraId); return; }
           const created = await api.post('/cameras?start=false', {
             name: source.name.replace(/\.[^.]+$/, ''), cam_type: source.category === 'uploads' ? 'upload' : 'folder',
-            source: source.processPath, username: '', password: '', location: 'Video file', enabled: true, loop_video: true,
+            source: source.processPath, username: '', password: '', location: 'Video file', enabled: true, loop_video: false,
           });
           await selectCamera(created.id);
         }} />
@@ -185,14 +203,11 @@ export default function LiveMonitoringPage() {
           {za.length > 0 && <div className="bx-zone-bar">⚠ ZONE ALERT — {za.join('  |  ')}</div>}
           <div className="bx-video-wrap" style={{ aspectRatio: '16/9', maxHeight: '72vh' }}>
             <div style={{ width: '100%', height: '100%' }}>
-              {running && <img src={streamSrc} alt={cam.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
+              {(running || hasLastFrame) && <img src={streamSrc} alt={cam.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
               {!running && starting && <div style={stageMsg}><div style={{ fontSize: 28 }}>⏳</div>Starting analysis (the first start loads the AI models and can take a minute)...</div>}
-              {!running && !starting && cam && <div style={stageMsg}><div style={{ fontSize: 28 }}>⏸</div>Stopped — press Start to analyse this video</div>}
-              {!running && !starting && !cam && <div style={stageMsg}><div style={{ fontSize: 28 }}>🎬</div>Select a video from the dropdown above</div>}
+              {!running && !hasLastFrame && !starting && <div style={stageMsg}><div style={{ fontSize: 28 }}>⏸</div>{playbackPlaceholder(!!cam, displayStatus, st.position_seconds)}</div>}
             </div>
-            <div className="bx-live-badge">
-              <span className={running ? 'bx-dot-live' : 'bx-dot-off'} /> {running ? 'LIVE' : 'STOPPED'}
-            </div>
+            <PlaybackBadge status={st.status} running={running} />
           </div>
 
           <div className="bx-tile-meta">
@@ -201,6 +216,11 @@ export default function LiveMonitoringPage() {
               <div className="loc">{cam ? (cam.location || cam.source) : 'Pick a video from the list above - only that video is analysed, so CPU use stays low.'}</div>
             </div>
             <div className="bx-row bx-gap-8 bx-wrap">
+              <StartStopControls selected={!!cam} status={st.status} running={running} starting={starting}
+                stopping={stopping} canResume={st.can_resume}
+                canRestartCamera={!!cam && !['upload', 'folder'].includes(cam.cam_type) && st.frame_count > 0}
+                positionSeconds={st.position_seconds}
+                onStart={start} onStop={stop} />
               {running && <button type="button" className={`bx-btn bx-btn-sm${st.heatmap_overlay ? ' bx-btn-primary' : ''}`} title="Show where people spend time (hot = most time)" onClick={() => toggleOverlay('heatmap', st.heatmap_overlay)}>Heatmap</button>}
               <button type="button" className="bx-btn bx-btn-sm" title="Turn the alert beep on or off"
                 onClick={() => { setSound(!soundOn()); setSoundState(soundOn()); if (soundOn()) beep(); }}>
@@ -208,11 +228,15 @@ export default function LiveMonitoringPage() {
               </button>
               {running && <button type="button" className={`bx-btn bx-btn-sm${st.debug_overlay ? ' bx-btn-primary' : ''}`} title="Draw every raw AI detection with its class and confidence - shows what the model really sees" onClick={() => toggleOverlay('debug-overlay', st.debug_overlay)}>AI detections</button>}
               {running && <button type="button" className="bx-btn bx-btn-sm" onClick={() => setShowProcessed((v) => !v)}>{showProcessed ? 'Show original' : 'Show processed'}</button>}
-              {cam && <button type="button" className={`bx-btn bx-btn-sm${running ? '' : ' bx-btn-primary'}`} onClick={toggleRun}>{running ? 'Stop' : 'Start'}</button>}
               {cam && <button type="button" className="bx-btn bx-btn-sm" onClick={() => navigate(`/regions?camera=${cam.id}`)}>Regions</button>}
               {cam && <button type="button" className="bx-btn bx-btn-sm bx-btn-ghost" onClick={deleteCamera}>Delete</button>}
             </div>
           </div>
+
+          {cam && <PlaybackProgress status={st} />}
+          {cam && st.resume_mode === 'restarted_tracking' && <div className="bx-hint" role="status" style={{ margin: '0 16px 10px' }}>Resumed near the saved position; tracking restarted.</div>}
+          {cam && !running && hasLastFrame && <div className="bx-hint" style={{ margin: '0 16px 10px' }}>{playbackPlaceholder(true, displayStatus, st.position_seconds)}</div>}
+          {cam && displayStatus === 'FINISHED' && <div className="bx-hint" style={{ margin: '0 16px 10px' }}>Finished: {st.unique_people || 0} people tracked · {Object.values(st.behavior_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0)} incidents. <a href="/alerts">View alerts</a></div>}
 
           {running && (
             <div style={{ margin: '6px 16px 2px' }}>

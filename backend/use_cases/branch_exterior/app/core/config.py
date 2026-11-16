@@ -11,6 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DbEngine = Literal["sqlite", "postgres", "mysql", "oracle", "mongodb"]
@@ -49,6 +50,8 @@ class Settings(BaseSettings):
     # Monitoring dropdown). Every other camera is idle and uses no CPU.
     # Set to false to run every enabled camera at once (e.g. a real multi-camera site).
     single_active_camera: bool = True
+    loop_video_files: bool = False  # Files finish at EOF; opt in explicitly to replay.
+    resume_state_ttl_minutes: int = Field(default=30, ge=1, le=1440)
 
     # Detection pipeline ---------------------------------------------------
     # rfdetr (default) | motion | hog. The detector is chosen ONLY from here

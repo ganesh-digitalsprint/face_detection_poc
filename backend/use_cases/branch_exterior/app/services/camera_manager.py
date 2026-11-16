@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from pathlib import Path
+
+from app.core.paths import STORAGE_DIR
 
 from app.core.config import get_settings
 from app.db.repositories.interfaces import Repositories
@@ -45,7 +49,7 @@ class CameraManager:
         return self._repos
 
     def active_ids(self) -> list[str]:
-        return list(self._workers.keys())
+        return [cid for cid, worker in self._workers.items() if worker.is_alive()]
 
     async def start_all_enabled(self) -> None:
         assert self._repos is not None
@@ -57,7 +61,7 @@ class CameraManager:
             if cam.enabled:
                 self.start(cam)
 
-    def start(self, camera: Camera, branch_id: str | None = None) -> None:
+    def start(self, camera: Camera, branch_id: str | None = None, fresh: bool = False) -> None:
         assert self._loop is not None and self._repos is not None
         from fedbank_core.events.metadata import enrich_resource_refs, resolve_branch_metadata
 
@@ -76,17 +80,26 @@ class CameraManager:
         if self.single_mode:
             for other_id in [cid for cid in self._workers if cid != camera.id]:
                 self.stop(other_id)
-        self.stop(camera.id)
+        prior = self._workers.get(camera.id)
+        if prior is not None and getattr(prior, "is_alive", lambda: False)():
+            return  # duplicate Start is idempotent
         worker = CameraWorker(camera, self._repos, self._loop, guard_registry.recognizer, branch_metadata)
+        worker._resume_from = prior if not fresh else None
+        worker._fresh = fresh
         self._workers[camera.id] = worker
         worker.start()
         logger.info("Started camera worker for %s (%s)", camera.name, camera.id)
 
     def stop(self, camera_id: str) -> None:
-        worker = self._workers.pop(camera_id, None)
+        worker = self._workers.get(camera_id)
         if worker:
             worker.stop()
-        frame_bus.unregister(camera_id)
+        # Keep the last frame and terminal status for polling and refresh.
+
+    def wait_stopped(self, camera_id: str) -> None:
+        worker = self._workers.get(camera_id)
+        if worker and worker.is_alive():
+            worker.join(timeout=15)
 
     def restart(self, camera: Camera) -> None:
         """Re-create the worker for a camera whose settings changed - but only
@@ -95,7 +108,14 @@ class CameraManager:
         branch_id = (self._branch_contexts.get(camera.id) or {}).get("branch_id")
         self.stop(camera.id)
         if was_running and camera.enabled:
-            self.start(camera, branch_id=branch_id)
+            async def reopen() -> None:
+                await asyncio.to_thread(self.wait_stopped, camera.id)
+                self.start(camera, branch_id=branch_id, fresh=True)
+
+            if isinstance(self._loop, asyncio.AbstractEventLoop) and self._loop.is_running():
+                self._loop.create_task(reopen())
+            else:  # synchronous tests and callers without a running loop
+                self.start(camera, branch_id=branch_id, fresh=True)
 
     def stop_all(self) -> None:
         self._resume_ids = list(self._workers.keys())
@@ -115,9 +135,31 @@ class CameraManager:
     def status(self, camera_id: str) -> CameraStatus:
         state = frame_bus.get(camera_id)
         if state is None:
-            return CameraStatus(camera_id=camera_id, running=False)
+            checkpoint_path = STORAGE_DIR / "playback_state" / "branch_exterior" / f"{camera_id}.json"
+            try:
+                checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                checkpoint = {}
+            return CameraStatus(camera_id=camera_id, running=False,
+                                can_resume=bool(checkpoint.get("can_resume")),
+                                frames_read=int(checkpoint.get("frame_index", 0)),
+                                frames_total=int(checkpoint.get("frames_total", 0)),
+                                source_fps=float(checkpoint.get("source_fps", 0)),
+                                percent=(min(100.0, round(100 * int(checkpoint.get("frame_index", 0)) /
+                                                        int(checkpoint.get("frames_total", 1)), 1))
+                                         if checkpoint.get("frames_total") else 0.0),
+                                position_seconds=(float(checkpoint.get("frame_index", 0)) /
+                                                  float(checkpoint.get("source_fps", 0))) if checkpoint.get("source_fps") else 0.0,
+                                total_seconds=(float(checkpoint.get("frames_total", 0)) /
+                                               float(checkpoint.get("source_fps", 0))) if checkpoint.get("source_fps") else 0.0)
         return CameraStatus(
-            camera_id=camera_id, running=state.running, fps=round(state.fps, 1),
+            camera_id=camera_id, running=state.running, status=state.status,
+            frames_total=state.frames_total, frames_read=state.frames_read, source_fps=state.source_fps,
+            position_seconds=state.frames_read / state.source_fps if state.source_fps else 0.0,
+            total_seconds=state.frames_total / state.source_fps if state.source_fps else 0.0,
+            can_resume=state.can_resume, resume_mode=state.resume_mode,
+            percent=min(100.0, round(100 * state.frames_read / state.frames_total, 1)) if state.frames_total else 0,
+            fps=round(state.fps, 1),
             frame_count=state.frame_count, active_tracks=state.active_tracks,
             vehicle_count=state.vehicle_count, last_error=state.last_error, open_events=state.open_events,
             people_now=state.people_now, individuals=state.individuals, groups=state.groups,

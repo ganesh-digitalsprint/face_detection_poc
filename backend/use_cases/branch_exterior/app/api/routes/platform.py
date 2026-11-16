@@ -14,6 +14,7 @@ import secrets
 import sqlite3
 import time
 import uuid
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote, urlsplit
@@ -46,9 +47,10 @@ def database():
     if path.is_file():
         with sqlite3.connect(path) as existing:
             has_uploads = existing.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='video_uploads'").fetchone()
+            has_branch_log = existing.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='branch_change_log'").fetchone()
             recorder_exists = existing.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='recorders'").fetchone()
             has_scheme = not recorder_exists or any(row[1] == "scheme" for row in existing.execute("PRAGMA table_info(recorders)"))
-            if not has_uploads or not has_scheme:
+            if not has_uploads or not has_scheme or not has_branch_log:
                 backup = repo_root() / "backups" / "platform-migration" / f"platform-schema-{datetime.now():%Y%m%d-%H%M%S-%f}.db"
                 backup.parent.mkdir(parents=True, exist_ok=True)
                 with sqlite3.connect(backup) as target:
@@ -97,6 +99,10 @@ def database():
           duration REAL, width INTEGER, height INTEGER, fps REAL, codec TEXT,
           thumbnail_path TEXT, proxy_path TEXT, uploaded_by TEXT,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS branch_change_log (
+          id TEXT PRIMARY KEY, branch_id TEXT NOT NULL REFERENCES branches(id),
+          changed_at TEXT NOT NULL, changes_json TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS ix_branch_change_log_branch ON branch_change_log(branch_id,changed_at);
         CREATE INDEX IF NOT EXISTS ix_cities_zone ON cities(zone_id);
         CREATE INDEX IF NOT EXISTS ix_branches_city ON branches(city_id);
         CREATE INDEX IF NOT EXISTS ix_cameras_branch ON cameras(branch_id);
@@ -311,6 +317,13 @@ class BranchCreate(Named):
     phone: str = ""
     email: str = ""
 
+    @field_validator("name")
+    @classmethod
+    def name_valid(cls, value: str) -> str:
+        if len(value.strip()) < 2:
+            raise ValueError("Branch name is required")
+        return value.strip()
+
     @field_validator("code")
     @classmethod
     def code_valid(cls, value: str) -> str:
@@ -331,6 +344,81 @@ class BranchCreate(Named):
         if value and not re.fullmatch(r"[0-9]{6}", value):
             raise ValueError("Pincode must be six digits")
         return value
+
+    @field_validator("phone")
+    @classmethod
+    def phone_valid(cls, value: str) -> str:
+        if value and not re.fullmatch(r"\+?[0-9\s()-]{8,20}", value):
+            raise ValueError("Enter a valid phone number")
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def email_valid(cls, value: str) -> str:
+        if value and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+            raise ValueError("Enter a valid email address")
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def timezone_valid(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("Enter a valid IANA time zone") from exc
+        return value
+
+
+class BranchPatch(BaseModel):
+    updated_at: str
+    zone_id: str | None = None
+    city_id: str | None = None
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    code: str | None = None
+    status: str | None = None
+    address: str | None = None
+    pincode: str | None = None
+    timezone: str | None = None
+    manager: str | None = None
+    phone: str | None = None
+    email: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value: str | None) -> str | None:
+        if value is not None and len(value.strip()) < 2:
+            raise ValueError("Branch name is required")
+        return value.strip() if value is not None else value
+
+    @field_validator("code")
+    @classmethod
+    def valid_code(cls, value: str | None) -> str | None:
+        return BranchCreate.code_valid(value) if value is not None else None
+
+    @field_validator("status")
+    @classmethod
+    def valid_status(cls, value: str | None) -> str | None:
+        return BranchCreate.status_valid(value) if value is not None else None
+
+    @field_validator("pincode")
+    @classmethod
+    def valid_pincode(cls, value: str | None) -> str | None:
+        return BranchCreate.pincode_valid(value) if value is not None else None
+
+    @field_validator("phone")
+    @classmethod
+    def valid_phone(cls, value: str | None) -> str | None:
+        return BranchCreate.phone_valid(value) if value is not None else None
+
+    @field_validator("email")
+    @classmethod
+    def valid_email(cls, value: str | None) -> str | None:
+        return BranchCreate.email_valid(value) if value is not None else None
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value: str | None) -> str | None:
+        return BranchCreate.timezone_valid(value) if value is not None else None
 
 
 class RecorderCreate(BaseModel):
@@ -437,6 +525,20 @@ def zones():
         return [dict(row) for row in rows]
 
 
+@router.patch("/zones/{zone_id}")
+def rename_zone(zone_id: str, payload: Named, request: Request, x_platform_admin_key: str = Header(default="")):
+    _hierarchy_admin(request, x_platform_admin_key)
+    name = payload.name.strip()
+    if len(name) < 2:
+        raise HTTPException(422, "Zone name is required")
+    with database() as conn:
+        _one(conn, "SELECT id FROM zones WHERE id=?", (zone_id,))
+        if conn.execute("SELECT 1 FROM zones WHERE id<>? AND lower(name)=lower(?)", (zone_id, name)).fetchone():
+            raise HTTPException(409, "Zone already exists")
+        conn.execute("UPDATE zones SET name=? WHERE id=?", (name, zone_id))
+        return _one(conn, "SELECT * FROM zones WHERE id=?", (zone_id,))
+
+
 @router.post("/zones", status_code=201)
 def create_zone(payload: Named, request: Request, x_platform_admin_key: str = Header(default="")):
     _hierarchy_admin(request, x_platform_admin_key)
@@ -453,6 +555,21 @@ def create_zone(payload: Named, request: Request, x_platform_admin_key: str = He
 def cities(zone_id: str):
     with database() as conn:
         return [dict(row) for row in conn.execute("SELECT c.*, COUNT(b.id) branch_count FROM cities c LEFT JOIN branches b ON b.city_id=c.id WHERE c.zone_id=? GROUP BY c.id ORDER BY c.name", (zone_id,))]
+
+
+@router.patch("/cities/{city_id}")
+def rename_city(city_id: str, payload: Named, request: Request, x_platform_admin_key: str = Header(default="")):
+    _hierarchy_admin(request, x_platform_admin_key)
+    name = payload.name.strip()
+    if len(name) < 2:
+        raise HTTPException(422, "City name is required")
+    with database() as conn:
+        current = _one(conn, "SELECT id,zone_id FROM cities WHERE id=?", (city_id,))
+        if conn.execute("SELECT 1 FROM cities WHERE id<>? AND zone_id=? AND lower(name)=lower(?)",
+                        (city_id, current["zone_id"], name)).fetchone():
+            raise HTTPException(409, "City already exists in this zone")
+        conn.execute("UPDATE cities SET name=? WHERE id=?", (name, city_id))
+        return _one(conn, "SELECT * FROM cities WHERE id=?", (city_id,))
 
 
 @router.post("/cities", status_code=201)
@@ -494,9 +611,63 @@ def search_branches(query: str = "", limit: int = Query(20, ge=1, le=100)):
         return [dict(row) for row in rows]
 
 
+@router.get("/branches/code-available")
+def branch_code_available(code: str, exclude_id: str = ""):
+    with database() as conn:
+        taken = conn.execute("SELECT 1 FROM branches WHERE upper(code)=upper(?) AND id<>?",
+                             (code.strip(), exclude_id)).fetchone()
+        return {"available": not bool(taken)}
+
+
 @router.get("/branches/{branch_id}")
 def branch(branch_id: str):
     with database() as conn:
+        return _one(conn, "SELECT b.*,c.zone_id,c.name city_name,z.name zone_name FROM branches b "
+                    "JOIN cities c ON c.id=b.city_id JOIN zones z ON z.id=c.zone_id WHERE b.id=?", (branch_id,))
+
+
+@router.patch("/branches/{branch_id}")
+def update_branch(branch_id: str, payload: BranchPatch, request: Request,
+                  x_platform_admin_key: str = Header(default="")):
+    _hierarchy_admin(request, x_platform_admin_key)
+    changes = payload.model_dump(exclude_unset=True, exclude={"updated_at"})
+    if not changes:
+        raise HTTPException(422, "No branch fields to update")
+    if any(value is None for value in changes.values()):
+        raise HTTPException(422, "Branch fields cannot be null")
+    with database() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        current = _one(conn, "SELECT * FROM branches WHERE id=?", (branch_id,))
+        if current["updated_at"] != payload.updated_at:
+            raise HTTPException(409, "This branch was changed by someone else. Reload to see the latest")
+        city_id = changes.get("city_id", current["city_id"])
+        city = _one(conn, "SELECT id,zone_id FROM cities WHERE id=?", (city_id,))
+        if changes.get("zone_id") and changes["zone_id"] != city["zone_id"]:
+            raise HTTPException(422, "City does not belong to the selected zone")
+        changes.pop("zone_id", None)
+        name = changes.get("name", current["name"])
+        code = changes.get("code", current["code"])
+        if conn.execute("SELECT 1 FROM branches WHERE id<>? AND city_id=? AND lower(name)=lower(?)",
+                        (branch_id, city_id, name)).fetchone():
+            raise HTTPException(409, "Branch name already exists in this city")
+        if conn.execute("SELECT 1 FROM branches WHERE id<>? AND upper(code)=upper(?)",
+                        (branch_id, code)).fetchone():
+            raise HTTPException(409, "Branch code already exists")
+        changed = {key: {"old": current[key], "new": value} for key, value in changes.items()
+                   if current[key] != value}
+        if not changed:
+            return current
+        audit_changes = dict(changed)
+        if "city_id" in changed:
+            old_zone_id = _one(conn, "SELECT zone_id FROM cities WHERE id=?", (current["city_id"],))["zone_id"]
+            if old_zone_id != city["zone_id"]:
+                audit_changes["zone_id"] = {"old": old_zone_id, "new": city["zone_id"]}
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+        columns = ", ".join(f"{key}=?" for key in changed)
+        conn.execute(f"UPDATE branches SET {columns},updated_at=? WHERE id=?",
+                     (*[item["new"] for item in changed.values()], timestamp, branch_id))
+        conn.execute("INSERT INTO branch_change_log(id,branch_id,changed_at,changes_json) VALUES(?,?,?,?)",
+                     (str(uuid.uuid4()), branch_id, timestamp, json.dumps(audit_changes, sort_keys=True)))
         return _one(conn, "SELECT * FROM branches WHERE id=?", (branch_id,))
 
 
@@ -504,7 +675,11 @@ def branch(branch_id: str):
 def create_branch(payload: BranchCreate, request: Request, x_platform_admin_key: str = Header(default="")):
     _hierarchy_admin(request, x_platform_admin_key)
     with database() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         _one(conn, "SELECT id FROM cities WHERE id=?", (payload.city_id,))
+        if conn.execute("SELECT 1 FROM branches WHERE city_id=? AND lower(name)=lower(?)",
+                        (payload.city_id, payload.name.strip())).fetchone():
+            raise HTTPException(409, "Branch name already exists in this city")
         try:
             ident = str(uuid.uuid4())
             conn.execute("INSERT INTO branches(id,city_id,code,name,status,address,pincode,timezone,manager,phone,email) VALUES(?,?,?,?,?,?,?,?,?,?,?)",

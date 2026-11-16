@@ -26,19 +26,18 @@ export function ActiveBranchProvider({ children }) {
           const response = await fetch(`${PLATFORM_BASE_URL}/branches/${encodeURIComponent(scope.id || scope.code)}`);
           if (!response.ok && response.status !== 404) throw new Error('Platform unavailable');
           let branch = response.ok ? await response.json() : null;
-          let cityName = '';
-          if (scope.code) {
+          if (!branch && scope.code) {
             const lookup = await fetch(`${PLATFORM_BASE_URL}/branches/search?query=${encodeURIComponent(scope.code)}&limit=100`);
             if (!lookup.ok) throw new Error('Platform unavailable');
             const match = (await lookup.json()).find((entry) => entry.code === scope.code);
-            if (match) { branch = match; cityName = match.city_name; }
+            if (match) branch = match;
           }
           if (!branch && response.status === 404) {
             if (live) { setScope(null); setNotice('The active branch no longer exists; showing all branches.'); }
             return;
           }
           if (branch && live) setScope((old) => old && old.type === 'branch' && (old.id === branch.id || old.code === branch.code)
-            ? { ...old, id: branch.id, code: branch.code, name: branch.name, subtitle: `${branch.code}${cityName ? ` · ${cityName}` : ''}` } : old);
+            ? { ...old, id: branch.id, code: branch.code, name: branch.name, subtitle: `${branch.code}${branch.city_name ? ` · ${branch.city_name}` : ''}` } : old);
         } else {
           const zonesResponse = await fetch(`${PLATFORM_BASE_URL}/zones`);
           if (!zonesResponse.ok) throw new Error('Platform unavailable');

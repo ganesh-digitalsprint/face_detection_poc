@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit, urlunsplit, unquote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_runtime, get_session, require_api_key
@@ -125,17 +125,18 @@ async def update_camera(camera_id: str, data: CameraUpdate, session: AsyncSessio
 @router.delete("/{camera_id}", status_code=204)
 async def delete_camera(camera_id: str, session: AsyncSession = Depends(get_session), runtime: Runtime = Depends(get_runtime)):
     await _get(session, camera_id)
-    runtime.stop_camera(camera_id)
+    runtime.forget_camera(camera_id)
     runtime.set_rois(camera_id, [])
     await CameraRepository(session).delete(camera_id)
 
 
 @router.post("/{camera_id}/start", response_model=StreamStatus)
-async def start_camera(camera_id: str, session: AsyncSession = Depends(get_session), runtime: Runtime = Depends(get_runtime)):
+async def start_camera(camera_id: str, restart: bool = Query(default=False),
+                       session: AsyncSession = Depends(get_session), runtime: Runtime = Depends(get_runtime)):
     camera = await _get(session, camera_id)
     if not camera.enabled:
         raise HTTPException(409, "Camera is disabled")
-    return StreamStatus.of(runtime.start_camera(camera))
+    return StreamStatus.of(runtime.start_camera(camera, fresh=restart))
 
 
 @router.post("/{camera_id}/stop", response_model=StreamStatus)

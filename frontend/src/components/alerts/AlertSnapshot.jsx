@@ -53,7 +53,7 @@ export default function AlertSnapshot({ alert, large = false, evidenceIndex = 0,
   const imageFailed=()=>{if(externalUrl){setFailedUrl(externalUrl);alert.onEvidenceError?.(externalUrl);}else setImage((old)=>({...old,url:'',error:'Snapshot could not be displayed.'}));};
   const fallback = evidenceFallback(alert, current);
   // The right-side card owns the single details button; no nested image button.
-  if (compact) return <span className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl bg-[#202530] text-[#B7BED0]">
+  if (compact) return <span className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl bg-[#202530] text-[#B7BED0]">
     {current.url ? <img src={current.url} alt="Captured alert snapshot" className="h-full w-full object-cover" onError={imageFailed} />
       : <><Camera className="h-7 w-7" strokeWidth={1.7} aria-hidden="true" /><span className="sr-only">{fallback}</span></>}
   </span>;

@@ -36,6 +36,7 @@ const FmLive = lazy(() => import('./use-cases/face-mask/pages/LiveMonitoring.jsx
 const StoragePage = lazy(() => import('./pages/StoragePage.jsx'));
 const BranchHierarchy = lazy(() => import('./features/branches/Hierarchy.jsx'));
 const NewBranch = lazy(() => import('./features/branches/NewBranch.jsx'));
+const EditBranch = lazy(() => import('./features/branches/EditBranch.jsx'));
 const VideoUploads = lazy(() => import('./features/video-uploads/VideoUploads.jsx'));
 const fmFallback = <Loading message="Loading Face Mask…" />;
 
@@ -102,6 +103,7 @@ export default function App() {
         <Route path="branches/hierarchy" element={<Suspense fallback={<Loading message="Loading hierarchy…" />}><BranchHierarchy /></Suspense>} />
         <Route path="branches/hierarchy/cameras/new" element={<Suspense fallback={<Loading message="Loading camera setup…" />}><BranchHierarchy /></Suspense>} />
         <Route path="branches/new" element={<Suspense fallback={<Loading message="Loading branch form…" />}><NewBranch /></Suspense>} />
+        <Route path="branches/:id/edit" element={<Suspense fallback={<Loading message="Loading branch details…" />}><EditBranch /></Suspense>} />
         <Route path="video-uploads" element={<Suspense fallback={<Loading message="Loading video uploads…" />}><VideoUploads /></Suspense>} />
         <Route path="face-mask/roi" element={<FaceMaskRoiRedirect />} />
         <Route path="face-mask" element={<Suspense fallback={fmFallback}><FmLayout /></Suspense>}>

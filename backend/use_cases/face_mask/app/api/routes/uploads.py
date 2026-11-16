@@ -138,5 +138,5 @@ async def process_video(data: ProcessRequest, session: AsyncSession = Depends(ge
     if data.roi is not None:
         await EntryRoiRepository(session).create(EntryRoiCreate(camera_id=camera.id, **data.roi.model_dump()))
         await reload_camera_rois(session, runtime, camera.id)
-    runtime.start_camera(camera)
+    runtime.start_camera(camera, fresh=True)
     return _view(camera, runtime)
