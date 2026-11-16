@@ -133,6 +133,8 @@ class CameraSession(threading.Thread):
 
     def request_stop(self) -> None:
         self._stop_flag.set()
+        if self._status.running:
+            self._publish(status="STOPPING")
 
     # -- status ----------------------------------------------------------------------------------------
     def _publish(self, **changes) -> None:
@@ -200,7 +202,7 @@ class CameraSession(threading.Thread):
                     native_fps = cap.get(cv2.CAP_PROP_FPS)
                     native_fps = native_fps if 1.0 <= native_fps <= 120.0 else 25.0
                     step = max(1, round(native_fps / cfg.stream.processing_fps))
-                    self._publish(frames_total=int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0))
+                    self._publish(frames_total=int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0), native_fps=native_fps)
 
             started = time.monotonic()
             if is_file:
@@ -218,7 +220,7 @@ class CameraSession(threading.Thread):
 
             if not ok:
                 if is_file:
-                    if cam.loop_video:
+                    if self._rt.loop_video_files:
                         self._finish_tracks(events, pipeline, cam.id, last_ts)
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         pipeline = self._rt.make_pipeline(cam.id)
@@ -291,6 +293,7 @@ class CameraSession(threading.Thread):
 class Runtime:
     def __init__(self, cfg: FaceMaskConfig, settings: Settings, pipeline_factory: PipelineFactory | None = None) -> None:
         self.cfg = cfg
+        self.loop_video_files = settings.loop_video_files
         self.bus = FrameBus()
         self.writer = DbWriter()
         self.evidence = EvidenceRecorder(cfg.evidence)
@@ -400,7 +403,7 @@ class Runtime:
         if session is not None:
             session.request_stop()
             session.join(timeout=10)
-            self.bus.clear(camera_id)
+            # Preserve the final annotated frame and STOPPED status for a refreshed page.
 
     def stop_all(self) -> None:
         with self._lock:

@@ -13,6 +13,7 @@ class StreamStatus(BaseModel):
     fps: float
     frames_read: int
     frames_total: int
+    native_fps: float = 0.0
     percent: float
     events_found: int
     last_error: str
@@ -23,7 +24,7 @@ class StreamStatus(BaseModel):
     @classmethod
     def of(cls, status: CameraStatus) -> "StreamStatus":
         return cls(camera_id=status.camera_id, status=status.status, running=status.running, fps=status.fps,
-                   frames_read=status.frames_read, frames_total=status.frames_total, percent=status.percent,
+                   frames_read=status.frames_read, frames_total=status.frames_total, native_fps=status.native_fps, percent=status.percent,
                    events_found=status.events_found, last_error=status.last_error, notice=status.notice,
                    active_tracks=status.active_tracks, track_states=dict(status.track_states))
 

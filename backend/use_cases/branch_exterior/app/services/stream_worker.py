@@ -122,6 +122,8 @@ class CameraWorker(threading.Thread):
 
     def stop(self) -> None:
         self._stop_event.set()
+        if self._state.running:
+            self._state.status = "STOPPING"
 
     def _scene_zone(self) -> Zone:
         from datetime import datetime, timezone
@@ -279,6 +281,7 @@ class CameraWorker(threading.Thread):
     # ------------------------------------------------------------------ main loop
     def run(self) -> None:  # noqa: C901 - one deliberately linear pipeline, kept in one place
         self._state.running = True
+        self._state.status = "STARTING"
         self._refresh_zones(force=True)
         try:
             self._reset_pipeline()
@@ -286,9 +289,14 @@ class CameraWorker(threading.Thread):
             logger.exception("Camera worker %s could not build its pipeline", self.camera.id)
             self._state.last_error = "Detector failed to start - see server logs"
             self._state.running = False
+            self._state.status = "ERROR"
             return
 
         cap = _open_capture(self.camera)
+        is_file = self.camera.cam_type in _FILE_CAM_TYPES
+        if is_file and cap.isOpened():
+            self._state.frames_total = max(0, int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0))
+            self._state.source_fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)
         import os
 
         roi_key = os.path.basename(self.camera.source) if self.camera.cam_type in _FILE_CAM_TYPES else self.camera.name
@@ -301,6 +309,9 @@ class CameraWorker(threading.Thread):
         frame_idx = 0
         face_counter = 0
         frame_errors = 0
+        finished = False
+        dispatches: list[Future] = []
+        self._pending_dispatches = dispatches
         s = self._settings
         detect_every = max(1, s.detect_every_n_frames) if self._uses_rfdetr else 1
         pose_every = max(1, s.pose_every_n_frames)
@@ -314,13 +325,18 @@ class CameraWorker(threading.Thread):
 
                 ok, frame = self._next_frame(cap, src)
                 if not ok:
-                    if self.camera.cam_type in _FILE_CAM_TYPES and self.camera.loop_video:
+                    if is_file and self._settings.loop_video_files:
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         src.update(t0=time.time(), consumed=0)
                         self._reset_pipeline()
                         frame_idx = 0
                         ok, frame = cap.read()
                     if not ok:
+                        if is_file:
+                            finished = frame_idx > 0 and not self._stop_event.is_set()
+                            if not finished:
+                                self._state.last_error = "Video file could not be read"
+                            break
                         consecutive_failures += 1
                         self._state.last_error = "No frame received from source"
                         time.sleep(1.0 if consecutive_failures > 30 else 0.2)
@@ -345,6 +361,9 @@ class CameraWorker(threading.Thread):
                     if frame_errors >= 20:
                         raise
                 frame_idx += 1
+                if is_file:
+                    self._state.frames_read = src["consumed"]
+                self._state.status = "PROCESSING"
                 face_counter += 1
 
                 elapsed = time.time() - loop_start
@@ -353,8 +372,18 @@ class CameraWorker(threading.Thread):
             logger.exception("Camera worker %s crashed", self.camera.id)
             self._state.last_error = "Worker crashed - see server logs"
         finally:
+            # Existing alert handler writes its evidence and outbox entry asynchronously.
+            # Let in-flight dispatches finish before publishing a terminal status.
+            for pending in dispatches:
+                try:
+                    pending.result(timeout=10)
+                except Exception:
+                    logger.exception("Pending alert dispatch failed for camera %s", self.camera.id)
             self._state.running = False
             cap.release()
+            if finished and self._state.frames_total:
+                self._state.frames_read = self._state.frames_total
+            self._state.status = "FINISHED" if finished else ("STOPPED" if self._stop_event.is_set() else "ERROR")
 
     # ------------------------------------------------------------------ one frame
     def _process_frame(self, frame, w, h, frame_idx, detect_every, pose_every, face_counter, runtime_cfg) -> None:  # noqa: C901
@@ -576,9 +605,9 @@ class CameraWorker(threading.Thread):
             if now - self._last_dispatch.get(key, 0.0) < 1.0:
                 continue
             self._last_dispatch[key] = now
-            self._run_async(
+            self._pending_dispatches.append(self._run_async(
                 alert_service.handle_signal(
                     self._repos, sg, self.camera, processed, self._clip_buffer,
                     thresholds, runtime_cfg.notifications.webhook_url,
                 )
-            )
+            ))

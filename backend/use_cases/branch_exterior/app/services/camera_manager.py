@@ -44,7 +44,7 @@ class CameraManager:
         return self._repos
 
     def active_ids(self) -> list[str]:
-        return list(self._workers.keys())
+        return [cid for cid, worker in self._workers.items() if worker.is_alive()]
 
     async def start_all_enabled(self) -> None:
         assert self._repos is not None
@@ -71,7 +71,7 @@ class CameraManager:
         worker = self._workers.pop(camera_id, None)
         if worker:
             worker.stop()
-        frame_bus.unregister(camera_id)
+        # Keep the last frame and terminal status for polling and refresh.
 
     def restart(self, camera: Camera) -> None:
         """Re-create the worker for a camera whose settings changed - but only
@@ -100,7 +100,10 @@ class CameraManager:
         if state is None:
             return CameraStatus(camera_id=camera_id, running=False)
         return CameraStatus(
-            camera_id=camera_id, running=state.running, fps=round(state.fps, 1),
+            camera_id=camera_id, running=state.running, status=state.status,
+            frames_total=state.frames_total, frames_read=state.frames_read, source_fps=state.source_fps,
+            percent=min(100.0, round(100 * state.frames_read / state.frames_total, 1)) if state.frames_total else 0,
+            fps=round(state.fps, 1),
             frame_count=state.frame_count, active_tracks=state.active_tracks,
             vehicle_count=state.vehicle_count, last_error=state.last_error, open_events=state.open_events,
             people_now=state.people_now, individuals=state.individuals, groups=state.groups,

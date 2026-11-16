@@ -16,6 +16,10 @@ class CameraFrameState:
         self._raw: np.ndarray = draw_placeholder_frame([camera_name, "Waiting for first frame..."])
         self._processed: np.ndarray = self._raw.copy()
         self.running = False
+        self.status = "STOPPED"
+        self.frames_total = 0
+        self.frames_read = 0
+        self.source_fps = 0.0
         self.fps = 0.0
         self.frame_count = 0
         self.active_tracks = 0
@@ -95,10 +99,10 @@ class FrameBus:
 
     def register(self, camera_id: str, camera_name: str) -> CameraFrameState:
         with self._lock:
-            state = self._states.get(camera_id)
-            if state is None:
-                state = CameraFrameState(camera_id, camera_name)
-                self._states[camera_id] = state
+            # Each run gets fresh progress/status; a finishing prior worker keeps
+            # its own state object and cannot overwrite the new run's state.
+            state = CameraFrameState(camera_id, camera_name)
+            self._states[camera_id] = state
             return state
 
     def unregister(self, camera_id: str) -> None:

@@ -11,6 +11,8 @@ import { EventStatusBadge, PageState, ServiceDown, StateDot, StreamBadge, Empty 
 import usePolling from '../hooks/usePolling.js';
 import { faceMaskEventLink } from '../../../layouts/routes.js';
 import SourcePicker from '../../../components/video/SourcePicker.jsx';
+import { PlaybackBadge, PlaybackProgress, StopButton } from '../../../components/video/PlaybackControls.jsx';
+import { playbackPlaceholder, playbackStatus } from '../../../components/video/playbackState.js';
 
 const DEFAULT_ROI = {
   name: 'Full frame default',
@@ -21,22 +23,8 @@ const DEFAULT_ROI = {
 // A sensible default entrance for a quick video test: the lower part of the frame, people walking "up" into the building.
 // Real cameras get their own Entry ROI on the common Regions & Zones page.
 const STAGE = { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', textAlign: 'center', padding: 16 };
-const LIVE_STATES = ['ONLINE', 'PROCESSING', 'RECONNECTING', 'DONE'];
+const LIVE_STATES = ['ONLINE', 'PROCESSING', 'RECONNECTING', 'DONE', 'STOPPED', 'STOPPING'];
 const browseFaceMaskVideos = () => api.get('/uploads/browse');
-
-function Progress({ st }) {
-  if (!st.frames_total) return null;
-  return (
-    <div style={{ padding: '4px 16px 10px' }}>
-      <div className="bx-bar-track" role="progressbar" aria-valuenow={st.percent} aria-valuemin={0} aria-valuemax={100}>
-        <div className="bx-bar-fill" style={{ width: `${st.percent}%` }} />
-      </div>
-      <div className="bx-muted" style={{ fontSize: 12, marginTop: 4 }}>
-        {st.percent}% · {st.frames_read} / {st.frames_total} frames · {st.events_found} concealment event{st.events_found === 1 ? '' : 's'} so far
-      </div>
-    </div>
-  );
-}
 
 export default function LiveMonitoring() {
   const navigate=useNavigate();
@@ -49,6 +37,7 @@ export default function LiveMonitoring() {
   const [imgFailed, setImgFailed] = useState(false);
   const [debugOverlay, setDebugOverlay] = useState(false);
   const [useDefaultRoi, setUseDefaultRoi] = useState(false);
+  const [stopping, setStopping] = useState(false);
 
   const cams = usePolling(() => api.get('/cameras'), 1500);
   const events = usePolling(() => api.get('/events?limit=10'), 3000);
@@ -57,24 +46,31 @@ export default function LiveMonitoring() {
   const st = cam?.stream || {};
   const hasFrame = !!cam && LIVE_STATES.includes(st.status) && (st.frames_read > 0 || st.status === 'DONE');
   const running = !!(cam && st.running);
+  const displayStatus = playbackStatus(st.status, running);
 
-  useEffect(() => { setImgFailed(false); }, [selectedId, st.status === 'DONE', nonce]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setImgFailed(false); }, [selectedId, st.status, nonce]);  // eslint-disable-line react-hooks/exhaustive-deps
   const select = (id) => {
     setSelectedId(id); setNonce((n) => n + 1);
     try { if (id) localStorage.setItem('fmCameraId', id); else localStorage.removeItem('fmCameraId'); } catch { /* ignore */ }
   };
-  const streamSrc = useMemo(() => (hasFrame ? fmApiUrl(`/streams/${cam.id}/processed?debug=${debugOverlay}&t=${Date.now()}`) : ''),
+  const streamSrc = useMemo(() => (hasFrame ? fmApiUrl(running
+    ? `/streams/${cam.id}/processed?debug=${debugOverlay}&t=${Date.now()}`
+    : `/streams/${cam.id}/last?t=${Date.now()}`) : ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hasFrame, cam?.id, nonce, debugOverlay]);
+    [hasFrame, cam?.id, nonce, debugOverlay, running]);
 
   const act = async (fn) => {
     setActionError('');
     try { await fn(); setNonce((n) => n + 1); await cams.reload(); } catch (e) { setActionError(e.message); }
   };
-  const toggleRun = () => act(() => api.post(`/cameras/${cam.id}/${running ? 'stop' : 'start'}`));
+  const stop = async () => {
+    if (!cam || !running || stopping) return;
+    setStopping(true);
+    try { await act(() => api.post(`/cameras/${cam.id}/stop`)); } finally { setStopping(false); }
+  };
   const remove = () => {
     if (!window.confirm(`Delete camera "${cam.name}"? Its entry ROIs are removed too; recorded events and evidence are kept.`)) return;
-    act(async () => { await api.del(`/cameras/${cam.id}`); select(''); });
+    act(async () => { if (running) await api.post(`/cameras/${cam.id}/stop`); await api.del(`/cameras/${cam.id}`); select(''); });
   };
 
   const trackRows = Object.entries(st.track_states || {});
@@ -93,7 +89,9 @@ export default function LiveMonitoring() {
       {actionError && <div className="bx-diag" role="alert">{actionError}</div>}
 
       {!down && <SourcePicker useCase="face_mask" cameras={cameras} browseVideos={browseFaceMaskVideos}
+        isRunning={running} activeCameraId={cam?.id} activeSourcePath={cam?.source}
         onProcess={async (source) => {
+          if (running && cam) await api.post(`/cameras/${cam.id}/stop`);
           if (source.kind === 'camera') {
             await api.post(`/cameras/${source.cameraId}/start`);
             select(source.cameraId); await cams.reload();
@@ -121,28 +119,29 @@ export default function LiveMonitoring() {
                     {cam && st.status === 'RECONNECTING' && <><div style={{ fontSize: 28 }}>🔄</div>Reconnecting to the camera… {st.last_error}</>}
                     {cam && st.status === 'OFFLINE' && <><div style={{ fontSize: 28 }}>📴</div>Camera is OFFLINE. It keeps retrying automatically. {st.last_error}</>}
                     {cam && st.status === 'ERROR' && <><div style={{ fontSize: 28 }}>⚠</div>{st.last_error || 'The stream could not start.'}</>}
-                    {cam && ['STOPPED', 'ONLINE', 'PROCESSING'].includes(st.status) && !running && <><div style={{ fontSize: 28 }}>⏸</div>Stopped. Press Start to analyse.</>}
+                    {cam && !running && !['RECONNECTING', 'OFFLINE', 'ERROR'].includes(st.status) && <><div style={{ fontSize: 28 }}>⏸</div>{playbackPlaceholder(true, displayStatus)}</>}
                     {cam && running && !hasFrame && <><div style={{ fontSize: 28 }}>⏳</div>Starting (the first start loads the AI models)…</>}
                   </div>
                 )}
               </div>
-              {cam && <div className="bx-live-badge"><span className={running ? 'bx-dot-live' : 'bx-dot-off'} /> {st.status}</div>}
+              {cam && <PlaybackBadge status={st.status} running={running} />}
             </div>
             <div className="bx-tile-meta">
               <label className="bx-row bx-gap-8" style={{ fontSize: 12 }}><input type="checkbox" checked={debugOverlay} onChange={(event) => setDebugOverlay(event.target.checked)} /> Debug overlay</label>
               <div>
-                <div className="name">{cam ? cam.name : 'No camera selected'} {cam && <StreamBadge status={st.status} />}</div>
+                <div className="name">{cam ? cam.name : 'No camera selected'} {cam && <StreamBadge status={displayStatus} />}</div>
                 <div className="loc">{cam ? (cam.location || cam.source) : 'Pick a camera or video from the list above.'}</div>
               </div>
               {cam && (
                 <div className="bx-row bx-gap-8 bx-wrap">
-                  <button type="button" className={`bx-btn bx-btn-sm${running ? '' : ' bx-btn-primary'}`} onClick={toggleRun}>{running ? 'Stop' : 'Start'}</button>
+                  <StopButton status={displayStatus} running={running} stopping={stopping} onStop={stop} />
                   <Link className="bx-btn bx-btn-sm" to={`/regions?use_case=face_mask&camera=${cam.id}`}>Entry ROI</Link>
                   <button type="button" className="bx-btn bx-btn-sm bx-btn-ghost" onClick={remove}>Delete</button>
                 </div>
               )}
             </div>
-            {cam && <Progress st={st} />}
+            {cam && <PlaybackProgress status={st} />}
+            {cam && !running && st.frames_read > 0 && <div className="bx-hint" style={{ margin: '0 16px 10px' }}>{playbackPlaceholder(true, displayStatus)}</div>}
             {cam && st.status === 'DONE' && (
               <div className="bx-hint" style={{ margin: '0 16px 10px' }}>
                 <b>Finished.</b> {st.frames_read} frames analysed, <b>{st.events_found}</b> concealment event{st.events_found === 1 ? '' : 's'} found.

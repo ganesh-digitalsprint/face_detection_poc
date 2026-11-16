@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     storage_dir: str = "storage"
     config_path: str = ""  # FACE_MASK_CONFIG_PATH; empty = config/face_mask.yaml
+    loop_video_files: bool = False  # Files finish at EOF; opt in explicitly to replay.
 
     # Alert Service publication (disabled unless both are set)
     alert_service_base_url: str = ""

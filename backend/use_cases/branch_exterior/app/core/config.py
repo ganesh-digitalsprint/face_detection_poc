@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     # Monitoring dropdown). Every other camera is idle and uses no CPU.
     # Set to false to run every enabled camera at once (e.g. a real multi-camera site).
     single_active_camera: bool = True
+    loop_video_files: bool = False  # Files finish at EOF; opt in explicitly to replay.
 
     # Detection pipeline ---------------------------------------------------
     # rfdetr (default) | motion | hog. The detector is chosen ONLY from here

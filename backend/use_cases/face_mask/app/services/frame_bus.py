@@ -20,6 +20,7 @@ class CameraStatus:
     fps: float = 0.0
     frames_read: int = 0
     frames_total: int = 0           # video files only
+    native_fps: float = 0.0         # source frame rate, for elapsed / total display
     events_found: int = 0
     last_error: str = ""
     notice: str = ""                # non-error hint, e.g. "No entry ROI configured: nobody can be evaluated"

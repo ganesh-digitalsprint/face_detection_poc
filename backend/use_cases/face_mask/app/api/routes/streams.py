@@ -23,12 +23,23 @@ _POLL_SECONDS = 0.08
 async def _mjpeg(request: Request, runtime: Runtime, camera_id: str, debug: bool = False):
     last: bytes | None = None
     while not await request.is_disconnected():
+        status = runtime.bus.status(camera_id)
+        if not status.running and status.status in ("DONE", "STOPPED", "ERROR"):
+            return
         jpeg = runtime.bus.latest_jpeg(camera_id, debug=debug)
         if jpeg is not None and jpeg is not last:
             last = jpeg
             yield (b"--" + _BOUNDARY.encode() + b"\r\nContent-Type: image/jpeg\r\nContent-Length: "
                    + str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n")
         await asyncio.sleep(_POLL_SECONDS)
+
+
+@router.get("/{camera_id}/last")
+async def last_frame(camera_id: str, runtime: Runtime = Depends(get_runtime)):
+    jpeg = runtime.bus.latest_jpeg(camera_id)
+    if jpeg is None:
+        raise HTTPException(404, "No frame has been processed")
+    return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/{camera_id}/processed")
