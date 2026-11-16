@@ -38,6 +38,13 @@ test('clip-only events do not enter the snapshot filter or unavailable count',as
   assert.equal(result.evidenceStatus,'CAPTURED');assert.equal(result.clipCount,1);assert.equal(result.snapshotCount,0);
   assert.ok(!matchesEvidence(result,'CAPTURED'));assert.ok(!matchesEvidence(result,'UNAVAILABLE'));
 });
+test('Branch snapshot-only incidents resolve one source-bound snapshot and report no clip',async()=>{
+  const result=await createEvidenceResolver({...api(),branch:async(id)=>({id,snapshot_path:'snapshots/one.jpg',clip_path:'',meta:{evidence:'saved'}})})(
+    {useCase:'branch_exterior',sourceEventId:'source-only'});
+  assert.equal(result.evidenceStatus,'CAPTURED');assert.equal(result.snapshotCount,1);assert.equal(result.clipCount,0);
+  assert.equal(result.evidenceRefs[0].event_path,'/api/events/source-only');
+  assert.ok(matchesEvidence(result,'CAPTURED'));
+});
 test('a failed displayed image immediately removes only its availability and counts',()=>{
   const snapshot={id:'snapshot',type:'snapshot'},clip={id:'clip',type:'clip'};
   const row=verifiedEvidence([snapshot,clip],[{ref:snapshot,url:'image'}]);

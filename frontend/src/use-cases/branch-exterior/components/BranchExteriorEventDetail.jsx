@@ -10,6 +10,10 @@ function evidenceNotice(meta = {}) {
   if (state.startsWith('not_saved:cooldown')) return 'No snapshot was captured because the evidence cooldown is active.';
   if (state.startsWith('not_saved:daily_cap_reached')) return 'No snapshot was captured because the daily evidence limit was reached.';
   if (state.startsWith('not_saved:storage_cap_reached')) return 'No snapshot was captured because the evidence storage limit was reached.';
+  if (state.startsWith('not_saved:storage_check_failed')) return 'No snapshot was captured because storage availability could not be verified.';
+  if (state === 'not_saved:evidence_retention_removed') return 'The snapshot was removed by evidence retention; the incident is still available.';
+  if (state === 'not_saved:evidence_removed_by_storage_cleanup') return 'The snapshot was removed by storage cleanup; the incident is still available.';
+  if (state === 'failed:snapshot_write_failed') return 'Snapshot capture failed; the incident was saved.';
   if (state.startsWith('failed:')) return 'Evidence capture failed; the incident was saved.';
   return 'No snapshot or clip is attached to this incident.';
 }

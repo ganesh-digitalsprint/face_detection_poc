@@ -32,6 +32,14 @@ test('Branch details keep geographic place separate and explain intentionally ex
   assert.match(html,/Download snapshot<\/button>/);
 });
 
+test('storage-limited Branch event shows its unavailable evidence reason',async()=>{
+  const html=await render(baseAlert({evidenceStatus:'UNAVAILABLE',snapshotCount:0,clipCount:0,
+    evidenceUnavailableReason:'storage_cap_reached',evidenceRefs:[],evidenceSnapshots:[]}));
+  assert.match(html,/evidence storage limit was reached/);
+  assert.match(html,/Download snapshot<\/button>/);
+  assert.match(html,/Download clip<\/button>/);
+});
+
 test('snapshot and clip controls appear only for verified evidence URLs',async()=>{
   const html=await render(baseAlert({evidenceStatus:'CAPTURED',evidenceRefs:[
     {id:'snapshot-1',type:'snapshot',url:'http://source/snapshot.jpg'},
@@ -41,4 +49,14 @@ test('snapshot and clip controls appear only for verified evidence URLs',async()
   assert.match(html,/role="tab"[^>]*>Snapshots/);
   assert.match(html,/Download clip<\/a>/);
   assert.match(html,/Download snapshot<\/a>/);
+});
+
+test('snapshot-only Branch alert displays and downloads its snapshot with clip controls disabled',async()=>{
+  const html=await render(baseAlert({evidenceManaged:true,evidenceStatus:'CAPTURED',evidenceUnavailableReason:null,snapshotCount:1,clipCount:0,
+    evidenceRefs:[{id:'source-1:snapshot',type:'snapshot',url:'http://source/snapshot.jpg'}],
+    evidenceSnapshots:[{ref:{id:'source-1:snapshot',type:'snapshot'},url:'http://source/snapshot.jpg'}]}));
+  assert.match(html,/Captured alert snapshot/);
+  assert.match(html,/Download snapshot<\/a>/);
+  assert.match(html,/Download clip<\/button>/);
+  assert.doesNotMatch(html,/role="tab"[^>]*>Video clip/);
 });

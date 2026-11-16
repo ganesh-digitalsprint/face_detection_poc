@@ -1,20 +1,20 @@
-"""Decides WHETHER a snapshot + clip may be written for an event.
+"""Decides WHETHER a video clip may be written for an event.
 
 This is the fix for the disk filling up: previously every new event - even a
 low-severity "person stood still for 5 minutes" - wrote a JPEG and an MP4.
-Now evidence is only stored when ALL of these hold:
+Snapshots are independently attempted for every persisted event subject to the global storage cap.
+This policy applies only to clips. A clip is saved when ALL of these hold:
 
   1. The event is *suspicious*: severity >= `evidence_min_severity` (default
      "high"), or it is a weapon / fighting detection (always suspicious).
-  2. The same camera + scenario hasn't already saved evidence in the last
+  2. The same camera + scenario hasn't already saved a clip in the last
      `evidence_cooldown_seconds` (stops one ongoing incident from producing
      many near-identical clips).
-  3. Fewer than `evidence_max_per_day` evidence sets were saved today
+  3. Fewer than `evidence_max_per_day` clips were saved today
      (critical, weapon and fighting events are exempt - never silenced by the daily cap).
   4. The evidence folders are under the `storage_max_mb` cap.
 
-Events that fail the check are STILL recorded in the database (so the
-dashboard and counts stay complete) - they just have no media attached.
+Events that fail the clip check are STILL recorded, and can retain their snapshot.
 
 Pure Python, no framework imports, so it is trivially unit-testable.
 """

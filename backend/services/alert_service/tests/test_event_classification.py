@@ -13,7 +13,7 @@ from app.db.models import Alert, AlertAudit
     ('vault_monitoring', 'UNAUTHORIZED_ENTRY', 'PERSON_ENTERED'),
     ('vault_monitoring', 'MOBILE_PHONE_DETECTED', 'PHONE_OBSERVED'),
     ('grill_gate', 'GATE_OPEN_TOO_LONG', 'GATE_OPENED'),
-    ('branch_exterior', 'movement', 'person_detected'),
+    ('branch_exterior', 'anomaly', 'person_detected'),
     ('face_mask', 'FACE_CONCEALMENT', 'ENTRY_LOG'),
 ])
 def test_only_security_records_persist_and_updates_remain_idempotent(tmp_path, use_case, genuine, routine):
@@ -52,13 +52,29 @@ def test_only_security_records_persist_and_updates_remain_idempotent(tmp_path, u
 
 
 @pytest.mark.parametrize('kind,extra,expected', [
-    ('running', {}, False), ('jumping', {}, False), ('group', {}, False),
-    ('fallen', {}, False), ('weapon', {}, True), ('fighting', {}, True),
+    ('running', {}, True), ('jumping', {}, True), ('group', {}, True),
+    ('fallen', {}, True), ('weapon', {}, True), ('fighting', {}, True),
     ('running', {'override':'weapon_present'}, True),
     ('running', {'zone_alert':'Restricted area'}, True),
-    ('weapon', {'simulated':True}, False), ('weapon', {'replay':True}, False),
+    ('weapon', {'simulated':True}, True), ('weapon', {'replay':True}, True),
 ])
 def test_branch_context_classification(kind, extra, expected):
     from fedbank_core.events.classification import is_security_alert
     assert is_security_alert('branch_exterior', {'source_event_type':'anomaly',
         'domain_data':{'kind':kind, **extra}}) is expected
+
+
+@pytest.mark.parametrize('event_type', [
+    'loitering', 'gathering', 'movement', 'intrusion', 'anomaly', 'simulated',
+])
+def test_all_persisted_branch_scenarios_are_eligible_regardless_of_kind_or_flags(event_type):
+    from fedbank_core.events.classification import is_security_alert
+    assert is_security_alert('branch_exterior', {'source_event_type':event_type,
+        'domain_data':{'kind':'routine_or_new_kind', 'replay':True, 'simulated':True}})
+
+
+def test_branch_tracker_events_and_other_use_case_replay_guards_remain_excluded():
+    from fedbank_core.events.classification import is_security_alert
+    assert not is_security_alert('branch_exterior', {'source_event_type':'person_detected'})
+    assert not is_security_alert('face_mask', {'source_event_type':'FACE_CONCEALMENT',
+        'domain_data':{'simulated':True}})

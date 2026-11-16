@@ -177,6 +177,13 @@ async def retention_pass(repos: Repositories) -> dict:
             if e.clip_path and e.clip_path in deleted:
                 fields["clip_path"] = ""
             if fields:
+                remaining_snapshot = e.snapshot_path and e.snapshot_path not in deleted
+                remaining_clip = e.clip_path and e.clip_path not in deleted
+                if not remaining_snapshot and not remaining_clip:
+                    reason = ("evidence_retention_removed" if any(path in expired_rels
+                        for path in (e.snapshot_path, e.clip_path) if path)
+                        else "evidence_removed_by_storage_cleanup")
+                    fields["meta"] = {**(e.meta or {}), "evidence": f"not_saved:{reason}"}
                 await repos.events.touch(e.id, **fields)
                 n += 1
                 if n % 25 == 0:

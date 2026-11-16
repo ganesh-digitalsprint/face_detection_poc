@@ -107,7 +107,7 @@ def test_committed_repository_updates_retry_and_deletion(tmp_path, monkeypatch):
             client_factory=lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(handler), **kw))
         monkeypatch.setattr(module, 'get_alert_publisher', lambda: publisher)
         try:
-            event = await repos.events.create(EventCreate(camera_id='cam', scenario='anomaly', severity='medium', meta={'kind':'weapon'}))
+            event = await repos.events.create(EventCreate(camera_id='cam', scenario='anomaly', severity='medium', meta={'kind':'fallen'}))
             await publisher.dispatch_once()
             assert remote['source_event_id'] == event.id and len(writes) == 1
             fail_update[0] = True
@@ -208,6 +208,20 @@ def test_sync_payload_publishes_canonical_branch_metadata_and_existing_owner_med
     assert 'storage/' not in json.dumps(payload)
 
 
+def test_snapshot_only_sync_payload_publishes_one_snapshot_and_no_clip(monkeypatch, tmp_path):
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    monkeypatch.setenv('FEDBANK_STORAGE_ROOT', str(tmp_path/'storage'))
+    path = tmp_path/'storage'/'screenshots'/'branch_exterior'/'snapshot.jpg'
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b'synthetic snapshot')
+    payload = build_sync_payload(make_event(meta={'evidence':'saved'}, snapshot_path='snapshots/snapshot.jpg', clip_path=''))
+    assert len(payload['evidence_refs']) == 1
+    assert payload['evidence_refs'][0]['type'] == 'snapshot'
+    assert payload['domain_data']['evidence_status'] == 'CAPTURED'
+    assert payload['domain_data']['snapshot_count'] == 1
+    assert payload['domain_data']['clip_count'] == 0
+
+
 def test_sync_payload_reports_intentional_policy_exclusion_and_lost_file(monkeypatch, tmp_path):
     monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
     monkeypatch.setenv('FEDBANK_STORAGE_ROOT', str(tmp_path/'storage'))
@@ -218,6 +232,16 @@ def test_sync_payload_reports_intentional_policy_exclusion_and_lost_file(monkeyp
     assert excluded['domain_data']['evidence_unavailable_reason'] == 'not_suspicious'
     assert missing['domain_data']['evidence_status'] == 'FAILED'
     assert missing['domain_data']['evidence_unavailable_reason'] == 'evidence_file_missing'
+
+
+def test_sync_payload_reports_snapshot_removed_by_retention_as_unavailable(monkeypatch, tmp_path):
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    monkeypatch.setenv('FEDBANK_STORAGE_ROOT', str(tmp_path/'storage'))
+    payload = build_sync_payload(make_event(snapshot_path='', clip_path='',
+        meta={'evidence':'not_saved:evidence_retention_removed'}))
+    assert payload['domain_data']['evidence_status'] == 'UNAVAILABLE'
+    assert payload['domain_data']['snapshot_count'] == payload['domain_data']['clip_count'] == 0
+    assert payload['domain_data']['evidence_unavailable_reason'] == 'evidence_retention_removed'
 
 
 def test_branch_historical_reconciliation_reuses_current_database_and_publisher(tmp_path,monkeypatch):
@@ -263,18 +287,59 @@ def test_branch_historical_reconciliation_reuses_current_database_and_publisher(
 
 
 @pytest.mark.parametrize('kind', ['running', 'jumping', 'group', 'fallen'])
-def test_routine_context_never_enters_outbox_or_historical_reconciliation(tmp_path, kind):
+def test_persisted_branch_anomaly_kinds_enter_outbox_and_publish(tmp_path, kind):
     service = FakeService()
-    publisher = AlertPublisher('http://common', 'producer', outbox_dir=tmp_path/'outbox',
-        client_factory=lambda **kw:httpx.AsyncClient(transport=httpx.MockTransport(service.handler), **kw))
+    publisher = make_publisher(tmp_path, service)
     event = make_event(scenario='anomaly', meta={'kind':kind})
-    assert run(publisher.enqueue(event)) is False
-    assert publisher.pending_count() == 0 and service.requests == []
-    # Legacy queued snapshots must also be discarded before HTTP publication.
-    path = tmp_path/'legacy.json'
-    path.write_text(json.dumps({'payload':build_payload(event)}))
-    run(publisher._deliver(path, {'payload':build_payload(event)}))
-    assert not path.exists() and service.requests == []
+    assert run(publisher.enqueue(event)) is True
+    assert publisher.pending_count() == 1
+    assert run(publisher.dispatch_once()) == 1
+    assert publisher.pending_count() == 0
+    assert len(service.requests) == 1
+    assert service.requests[0].method == 'POST'
+    payload = json.loads(service.requests[0].content)
+    assert payload['source_event_id'] == event.id
+    assert payload['source_event_type'] == 'anomaly'
+
+
+@pytest.mark.parametrize(('scenario', 'severity', 'kind'), [
+    ('movement', 'info', 'minor'), ('movement', 'low', 'running'), ('anomaly', 'medium', 'fallen'),
+    ('movement', 'medium', 'unusual'), ('gathering', 'medium', 'group'),
+    ('loitering', 'high', ''), ('intrusion', 'critical', 'zone_touch'),
+    ('simulated', 'medium', 'demo'),
+])
+def test_every_persisted_branch_scenario_is_publication_eligible(tmp_path, scenario, severity, kind):
+    service = FakeService()
+    publisher = make_publisher(tmp_path, service)
+    event = make_event(scenario=scenario, severity=severity, meta={'kind':kind, 'simulated':scenario == 'simulated'})
+    assert run(publisher.enqueue(event)) is True
+    assert run(publisher.dispatch_once()) == 1
+    assert publisher.pending_count() == 0
+    sent = json.loads(service.requests[0].content)
+    assert sent['source_event_id'] == event.id
+    assert sent['source_event_type'] == scenario
+    assert sent['severity'] == severity
+
+
+def test_missing_snapshot_does_not_block_source_synced_publication(tmp_path):
+    service = FakeService(404, 201)
+    event = make_event(scenario='anomaly', severity='medium', meta={'kind':'fallen', 'evidence':'saved'},
+        snapshot_path='snapshots/not-present.jpg', clip_path='')
+
+    async def load_source(source_id):
+        assert source_id == event.id
+        return build_sync_payload(event)
+
+    publisher = AlertPublisher('http://alerts.test', 'producer-secret', outbox_dir=tmp_path,
+        client_factory=service.factory, source_loader=load_source, clock=Clock())
+    assert run(publisher.enqueue(event)) is True
+    assert run(publisher.dispatch_once()) == 1
+    post = next(request for request in service.requests if request.method == 'POST')
+    sent = json.loads(post.content)
+    assert sent['source_event_id'] == event.id
+    assert sent['evidence_refs'] == []
+    assert sent['domain_data']['evidence_status'] == 'FAILED'
+    assert sent['domain_data']['evidence_unavailable_reason'] == 'evidence_file_missing'
 
 
 def test_disabled_publisher_writes_nothing_and_never_calls_the_service(tmp_path):

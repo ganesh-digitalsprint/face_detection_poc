@@ -71,6 +71,33 @@ def test_branch_severity_ingestion_and_exact_replay_create_one_audit_and_outbox(
         assert db.query(NotificationOutbox).count() == 1
 
 
+def test_medium_fallen_snapshot_is_persisted_and_serialized_once(configured):
+    client, app = configured
+    body = payload(source_event_id='fallen-source-1', source_event_type='anomaly', severity='medium',
+        title='Person may have fallen', summary='Fallen posture detected',
+        resource_refs={'branch_id':'branch-1', 'branch_code':'B001', 'branch_name':'Central',
+            'place_name':'Pune', 'region_name':'West', 'branch_manager':'Manager',
+            'camera_id':'camera-1', 'camera_name':'Video 99346', 'zone_name':'Whole scene'},
+        domain_data={'lifecycle_owner':'source', 'kind':'fallen', 'confidence':0.92, 'track_ids':[2],
+            'evidence_status':'CAPTURED', 'snapshot_count':1, 'clip_count':0},
+        evidence_refs=[{'provider':'branch_exterior', 'id':'fallen-source-1:snapshot', 'type':'snapshot',
+            'event_path':'/api/events/fallen-source-1'}])
+    created = create(client, body, key='fallen-source-create')
+    replay = create(client, body, key='fallen-source-retry')
+    assert created.status_code == 201
+    assert replay.status_code == 200
+    alert = created.json()
+    assert alert['id'] == replay.json()['id']
+    assert alert['source_event_id'] == 'fallen-source-1'
+    assert alert['source_event_type'] == 'anomaly'
+    assert alert['source_severity'] == 'medium'
+    assert alert['snapshot_count'] == 1 and alert['clip_count'] == 0
+    assert alert['evidence_refs'] == body['evidence_refs']
+    assert alert['branch_name'] == 'Central' and alert['camera_name'] == 'Video 99346'
+    with app.state.session_factory() as db:
+        assert db.query(Alert).count() == 1
+
+
 def test_grill_gate_contract_v1_producer_registration_publishes_one_scoped_logical_alert(tmp_path):
     grill_producer = "grill-gate-test-producer"
     grill_operator = "grill-gate-test-operator"

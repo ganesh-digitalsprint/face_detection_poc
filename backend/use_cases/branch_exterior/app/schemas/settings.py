@@ -70,10 +70,10 @@ class ThresholdConfig(BaseModel):
     detector_backend: DetectorBackend = "rfdetr"
     processing_fps: int = 5
 
-    # --- Evidence storage (snapshots + clips only for SUSPICIOUS events) ---
-    evidence_min_severity: str = Field("high", description="Snapshot+clip only if severity >= this (info|low|medium|high|critical). Weapon/fighting always qualify.")
-    evidence_cooldown_seconds: int = Field(60, description="Min gap between evidence sets for the same camera+scenario")
-    evidence_max_per_day: int = Field(150, description="Daily cap on evidence sets (critical/weapon/fighting exempt)")
+    # --- Clip eligibility (snapshots are attempted for every event within the storage cap) ---
+    evidence_min_severity: str = Field("high", description="Video clips only if severity >= this (info|low|medium|high|critical). Weapon/fighting always qualify.")
+    evidence_cooldown_seconds: int = Field(60, description="Minimum gap between eligible video clips for the same camera and scenario")
+    evidence_max_per_day: int = Field(150, description="Daily cap on eligible video clips (critical/weapon/fighting exempt)")
     evidence_post_roll_seconds: int = Field(5, description="Seconds of footage kept AFTER the trigger in the clip")
     evidence_retention_days: int = Field(7, description="Evidence files older than this are deleted automatically")
     storage_max_mb: int = Field(2048, description="Hard cap for snapshots+clips; oldest are deleted beyond it")

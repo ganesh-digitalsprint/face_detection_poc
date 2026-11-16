@@ -20,6 +20,9 @@ function evidenceFallback(alert, current) {
   if (reason === 'cooldown') return 'No snapshot was captured because the evidence cooldown is active.';
   if (reason === 'daily_cap_reached') return 'No snapshot was captured because the daily evidence limit was reached.';
   if (reason === 'storage_cap_reached') return 'No snapshot was captured because the evidence storage limit was reached.';
+  if (reason === 'storage_check_failed') return 'No snapshot was captured because storage availability could not be verified.';
+  if (reason === 'evidence_retention_removed') return 'The snapshot was removed by evidence retention; the incident is still available.';
+  if (reason === 'evidence_removed_by_storage_cleanup') return 'The snapshot was removed by storage cleanup; the incident is still available.';
   if (alert.evidenceStatus === 'CAPTURED') return 'Captured snapshot reference is missing.';
   return 'No captured snapshot is attached to this incident.';
 }

@@ -202,15 +202,15 @@ export default function SettingsPage() {
 
           <div className="bx-card">
             <div className="bx-card-title">Evidence storage (saves disk space)</div>
-            <p className="bx-hint">Snapshots and clips are only stored for suspicious events. Everything else is still logged as an event, just without media.</p>
-            <label className="bx-field">Store media when severity is at least
+            <p className="bx-hint">Every new alert attempts one snapshot within the storage cap. Severity, cooldown and daily limits apply to video clips.</p>
+            <label className="bx-field">Create video clips when severity is at least
               <select className="bx-input" value={minSev} onChange={(e) => setMinSev(e.target.value)}>
                 <option value="medium">medium</option><option value="high">high (recommended)</option><option value="critical">critical only</option>
               </select>
             </label>
             <div className="bx-field-row">
-              <Num label="Cooldown per camera+scenario (s)" k="evidence_cooldown_seconds" min="0" {...n} />
-              <Num label="Max evidence sets per day" k="evidence_max_per_day" min="1" {...n} />
+              <Num label="Clip cooldown per camera+scenario (s)" k="evidence_cooldown_seconds" min="0" {...n} />
+              <Num label="Max video clips per day" k="evidence_max_per_day" min="1" {...n} />
             </div>
             <div className="bx-field-row">
               <Num label="Clip seconds after trigger" k="evidence_post_roll_seconds" min="0" max="30" {...n} />
