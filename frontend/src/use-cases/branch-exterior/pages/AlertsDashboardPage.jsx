@@ -18,13 +18,18 @@ export function EventPreview({ event, onOpen }) {
   </button>;
 }
 
-function EventDetail({ id, incident, onClose, onReviewed }) {
-  const [e, setE] = useState(null);
+export function EventDetail({ id, incident, onClose, onReviewed, initialEvent }) {
+  const [e, setE] = useState(initialEvent?.id === id ? initialEvent : null);
   const [remarks, setRemarks] = useState('');
   const [err, setErr] = useState('');
+  const [snapshotFailed, setSnapshotFailed] = useState(false);
+  const [clipFailed, setClipFailed] = useState(false);
   useEffect(() => {
-    api.get(`/events/${id}`).then((x) => { setE(x); setRemarks(x.reviewer_remarks || ''); }).catch((x) => setErr(x.message));
-  }, [id]);
+    let active = true;
+    setE(initialEvent?.id === id ? initialEvent : null); setErr(''); setSnapshotFailed(false); setClipFailed(false);
+    api.get(`/events/${id}`).then((x) => { if (active) { setE(x); setRemarks(x.reviewer_remarks || ''); } }).catch((x) => { if (active) setErr(x.message); });
+    return () => { active = false; };
+  }, [id, initialEvent]);
   if (err) return <Modal title="Event" onClose={onClose}><div className="bx-diag">{err}</div></Modal>;
   if (!e) return <Modal title="Event" onClose={onClose}><div className="bx-row bx-gap-8 bx-muted"><span className="bx-spinner" /> Loading…</div></Modal>;
 
@@ -32,7 +37,17 @@ function EventDetail({ id, incident, onClose, onReviewed }) {
     try { await api.post(`/events/${e.id}/review`, { status, reviewer_remarks: remarks }); } catch (x) { alert(x.message); return; }
     onReviewed();
   };
-  const hasSnap = !!e.snapshot_path; const hasClip = !!e.clip_path;
+  const hasSnap = !!e.snapshot_path && !snapshotFailed; const hasClip = !!e.clip_path && !clipFailed;
+  const meta = e.meta || {};
+  const details = [
+    ['Camera name', e.camera_name || meta.camera_name], ['Camera ID', e.camera_id || meta.camera_id],
+    ['Branch', meta.branch_name], ['Branch code', meta.branch_code], ['Place', meta.place_name],
+    ['Region', meta.region_name], ['Branch manager', meta.branch_manager], ['Detection zone', e.zone_name],
+    ['Alert type', e.scenario], ['Severity', e.severity],
+    ['Confidence', Number.isFinite(e.confidence) ? `${(e.confidence * 100).toFixed(1)}%` : null],
+    ['Track ID', (e.track_ids || []).join(', ')], ['Detection time', fmtTime(e.created_at)], ['Trigger', e.message],
+    ['Incident status', incident?.status || 'Not published to Common Alerts'], ['Review status', e.status],
+  ];
   return (
     <Modal
       title={`${e.camera_name} - ${e.scenario}`}
@@ -48,16 +63,24 @@ function EventDetail({ id, incident, onClose, onReviewed }) {
     >
       <div className="bx-row bx-gap-8 bx-wrap" style={{ marginBottom: 10 }}>
         <span className={`bx-badge sev-${e.severity}`}>{e.severity}</span>
-        <span className="bx-tag">Incident: {incident?.status || e.status.toUpperCase()}</span><span className={`bx-badge status-${e.status}`}>{e.status.replace('_', ' ')}</span>
+        <span className="bx-tag">Incident: {incident?.status || 'Not published'}</span><span className={`bx-badge status-${e.status}`}>Review: {e.status.replace('_', ' ')}</span>
         <span className="bx-tag">{fmtTime(e.created_at)}</span>
         <span className="bx-tag">confidence {Math.round((e.confidence || 0) * 100)}%</span>
       </div>
       <p>{e.message}</p>
       <p className="bx-muted" style={{ fontSize: 12 }}>Zone: {e.zone_name || '-'} · Track ID(s): {(e.track_ids || []).join(', ') || '-'}</p>
-      {hasSnap && <img src={bxStorageUrl(e.snapshot_path)} alt="snapshot" style={{ width: '100%', borderRadius: 8, border: '1px solid var(--bx-border-soft)', margin: '8px 0' }} />}
-      {hasClip && <video src={bxStorageUrl(e.clip_path)} controls style={{ width: '100%', borderRadius: 8, border: '1px solid var(--bx-border-soft)' }} />}
-      {!hasSnap && !hasClip && <p className="bx-muted" style={{ fontSize: 12 }}>No snapshot/clip stored - only suspicious events (high/critical severity, weapon, fighting) keep media, to save disk space. {e.meta && e.meta.evidence ? `(${String(e.meta.evidence)})` : ''}</p>}
+      {hasSnap && <img src={bxStorageUrl(e.snapshot_path)} alt="Captured evidence" onError={() => setSnapshotFailed(true)} style={{ width: '100%', borderRadius: 8, border: '1px solid var(--bx-border-soft)', margin: '8px 0' }} />}
+      {hasClip && <video src={bxStorageUrl(e.clip_path)} controls preload="metadata" onError={() => setClipFailed(true)} style={{ width: '100%', borderRadius: 8, border: '1px solid var(--bx-border-soft)' }} />}
+      {snapshotFailed && <p className="bx-muted" role="status">Snapshot is unavailable.</p>}{clipFailed && <p className="bx-muted" role="status">Video clip is unavailable.</p>}
+      {!hasSnap && !hasClip && <p className="bx-muted" style={{ fontSize: 12 }}>{meta.evidence === 'not_saved:not_suspicious' ? 'No snapshot was captured because this incident did not meet the evidence severity policy.' : `No snapshot or clip is attached. ${meta.evidence ? `(${String(meta.evidence)})` : ''}`}</p>}
       {hasSnap && !hasClip && <p className="bx-muted" style={{ fontSize: 12 }}>Clip is still being written (about 5 s after the event) - reopen this event shortly.</p>}
+      <div className="bx-row bx-gap-8 bx-wrap" style={{ margin: '10px 0' }}>
+        {hasSnap ? <a className="bx-btn" href={bxStorageUrl(e.snapshot_path)} download>Download snapshot</a> : <button type="button" className="bx-btn" disabled>Download snapshot</button>}
+        {hasClip ? <a className="bx-btn" href={bxStorageUrl(e.clip_path)} download>Download clip</a> : <button type="button" className="bx-btn" disabled>Download clip</button>}
+      </div>
+      <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, margin: '12px 0' }}>
+        {details.map(([label, value]) => <div key={label}><dt className="bx-muted" style={{ fontSize: 11 }}>{label}</dt><dd style={{ overflowWrap: 'anywhere' }}>{value || '—'}</dd></div>)}
+      </dl>
       {Object.keys(e.meta || {}).length > 0 && (
         <pre className="bx-mono" style={{ fontSize: 11, background: 'var(--bx-inset)', padding: 8, borderRadius: 6, overflowX: 'auto', border: '1px solid var(--bx-border-soft)' }}>{JSON.stringify(e.meta, null, 2)}</pre>
       )}

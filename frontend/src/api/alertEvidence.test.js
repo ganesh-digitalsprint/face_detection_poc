@@ -61,6 +61,22 @@ test('Branch Exterior policy exclusion and capture failure keep distinct evidenc
   assert.equal(failed.evidenceStatus,'FAILED');
   assert.equal(failed.evidenceUnavailableReason,'snapshot_write_failed');
 });
+test('Branch Exterior resolves captured snapshot and clip paths against the requested source event',async()=>{
+  const sourceEventId='ef6cd1e590374edc94e69d74e7844c11';
+  const result=await createEvidenceResolver({...api(),branch:async(id)=>({id,snapshot_path:'snapshots/branch-frame.jpg',clip_path:'clips/branch-clip.mp4'})})(
+    {useCase:'branch_exterior',sourceEventId});
+  assert.equal(result.evidenceStatus,'CAPTURED');
+  assert.equal(result.snapshotCount,1);assert.equal(result.clipCount,1);
+  assert.equal(result.evidenceRefs.find((ref)=>ref.type==='snapshot').url,'http://localhost:8011/storage/snapshots/branch-frame.jpg');
+  assert.equal(result.evidenceRefs.find((ref)=>ref.type==='clip').url,'http://localhost:8011/storage/clips/branch-clip.mp4');
+  assert.ok(result.evidenceRefs.every((ref)=>ref.event_path===`/api/events/${sourceEventId}`));
+});
+test('Branch Exterior refuses media returned for a different source event',async()=>{
+  const result=await createEvidenceResolver({...api(),branch:async()=>({id:'another-event',snapshot_path:'snapshots/unrelated.jpg'})})(
+    {useCase:'branch_exterior',sourceEventId:'expected-event'});
+  assert.equal(result.snapshotCount,0);assert.equal(result.evidenceStatus,'FAILED');
+  assert.equal(result.evidenceUnavailableReason,'evidence_retrieval_failed');
+});
 test('source access errors and mismatched Gate identities cannot expose unrelated evidence',async()=>{
   let fetched=false;
   const result=await createEvidenceResolver({...api(),gate:async()=>({source_event_id:'different',evidence_refs:[gateRef]}),

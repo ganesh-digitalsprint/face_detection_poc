@@ -65,6 +65,7 @@ class CameraManager:
         # video. Platform cameras can also recover their branch from the
         # shared camera registry when an activation caller omits branch_id.
         camera_context = enrich_resource_refs("branch_exterior", {"camera_id": camera.id})
+        camera_context.setdefault("camera_name", camera.name)
         # A registered camera's canonical association wins over a UI scope.
         # Local/uploaded sources have no registry association, so use the
         # canonical branch captured when that processing session starts.

@@ -93,6 +93,7 @@ export function createEvidenceResolver(api=defaults) {
         }
       } else if(alert.useCase==='branch_exterior') {
         const row=await api.branch(alert.sourceEventId,signal);
+        if(row.id && row.id!==alert.sourceEventId) throw new Error('Mismatched Branch Exterior evidence source');
         if(['PENDING','FAILED','UNAVAILABLE'].includes(alert.evidenceStatus)) sourceStatus=alert.evidenceStatus;
         unavailableReason=alert.evidenceUnavailableReason || null;
         const evidenceState=String(row.meta?.evidence || '');

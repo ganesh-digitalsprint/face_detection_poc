@@ -12,5 +12,5 @@ export function toggleTheme() {
   subs.forEach((f) => f());
 }
 export function useBxTheme() {
-  return useSyncExternalStore((cb) => { subs.add(cb); return () => subs.delete(cb); }, getTheme);
+  return useSyncExternalStore((cb) => { subs.add(cb); return () => subs.delete(cb); }, getTheme, getTheme);
 }

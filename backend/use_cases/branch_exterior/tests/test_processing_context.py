@@ -26,10 +26,10 @@ def test_camera_start_snapshots_only_an_explicit_canonical_branch(monkeypatch):
     camera = SimpleNamespace(id="source-camera", name="Front", enabled=True)
 
     manager.start(camera, branch_id="branch-1")
-    assert captured[-1] == {**metadata, "camera_id": camera.id}
+    assert captured[-1] == {**metadata, "camera_id": camera.id, "camera_name": camera.name}
     assert captured[-1]["branch_id"] != camera.id
     manager.start(camera)
-    assert captured[-1] == {"camera_id": camera.id}
+    assert captured[-1] == {"camera_id": camera.id, "camera_name": camera.name}
 
 
 def test_registered_camera_branch_wins_over_current_ui_scope_and_survives_worker_restart(monkeypatch):

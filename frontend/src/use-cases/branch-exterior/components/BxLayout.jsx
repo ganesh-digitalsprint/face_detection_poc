@@ -3,9 +3,9 @@ import { Outlet, useLocation } from 'react-router-dom';
 import Loading from '../../../components/common/Loading.jsx';
 import { api } from '../api/index.js';
 import { bxPageKey } from '../../../layouts/routes.js';
-import { useFeedConnection } from '../feed.js';
+import { useFeedConnection, useNewEvents } from '../feed.js';
 import { useBxTheme } from '../theme.js';
-import Toasts from './Toasts.jsx';
+import { eventBeep } from '../sound.js';
 import '../branchExterior.css';
 
 export const BX_PAGES = {
@@ -28,6 +28,11 @@ export default function BxLayout({ children }) {
   const refreshStats = useCallback(async () => {
     try { setStats(await api.get('/dashboard/summary')); } catch { /* backend still starting up */ }
   }, []);
+  const onNewEvent = useCallback((event) => {
+    refreshStats();
+    if (event?.severity === 'critical' || event?.severity === 'high') eventBeep(event.severity);
+  }, [refreshStats]);
+  useNewEvents(onNewEvent);
   useEffect(() => {
     refreshStats();
     const id = setInterval(refreshStats, 15000);
@@ -49,7 +54,6 @@ export default function BxLayout({ children }) {
         </div>
       </div>
       <Suspense fallback={<Loading message="Loading…" />}>{children || <Outlet />}</Suspense>
-      <Toasts onEvent={refreshStats} />
     </div>
   );
 }

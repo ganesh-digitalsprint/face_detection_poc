@@ -1,14 +1,18 @@
 import SourceIncidentCard from '../../../components/alerts/SourceIncidentCard.jsx';
 import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, bxApiUrl, bxStorageUrl, timeAgo } from '../api/index.js';
+import { listServiceAlerts } from '../../../api/alertService.js';
 import { useNewEvents } from '../feed.js';
 import { beep, setSound, soundOn } from '../sound.js';
 import AddCameraModal from '../components/AddCameraModal.jsx';
 import { Empty } from '../components/ui.jsx';
 import SourcePicker from '../../../components/video/SourcePicker.jsx';
 import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
+import BranchExteriorEventDetail from '../components/BranchExteriorEventDetail.jsx';
+import { branchIdBody } from '../branchContext.js';
+import { branchEventDestination, findCommonAlert, mergeTickerEvents } from '../tickerModel.js';
 
 const browseBranchVideos = () => api.get('/uploads/browse');
 
@@ -43,6 +47,9 @@ const stageMsg = { height: '100%', display: 'flex', flexDirection: 'column', ali
 
 export default function LiveMonitoringPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [query, setQuery] = useSearchParams();
+  const selectedEventId = query.get('event');
   const activeScope = useOptionalActiveBranch()?.scope;
   const incidentStates = useCommonIncidentStates('branch_exterior');
   const [cameras, setCameras] = useState([]);
@@ -74,25 +81,25 @@ export default function LiveMonitoringPage() {
   const selectCamera = useCallback(async (id) => {
     setStarting(true);
     try {
-      if (id) await api.post(`/cameras/${id}/activate`); // stops every other video, starts this one
+      if (id) await api.post(`/cameras/${id}/activate`, branchIdBody(activeScope)); // snapshot canonical branch context for this session
       else await api.post('/cameras/stop-all');
       setSelectedId(id); selectedRef.current = id;
       setStreamNonce((n) => n + 1);
       if (id) localStorage.setItem('liveCameraId', id); else localStorage.removeItem('liveCameraId');
       await loadCameras();
     } finally { setStarting(false); }
-  }, [loadCameras]);
+  }, [activeScope, loadCameras]);
 
   // Restore the selected view, but do not begin processing until Process video is pressed.
   useEffect(() => {
     let alive = true;
     loadCameras();
     const id = setInterval(loadCameras, 1500);
-    api.get('/events?limit=15').then((ev) => alive && setTicker(ev)).catch(() => {});
+    api.get('/events?limit=15').then((ev) => alive && setTicker((current) => mergeTickerEvents(current, ev))).catch(() => {});
     return () => { alive = false; clearInterval(id); };
   }, [loadCameras]);
 
-  useNewEvents((event) => { setTicker((t) => [event, ...t].slice(0, 25)); loadCameras(); });
+  useNewEvents((event) => { setTicker((current) => mergeTickerEvents(current, [event])); loadCameras(); });
 
   const cam = cameras.find((c) => c.id === selectedId) || null;
   const st = cam ? (statuses[cam.id] || {}) : {};
@@ -119,6 +126,15 @@ export default function LiveMonitoringPage() {
     } catch (e) { alert(e.message); }
     setStreamNonce((n) => n + 1); await loadCameras();
   };
+  const closeSourceDetail = () => {
+    const next = new URLSearchParams(query);
+    next.delete('event');
+    setQuery(next, { replace: true, state: null });
+  };
+  const openTickerEvent = useCallback(async (sourceEventId, event) => {
+    const common = await findCommonAlert(sourceEventId, incidentStates.bySource[sourceEventId], listServiceAlerts);
+    navigate(branchEventDestination(sourceEventId, common), { state: { sourceEvent: event } });
+  }, [incidentStates.bySource, navigate]);
   const toggleOverlay = async (endpoint, current) => {
     if (!cam) return;
     try { await api.post(`/cameras/${cam.id}/${endpoint}?on=${!current}`); } catch (e) { alert(e.message); }
@@ -233,7 +249,8 @@ export default function LiveMonitoringPage() {
           <div className="bx-card-title">Live alert ticker</div>
           <div className="bx-ticker">
             {ticker.length === 0 && <Empty icon="🕑" bare>Waiting for events...</Empty>}
-            {ticker.map((e) => <SourceIncidentCard key={e.id} event={e} useCase="branch_exterior" common={incidentStates.bySource[e.id]} thumbnailUrl={e.snapshot_path ? bxStorageUrl(e.snapshot_path) : undefined} onSelect={(id)=>navigate(`/alerts?use_case=branch_exterior&source_event_id=${encodeURIComponent(id)}`)} />)}
+            {ticker.map((e) => <SourceIncidentCard key={e.id} event={e} useCase="branch_exterior" common={incidentStates.bySource[e.id]} thumbnailUrl={e.snapshot_path ? bxStorageUrl(e.snapshot_path) : undefined}
+              onSelect={(id) => openTickerEvent(id, e)} />)}
           </div>
           <div className="bx-card-title" style={{ marginTop: 18 }}>What the AI watches for <span className="bx-muted" style={{ fontWeight: 400 }}>(incidents this video)</span></div>
           <div>
@@ -254,6 +271,8 @@ export default function LiveMonitoringPage() {
       </div>
 
       {addOpen && <AddCameraModal onClose={() => setAddOpen(false)} onCreated={(created) => selectCamera(created.id)} />}
+      {selectedEventId && <BranchExteriorEventDetail id={selectedEventId} incident={incidentStates.bySource[selectedEventId]}
+        initialEvent={location.state?.sourceEvent} onClose={closeSourceDetail} onReviewed={closeSourceDetail} />}
     </>
   );
 }
