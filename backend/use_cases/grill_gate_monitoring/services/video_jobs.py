@@ -130,8 +130,8 @@ class GrillGateVideoJobs:
                        configured_calibration=bool(config.get("calibration")))
         return job_id
 
-    def start(self, job_id: str) -> str | None:
-        """Start a saved job once and return its new status; None means it is not (or no longer) eligible."""
+    def start(self, job_id: str, *, branch_metadata: dict | None = None) -> str | None:
+        """Start a saved job once, freezing any missing branch snapshot before processing."""
         with self._lock:
             if self._closed:
                 raise VideoJobCapacityError("Video processing is shutting down")
@@ -139,16 +139,25 @@ class GrillGateVideoJobs:
             if active >= self.max_concurrent + self.max_queued:
                 raise VideoJobCapacityError("Video processing queue is full")
             with SessionLocal() as db:
-                # Conditional update: a duplicate request can never start a second worker. It also ends
-                # editing, so the config read below is the immutable snapshot this run uses.
+                job = db.get(GrillGateVideoJob, job_id)
+                if job is None or job.status != "UPLOADED":
+                    return None
+                config = dict(job.config_snapshot or {})
+                source_metadata = dict(config.get("source_metadata") or {})
+                # Upload-time attribution is authoritative. If it was absent, use the canonical
+                # branch selected when processing starts, then persist that snapshot with the claim.
+                if branch_metadata and not source_metadata.get("branch_id"):
+                    source_metadata.update(branch_metadata)
+                config["source_metadata"] = source_metadata
+                path = Path(job.storage_path)
+                template_id = job.template_assignment_id
+                # Conditional update makes the config and the one-time start claim atomic. A later
+                # selection change cannot reattribute this worker or its alerts.
                 claimed = db.execute(update(GrillGateVideoJob).where(GrillGateVideoJob.id == job_id,
-                    GrillGateVideoJob.status == "UPLOADED").values(status="QUEUED"))
+                    GrillGateVideoJob.status == "UPLOADED").values(status="QUEUED", config_snapshot=config))
                 db.commit()
                 if claimed.rowcount != 1:
                     return None
-                job = db.get(GrillGateVideoJob, job_id)
-                path = Path(job.storage_path)
-                config, template_id = job.config_snapshot, job.template_assignment_id
                 if not path.exists():
                     job.status = "FAILED"
                     job.error_code = "VIDEO_FILE_MISSING"

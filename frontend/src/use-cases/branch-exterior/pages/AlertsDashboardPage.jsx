@@ -11,6 +11,13 @@ const SEV_COLORS = { info: '#6b7788', low: '#3fbf6f', medium: '#e0a930', high: '
 const SCEN_LABELS = ['loitering', 'gathering', 'movement', 'intrusion', 'anomaly', 'simulated'];
 const qstr = (o) => Object.entries(o).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
 
+export function EventPreview({ event, onOpen }) {
+  if (!event.snapshot_path) return <span className="bx-faint">No snapshot</span>;
+  return <button type="button" className="bx-btn" style={{ padding: 0, overflow: 'hidden' }} onClick={(x) => { x.stopPropagation(); onOpen(event.id); }} aria-label={`Open evidence for ${event.camera_name || 'event'}`}>
+    <img src={bxStorageUrl(event.snapshot_path)} alt="Captured evidence" style={{ display: 'block', width: 76, height: 48, objectFit: 'cover' }} />
+  </button>;
+}
+
 function EventDetail({ id, incident, onClose, onReviewed }) {
   const [e, setE] = useState(null);
   const [remarks, setRemarks] = useState('');
@@ -156,10 +163,11 @@ export default function AlertsDashboardPage() {
         </div>
         <div className="bx-scroll-x">
           <table className="bx-table">
-            <thead><tr><th>Time</th><th>Camera</th><th>Zone</th><th>Scenario</th><th>Severity</th><th>Status</th><th>Confidence</th></tr></thead>
+            <thead><tr><th>Evidence</th><th>Time</th><th>Camera</th><th>Zone</th><th>Scenario</th><th>Severity</th><th>Status</th><th>Confidence</th></tr></thead>
             <tbody>
               {events.map((e) => (
                 <tr key={e.id} className="clickable" onClick={() => setDetailId(e.id)}>
+                  <td><EventPreview event={e} onOpen={setDetailId} /></td>
                   <td className="bx-mono bx-faint">{fmtTime(e.created_at)}</td>
                   <td>{e.camera_name}</td>
                   <td>{e.zone_name || <span className="bx-faint">-</span>}</td>

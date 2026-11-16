@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from app.schemas.event import Event
-from app.services.alert_publisher import AlertPublisher, build_payload
+from app.services.alert_publisher import AlertPublisher, build_payload, build_sync_payload
 
 T0 = datetime(2026, 10, 28, 12, 0, 0, tzinfo=timezone.utc)
 CONTRACT_KEYS = {
@@ -176,6 +176,50 @@ def test_detailed_subtypes_and_known_identifiers_are_preserved(monkeypatch, tmp_
     assert 'branch_id' not in missing['resource_refs'] and 'camera_name' not in missing['resource_refs']
 
 
+def test_full_immutable_branch_snapshot_is_published_without_filesystem_paths(monkeypatch, tmp_path):
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    snapshot = {'branch_id':'branch-1', 'branch_code':'C001', 'branch_name':'Central',
+        'place_name':'Bengaluru', 'region_name':'South', 'branch_manager':'Manager'}
+    payload = build_payload(make_event(meta={**snapshot, 'kind':'weapon'}))
+    assert {key: payload['resource_refs'][key] for key in snapshot} == snapshot
+    assert payload['resource_refs']['camera_name'] == 'Front Door'
+    assert 'storage/' not in json.dumps(payload['resource_refs'])
+
+
+def test_sync_payload_publishes_canonical_branch_metadata_and_existing_owner_media_paths(monkeypatch, tmp_path):
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    monkeypatch.setenv('FEDBANK_STORAGE_ROOT', str(tmp_path/'storage'))
+    root = tmp_path/'storage'
+    for relative in ('screenshots/branch_exterior/snapshot.jpg', 'clips/branch_exterior/incident.mp4'):
+        path = root/relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'synthetic media')
+    branch = {'branch_id':'branch-1', 'branch_code':'P001', 'branch_name':'Central',
+        'place_name':'Pune', 'region_name':'West', 'branch_manager':'Manager'}
+    event = make_event(meta={**branch, 'evidence':'saved'}, snapshot_path='snapshots/snapshot.jpg',
+        clip_path='clips/branch_exterior/incident.mp4', zone_name='Whole scene')
+
+    payload = build_sync_payload(event)
+
+    assert {key: payload['resource_refs'][key] for key in branch} == branch
+    assert payload['resource_refs']['zone_name'] == 'Whole scene'
+    assert {ref['type'] for ref in payload['evidence_refs']} == {'snapshot', 'clip'}
+    assert payload['domain_data']['evidence_status'] == 'CAPTURED'
+    assert 'storage/' not in json.dumps(payload)
+
+
+def test_sync_payload_reports_intentional_policy_exclusion_and_lost_file(monkeypatch, tmp_path):
+    monkeypatch.setenv('FEDBANK_PLATFORM_DB_PATH', str(tmp_path/'absent.db'))
+    monkeypatch.setenv('FEDBANK_STORAGE_ROOT', str(tmp_path/'storage'))
+    excluded = build_sync_payload(make_event(snapshot_path='', clip_path='', meta={'evidence':'not_saved:not_suspicious'}))
+    missing = build_sync_payload(make_event(snapshot_path='snapshots/gone.jpg', meta={'evidence':'saved'}))
+
+    assert excluded['domain_data']['evidence_status'] == 'UNAVAILABLE'
+    assert excluded['domain_data']['evidence_unavailable_reason'] == 'not_suspicious'
+    assert missing['domain_data']['evidence_status'] == 'FAILED'
+    assert missing['domain_data']['evidence_unavailable_reason'] == 'evidence_file_missing'
+
+
 def test_branch_historical_reconciliation_reuses_current_database_and_publisher(tmp_path,monkeypatch):
     from app.db import init_db
     from app.db.repositories.sql_repo import SqlRepositories
@@ -239,6 +283,24 @@ def test_disabled_publisher_writes_nothing_and_never_calls_the_service(tmp_path)
     assert run(publisher.enqueue(make_event())) is False
     assert run(publisher.dispatch_once()) == 0
     assert not list(tmp_path.rglob("*.json")) and service.requests == []
+
+
+@pytest.mark.parametrize(('base_url', 'token'), [(None, 'branch-token'), ('http://common', None)])
+def test_publisher_requires_both_endpoint_and_credential(tmp_path, base_url, token):
+    publisher = AlertPublisher(base_url, token, outbox_dir=tmp_path)
+    assert publisher.enabled is False
+    assert run(publisher.enqueue(make_event())) is False
+    assert publisher.pending_count() == 0
+
+
+def test_settings_load_publisher_environment_without_exposing_secret(monkeypatch):
+    from app.core.config import Settings
+    monkeypatch.setenv('ALERT_SERVICE_BASE_URL', 'http://127.0.0.1:8012')
+    monkeypatch.setenv('ALERT_SERVICE_TOKEN', 'dedicated-branch-test-token')
+    settings = Settings(_env_file=None)
+    publisher = AlertPublisher(settings.alert_service_base_url, settings.alert_service_token)
+    assert publisher.enabled is True
+    assert publisher.base_url == 'http://127.0.0.1:8012'
 
 
 def test_successful_delivery_is_authenticated_idempotent_and_clears_outbox(tmp_path):

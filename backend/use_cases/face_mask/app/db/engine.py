@@ -44,6 +44,20 @@ async def create_all_tables(engine: AsyncEngine) -> None:
 _ADDED_COLUMNS = (
     ("fm_entry_roi", "enabled", "BOOLEAN NOT NULL DEFAULT 1"),
     ("fm_entry_roi", "updated_at", "DATETIME"),
+    ("fm_camera", "branch_id", "VARCHAR(128)"),
+    ("fm_camera", "branch_code", "VARCHAR(128)"),
+    ("fm_camera", "branch_name", "VARCHAR(200)"),
+    ("fm_camera", "place_name", "VARCHAR(200)"),
+    ("fm_camera", "region_name", "VARCHAR(200)"),
+    ("fm_camera", "branch_manager", "VARCHAR(200)"),
+    ("fm_concealment_event", "branch_id", "VARCHAR(128)"),
+    ("fm_concealment_event", "branch_code", "VARCHAR(128)"),
+    ("fm_concealment_event", "branch_name", "VARCHAR(200)"),
+    ("fm_concealment_event", "place_name", "VARCHAR(200)"),
+    ("fm_concealment_event", "region_name", "VARCHAR(200)"),
+    ("fm_concealment_event", "branch_manager", "VARCHAR(200)"),
+    ("fm_concealment_event", "camera_name", "VARCHAR(120)"),
+    ("fm_concealment_event", "review_version", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 

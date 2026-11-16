@@ -72,8 +72,21 @@ def _with_explanation(meta: dict, **event_fields) -> dict:
         return meta
 
 
+def _capture_snapshot(frame: np.ndarray, camera_id: str, event_id: str) -> tuple[str, str | None]:
+    """Keep the source incident even when optional evidence encoding fails."""
+    try:
+        return save_snapshot(frame, camera_id), None
+    except Exception as exc:
+        logger.warning("Snapshot capture failed for event %s (%s)", event_id, type(exc).__name__, exc_info=True)
+        return "", "snapshot_write_failed"
+
+
 async def _evidence_decision(camera: Camera, signal: ScenarioSignal, severity: str, th: ThresholdConfig) -> tuple[bool, str]:
-    size_mb = await asyncio.to_thread(evidence_size_mb)  # cached; never scans the folder on the event loop
+    try:
+        size_mb = await asyncio.to_thread(evidence_size_mb)  # cached; never scans the folder on the event loop
+    except Exception as exc:
+        logger.warning("Evidence storage check failed for camera %s (%s)", camera.id, type(exc).__name__, exc_info=True)
+        return False, "storage_check_failed"
     return _budget.decide(
         camera_id=camera.id,
         scenario=signal.scenario,
@@ -107,6 +120,7 @@ async def handle_signal(
     clip_buffer: RollingClipBuffer,
     thresholds: ThresholdConfig,
     webhook_url: str,
+    event_context: dict[str, str] | None = None,
 ) -> tuple[Event | None, bool]:
     now = datetime.now(timezone.utc)
     since = now - timedelta(seconds=thresholds.dedupe_cooldown_seconds)
@@ -117,7 +131,7 @@ async def handle_signal(
             confidence=max(existing.confidence, signal.confidence),
             message=signal.message,
             track_ids=sorted(set(existing.track_ids) | set(signal.track_ids)),
-            meta={**existing.meta, **signal.meta},
+            meta={**existing.meta, **signal.meta, **(event_context or {})},
         )
         escalated = rank(signal.severity_hint) > rank(existing.severity)
         if escalated:
@@ -127,12 +141,16 @@ async def handle_signal(
             if not existing.snapshot_path:
                 allowed, reason = await _evidence_decision(camera, signal, signal.severity_hint, thresholds)
                 if allowed:
-                    fields["snapshot_path"] = await asyncio.to_thread(save_snapshot, frame, camera.id)
-                    _budget.record(camera.id, signal.scenario, _kind(signal))
-                    fields["meta"] = {**fields["meta"], "evidence": "saved"}
-                    _spawn(
-                        _attach_clip_later(repos, existing.id, camera.id, clip_buffer, thresholds.evidence_post_roll_seconds)
-                    )
+                    snapshot_path, capture_error = await asyncio.to_thread(_capture_snapshot, frame, camera.id, existing.id)
+                    fields["snapshot_path"] = snapshot_path
+                    if snapshot_path:
+                        _budget.record(camera.id, signal.scenario, _kind(signal))
+                        fields["meta"] = {**fields["meta"], "evidence": "saved"}
+                        _spawn(
+                            _attach_clip_later(repos, existing.id, camera.id, clip_buffer, thresholds.evidence_post_roll_seconds)
+                        )
+                    else:
+                        fields["meta"] = {**fields["meta"], "evidence": f"failed:{capture_error or 'snapshot_write_failed'}"}
         fields["meta"] = _with_explanation(
             fields["meta"],
             scenario=existing.scenario, severity=fields.get("severity", existing.severity), confidence=fields["confidence"],
@@ -151,11 +169,19 @@ async def handle_signal(
 
     allowed, reason = await _evidence_decision(camera, signal, signal.severity_hint, thresholds)
     snapshot_path = ""
+    capture_error = None
     if allowed:
-        snapshot_path = await asyncio.to_thread(save_snapshot, frame, camera.id)
-        _budget.record(camera.id, signal.scenario, _kind(signal))
+        snapshot_path, capture_error = await asyncio.to_thread(_capture_snapshot, frame, camera.id, "new-event")
+        if snapshot_path:
+            _budget.record(camera.id, signal.scenario, _kind(signal))
 
-    meta = {**signal.meta, "evidence": "saved" if allowed else f"not_saved:{reason}"}
+    if snapshot_path:
+        evidence_state = "saved"
+    elif capture_error:
+        evidence_state = f"failed:{capture_error}"
+    else:
+        evidence_state = f"not_saved:{reason}"
+    meta = {**signal.meta, **(event_context or {}), "evidence": evidence_state}
     if signal.zone is not None:
         meta.setdefault("zone_type", signal.zone.zone_type)
     meta = _with_explanation(
@@ -182,7 +208,7 @@ async def handle_signal(
         "New event %s (%s/%s) on camera %s - evidence: %s",
         event.id, event.scenario, event.severity, camera.name, "saved" if allowed else reason,
     )
-    if allowed:
+    if snapshot_path:
         _spawn(_attach_clip_later(repos, event.id, camera.id, clip_buffer, thresholds.evidence_post_roll_seconds))
 
     try:

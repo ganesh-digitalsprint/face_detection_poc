@@ -56,28 +56,42 @@ def enrich_resource_refs(use_case, refs):
     platform_case = "vault_access" if use_case == "vault_monitoring" else use_case
     try:
         with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=.1) as db:
-            if use_case == "grill_gate":
-                row = db.execute("SELECT b.id,b.code,b.name,c.name,ci.name,z.name,b.manager FROM cameras c "
-                    "JOIN branches b ON b.id=c.branch_id JOIN cities ci ON ci.id=b.city_id "
-                    "JOIN zones z ON z.id=ci.zone_id JOIN camera_use_cases u ON u.camera_id=c.id "
-                    "WHERE c.id=? AND u.use_case=?", (camera_id, platform_case)).fetchone()
+            if use_case in {"grill_gate", "branch_exterior"}:
+                try:
+                    row = db.execute("SELECT b.id,b.code,b.name,c.name,ci.name,z.name,b.manager FROM cameras c "
+                        "JOIN branches b ON b.id=c.branch_id JOIN cities ci ON ci.id=b.city_id "
+                        "JOIN zones z ON z.id=ci.zone_id JOIN camera_use_cases u ON u.camera_id=c.id "
+                        "WHERE c.id=? AND u.use_case=?", (camera_id, platform_case)).fetchone()
+                except sqlite3.Error:
+                    if use_case != "branch_exterior":
+                        raise
+                    row = db.execute("SELECT b.id,NULL,b.name,c.name,NULL,NULL,NULL FROM cameras c "
+                        "JOIN branches b ON b.id=c.branch_id JOIN camera_use_cases u ON u.camera_id=c.id "
+                        "WHERE c.id=? AND u.use_case=?", (camera_id, platform_case)).fetchone()
             else:
                 row = db.execute("SELECT b.id,b.name,c.name FROM cameras c "
                     "JOIN branches b ON b.id=c.branch_id JOIN camera_use_cases u ON u.camera_id=c.id "
                     "WHERE c.id=? AND u.use_case=?", (camera_id, platform_case)).fetchone()
             if row is None:
-                if use_case == "grill_gate":
-                    row = db.execute("SELECT b.id,b.code,b.name,NULL,ci.name,z.name,b.manager "
-                        "FROM legacy_camera_links l JOIN branches b ON b.id=l.branch_id "
-                        "JOIN cities ci ON ci.id=b.city_id JOIN zones z ON z.id=ci.zone_id "
-                        "WHERE l.legacy_id=? AND l.use_case=?", (camera_id, platform_case)).fetchone()
+                if use_case in {"grill_gate", "branch_exterior"}:
+                    try:
+                        row = db.execute("SELECT b.id,b.code,b.name,NULL,ci.name,z.name,b.manager "
+                            "FROM legacy_camera_links l JOIN branches b ON b.id=l.branch_id "
+                            "JOIN cities ci ON ci.id=b.city_id JOIN zones z ON z.id=ci.zone_id "
+                            "WHERE l.legacy_id=? AND l.use_case=?", (camera_id, platform_case)).fetchone()
+                    except sqlite3.Error:
+                        if use_case != "branch_exterior":
+                            raise
+                        row = db.execute("SELECT b.id,NULL,b.name,NULL,NULL,NULL,NULL "
+                            "FROM legacy_camera_links l JOIN branches b ON b.id=l.branch_id "
+                            "WHERE l.legacy_id=? AND l.use_case=?", (camera_id, platform_case)).fetchone()
                 else:
                     row = db.execute("SELECT b.id,b.name,NULL FROM legacy_camera_links l "
                         "JOIN branches b ON b.id=l.branch_id WHERE l.legacy_id=? AND l.use_case=?",
                         (camera_id, platform_case)).fetchone()
         if row and (not refs.get("branch_id") or refs["branch_id"] == row[0]):
             keys = (("branch_id", "branch_code", "branch_name", "camera_name", "place_name", "region_name", "branch_manager")
-                    if use_case == "grill_gate" else ("branch_id", "branch_name", "camera_name"))
+                    if use_case in {"grill_gate", "branch_exterior"} else ("branch_id", "branch_name", "camera_name"))
             for key, value in zip(keys, row):
                 value = safe_reference(value)
                 if value and not refs.get(key):

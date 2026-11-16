@@ -15,15 +15,20 @@ export function AlertCard({ alert, selected, onSelect, showMetadata = false }) {
   return <CompactAlertCard alert={alert} selected={selected} onSelect={onSelect} showMetadata={showMetadata} />;
 }
 
-export function AlertEvidenceDetails({ alert, evidenceIndex, onEvidenceIndexChange }) {
+export function AlertEvidenceDetails({ alert, evidenceIndex, onEvidenceIndexChange, mode = 'all' }) {
   const [localIndex, setLocalIndex] = useState(0);
   const index = evidenceIndex ?? localIndex;
   const setIndex = onEvidenceIndexChange || setLocalIndex;
   useEffect(() => setLocalIndex(0), [alert.id, alert.evidenceRefs?.length]);
   const metadata = grillAlertMetadata(alert);
   const snapshots = snapshotRefs(alert);
+  const clips = (alert.evidenceRefs || []).filter((ref) => ref.type === 'clip' && ref.url);
+  if (mode === 'clip') return clips.length ? <>
+    {clips.map((ref) => <video key={ref.id} controls preload="metadata" className="max-h-[440px] w-full rounded-lg bg-black" src={ref.url}>Video evidence is unavailable in this browser.</video>)}
+  </> : <p role="status" className="detail-small">No supported video clip is attached to this incident.</p>;
   return <>
     <AlertSnapshot alert={alert} large evidenceIndex={index} />
+    {mode === 'all' && clips.map((ref) => <video key={ref.id} controls preload="metadata" className="mt-3 max-h-[420px] w-full rounded-lg bg-black" src={ref.url}>Video evidence is unavailable in this browser.</video>)}
     {evidenceIndex == null && snapshots.length > 1 && <div className="flex flex-wrap gap-2">{snapshots.map((ref, i) => <button type="button" key={ref.id || i} onClick={() => setIndex(i)} aria-pressed={index === i} className="rounded border px-3 py-2 text-xs">Snapshot {i + 1}</button>)}</div>}
     {snapshots[index]?.captured_at && <p className="text-xs text-[#55607A]">Snapshot captured at {alertDate(snapshots[index].captured_at)}</p>}
     {metadata.length > 0 && <dl className="grid grid-cols-2 gap-3 border-t border-[#E3E7F0] pt-3 text-xs sm:grid-cols-3">{metadata.map(([label,value]) => <div key={label}><dt className="text-[#69758F]">{label}</dt><dd className="mt-1 font-bold text-[#0F1B3D]">{String(value)}{['Observed duration','Threshold'].includes(label) ? ' s' : ''}</dd></div>)}</dl>}

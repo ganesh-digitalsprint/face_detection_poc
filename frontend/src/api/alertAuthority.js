@@ -3,8 +3,21 @@ import { getGrillGateSourceAlert, getGrillGateAlert, getGrillGateVideoResults, g
 import { loadGrillSourceAlert } from './grillAlertLookup.js';
 import { availableActions } from './alertServiceModel.js';
 import { transitionServiceAlert } from './alertService.js';
+import { api as faceApi } from '../use-cases/face-mask/api/index.js';
 
-const sourceOwned = (alert) => ['grill_gate','vault_monitoring'].includes(alert.useCase);
+const sourceOwned = (alert) => ['grill_gate','vault_monitoring','face_mask'].includes(alert.useCase);
+const faceStatus = {OPEN:'OPEN',UNDER_REVIEW:'ACKNOWLEDGED',CONFIRMED:'ACKNOWLEDGED',FALSE_POSITIVE:'DISMISSED',CLOSED:'RESOLVED'};
+const faceActions = {OPEN:['ACKNOWLEDGED','RESOLVED','DISMISSED'],UNDER_REVIEW:['RESOLVED','DISMISSED'],CONFIRMED:['RESOLVED'],FALSE_POSITIVE:[],CLOSED:[]};
+const faceView = (alert,row) => {
+  if (!row?.id || row.id !== alert.sourceEventId || !faceStatus[row.status] || !Number.isInteger(row.review_version))
+    throw new Error('The Face Mask source returned an invalid or mismatched event. Actions are unavailable.');
+  return {...alert,status:faceStatus[row.status],sourceStatus:row.status,sourceApiId:row.id,
+    sourceRowVersion:row.review_version,sourceAllowedActions:faceActions[row.status],confirmedSourceVersion:row.review_version,
+    cameraName:row.camera_name || alert.cameraName,branchName:row.branch_name || alert.branchName,
+    branchCode:row.branch_code || alert.branchCode,placeName:row.place_name || alert.placeName,
+    regionName:row.region_name || alert.regionName,branchManager:row.branch_manager || alert.branchManager,
+    domainData:{...alert.domainData,confidence:row.score,covering_type:row.covering_type,track_id:row.track_id}};
+};
 const sourceView = (alert, row) => {
   if (!row?.id || !Number.isInteger(row.row_version) || row.row_version < 1 || !['OPEN','ACKNOWLEDGED','RESOLVED','DISMISSED'].includes(row.status) ||
     (alert.useCase === 'grill_gate' ? row.source_event_id !== alert.sourceEventId : row.id !== alert.sourceEventId)) {
@@ -29,6 +42,7 @@ export function createAlertAuthority(api) {
     load:async(alert,signal)=> {
       if (!sourceOwned(alert)) return alert;
       if (!alert.sourceEventId) throw new Error('Missing source-event identity. Actions are unavailable.');
+      if(alert.useCase==='face_mask') return faceView(alert,await api.faceGet(alert.sourceEventId,signal));
       const row=await (alert.useCase==='grill_gate' ? loadGrillSourceAlert(api,alert,signal) : api.vaultGet(alert.sourceEventId,signal));
       return sourceView(alert,row);
     },
@@ -38,6 +52,21 @@ export function createAlertAuthority(api) {
       if (!(alert.sourceAllowedActions || []).includes(target)) throw new Error('This action is not allowed by the source alert.');
       if (!alert.sourceApiId || !alert.sourceRowVersion) throw new Error('Load the latest source alert before changing its status.');
       let row;
+      if(alert.useCase==='face_mask') {
+        const act=async(to,current)=>api.faceReview(current.id,to,body.note || '',current.review_version);
+        let current=await api.faceGet(alert.sourceEventId);
+        if(current.review_version!==alert.sourceRowVersion) throw new Error('This Face Mask event changed since it was loaded. Reload it and retry.');
+        if(target==='ACKNOWLEDGED') current=await act('UNDER_REVIEW',current);
+        else if(target==='DISMISSED') {
+          if(current.status==='OPEN') current=await act('UNDER_REVIEW',current);
+          current=await act('FALSE_POSITIVE',current);
+        } else if(target==='RESOLVED') {
+          if(current.status==='OPEN') current=await act('UNDER_REVIEW',current);
+          if(current.status==='UNDER_REVIEW') current=await act('CONFIRMED',current);
+          current=await api.faceClose(current.id,body.note || '',current.review_version);
+        }
+        return faceView(alert,current);
+      }
       if (alert.useCase==='vault_monitoring') row=await api.vaultAct(alert.sourceApiId,{ACKNOWLEDGED:'acknowledge',RESOLVED:'resolve',DISMISSED:'dismiss'}[target],{...body,expected_version:alert.sourceRowVersion});
       else row=await api.grillAct(alert.sourceApiId,target,alert.sourceRowVersion,body.note);
       return sourceView(alert,row);
@@ -47,6 +76,9 @@ export function createAlertAuthority(api) {
 export const alertAuthority=createAlertAuthority({
   grillGet:getGrillGateSourceAlert,grillById:getGrillGateAlert,grillVideo:getGrillGateVideoResults,grillActive:getLiveActiveAlerts,grillHistory:getLiveAlertHistory,vaultGet:getAlert,vaultAct:updateAlert,common:transitionServiceAlert,
   grillAct:(id,target,version,note)=> target==='ACKNOWLEDGED' ? acknowledgeGrillGateAlert(id,version,note) : target==='RESOLVED' ? resolveGrillGateAlert(id,version,note) : dismissGrillGateAlert(id,version,note),
+  faceGet:(id)=>faceApi.get(`/events/${encodeURIComponent(id)}`),
+  faceReview:(id,to,remarks,expected_version)=>faceApi.post(`/events/${encodeURIComponent(id)}/review`,{to_status:to,remarks,reviewer:'common-alerts-operator',expected_version}),
+  faceClose:(id,remarks,expected_version)=>faceApi.post(`/events/${encodeURIComponent(id)}/close`,{remarks,reviewer:'common-alerts-operator',expected_version}),
 });
 
 export function authorityErrorMessage(error) {

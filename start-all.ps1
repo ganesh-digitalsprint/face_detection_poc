@@ -281,13 +281,8 @@ try {
         $existingVaultKey = Get-LauncherEnvValue -Values $effectiveVaultEnv -Name 'VAULT_ROOM_API_KEY'
         if (-not [string]::IsNullOrWhiteSpace($existingVaultKey)) { $effectiveVaultEnv['ALERT_SERVICE_TOKEN'] = $existingVaultKey }
     }
-    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveBranchEnv -Name 'ALERT_SERVICE_TOKEN'))) {
-        $existingBranchKey = Get-LauncherEnvValue -Values $effectiveBranchEnv -Name 'FEDBANK_PLATFORM_ADMIN_KEY'
-        if (-not [string]::IsNullOrWhiteSpace($existingBranchKey)) { $effectiveBranchEnv['ALERT_SERVICE_TOKEN'] = $existingBranchKey }
-    }
-    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveFaceMaskEnv -Name 'ALERT_SERVICE_TOKEN'))) {
-        if (-not [string]::IsNullOrWhiteSpace($existingAlertOperatorKey)) { $effectiveFaceMaskEnv['ALERT_SERVICE_TOKEN'] = $existingAlertOperatorKey }
-    }
+    # Branch publication requires its own producer credential. Never reuse the
+    # platform administration key as an Alert Service bearer token.
     foreach ($values in @($effectiveVaultEnv, $effectiveBranchEnv, $effectiveFaceMaskEnv)) {
         if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $values -Name 'ALERT_SERVICE_BASE_URL'))) {
             $values['ALERT_SERVICE_BASE_URL'] = $localAlertBaseUrl
@@ -380,6 +375,9 @@ try {
         $value = Get-LauncherEnvValue -Values $effectiveFaceMaskEnv -Name $name
         if (-not [string]::IsNullOrWhiteSpace($value)) { $faceMaskScopedEnv[$name] = $value }
     }
+    $frontendScopedEnv = @{}
+    $faceMaskApiKey = Get-LauncherEnvValue -Values $effectiveFaceMaskEnv -Name 'API_KEY'
+    if (-not [string]::IsNullOrWhiteSpace($faceMaskApiKey)) { $frontendScopedEnv['FACE_MASK_API_KEY'] = $faceMaskApiKey }
     # Platform routes use os.environ, which Pydantic's .env loading does not populate.
     foreach ($name in @('FEDBANK_PLATFORM_ADMIN_KEY','FEDBANK_PLATFORM_FERNET_KEY')) {
         $value = Get-LauncherEnvValue -Values $branchEnv -Name $name
@@ -392,7 +390,7 @@ try {
         @{ Service = 'Alert Service'; Exe = $alertPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8012'); Cwd = $alertDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8012'; Uri = 'http://127.0.0.1:8012/health'; Timeout = $AlertTimeoutSeconds; Env = $callerAlertEnv },
         @{ Service = 'Vault Monitoring'; Exe = $vaultPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8010'); Cwd = $vaultDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8010'; Uri = 'http://127.0.0.1:8010/api/v1/health'; Timeout = $VaultTimeoutSeconds; Env = $vaultScopedEnv },
         @{ Service = 'Branch Exterior Monitoring'; Exe = $branchPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8011'); Cwd = $branchDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8011'; Uri = 'http://127.0.0.1:8011/api/health'; Timeout = $BranchTimeoutSeconds; Env = $branchScopedEnv },
-        @{ Service = 'Frontend'; Exe = $nodeCommand.Source; Args = @('node_modules/vite/bin/vite.js','--host','127.0.0.1'); Cwd = $frontendDir; Marker = 'vite/bin/vite.js --host 127.0.0.1'; Uri = 'http://127.0.0.1:3000/'; Timeout = $FrontendTimeoutSeconds; Env = @{} }
+        @{ Service = 'Frontend'; Exe = $nodeCommand.Source; Args = @('node_modules/vite/bin/vite.js','--host','127.0.0.1'); Cwd = $frontendDir; Marker = 'vite/bin/vite.js --host 127.0.0.1'; Uri = 'http://127.0.0.1:3000/'; Timeout = $FrontendTimeoutSeconds; Env = $frontendScopedEnv }
     )
     if ($faceMaskEnabled) {
         $faceMaskSpec = @{ Service = 'Face Mask Monitoring'; Exe = $faceMaskPython; Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8014'); Cwd = $faceMaskDir; Marker = 'uvicorn app.main:app --host 127.0.0.1 --port 8014'; Uri = 'http://127.0.0.1:8014/api/health'; Timeout = $FaceMaskTimeoutSeconds; Env = $faceMaskScopedEnv }

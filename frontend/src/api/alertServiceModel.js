@@ -25,9 +25,10 @@ export function alertDetailLocationFields(alert) {
   const domain = alert.domainData || {};
   return [
     ['Camera name', alert.cameraName || refs.camera_name],
+    ['Camera ID', alert.cameraId || refs.camera_id],
     ['Branch', alert.branchName || refs.branch_name],
     ['Branch code', alert.branchCode || refs.branch_code],
-    ['Place', alert.placeName || refs.place_name || domain.place_name || alert.locationName || refs.location_name || alert.zoneName],
+    ['Place', alert.placeName || refs.place_name || domain.place_name || alert.locationName || refs.location_name || null],
     ['Region', alert.regionName || refs.region_name || domain.region_name],
     ['Branch manager', alert.branchManager || refs.branch_manager || domain.branch_manager],
   ];
@@ -47,6 +48,8 @@ export function normalizeServiceAlert(item) {
   const evidenceRefs=Array.isArray(item.evidence_refs) ? item.evidence_refs.filter((ref)=>ref && typeof ref==='object' && ref.available!==false) : [];
   const snapshotCount=snapshotRefs({evidenceRefs}).length;
   const clipCount=evidenceRefs.filter((ref)=>ref.type==='clip').length;
+  const recordedEvidenceStatus=item.evidence_status || item.domain_data?.evidence_status;
+  const evidenceStatus=evidenceRefs.length ? 'CAPTURED' : ['PENDING','FAILED'].includes(recordedEvidenceStatus) ? recordedEvidenceStatus : 'UNAVAILABLE';
   return {
     id: item.id,
     useCase: item.use_case,
@@ -54,8 +57,8 @@ export function normalizeServiceAlert(item) {
     lifecycleOwner: item.lifecycle_owner || item.domain_data?.lifecycle_owner,
     evidenceRefs,
     evidenceCount:evidenceRefs.length,snapshotCount,clipCount,
-    evidenceStatus:evidenceRefs.length ? 'CAPTURED' : (item.evidence_status || item.domain_data?.evidence_status)==='PENDING' ? 'PENDING' : 'UNAVAILABLE',
-    evidenceUnavailableReason: item.domain_data?.evidence_unavailable_reason || null,
+    evidenceStatus,
+    evidenceUnavailableReason: item.evidence_unavailable_reason || item.domain_data?.evidence_unavailable_reason || null,
     assignmentId: item.assignment_id || refs.assignment_id || null,
     videoJobId: item.video_job_id || refs.video_job_id || item.domain_data?.video_job_id || null,
     localId: null,
@@ -142,7 +145,7 @@ export function buildAlertParams({ status, useCase, severity, sourceType, from, 
 /** Actions to offer for an alert. Empty when lifecycle actions are disabled or the alert is terminal. */
 export function availableActions(alert, enabled) {
   if (!enabled || !alert) return [];
-  const targets = alert.sourceAllowedActions ?? (['grill_gate','vault_monitoring'].includes(alert.useCase) || alert.lifecycleOwner === 'source' ? [] : alert.allowedActions);
+  const targets = alert.sourceAllowedActions ?? (['grill_gate','vault_monitoring','face_mask'].includes(alert.useCase) || alert.lifecycleOwner === 'source' ? [] : alert.allowedActions);
   const byStatus = { OPEN: ['ACKNOWLEDGED', 'RESOLVED', 'DISMISSED'], ACKNOWLEDGED: ['RESOLVED', 'DISMISSED'] };
   return (targets || []).filter((target) => byStatus[alert.status]?.includes(target) && LIFECYCLE[target]).map((target) => ({ target, ...LIFECYCLE[target] }));
 }
@@ -206,7 +209,8 @@ export function normalizeGrillGateAlert(item) {
 }
 
 export function alertSourceLink(alert) {
-  if (alert.useCase === 'face_mask') return '/face-mask/live';
+  if (alert.useCase === 'face_mask') return alert.sourceEventId
+    ? `/face-mask/events/${encodeURIComponent(alert.sourceEventId)}` : '/face-mask/live';
   if (alert.useCase === 'vault_monitoring') return alert.sourceType === 'uploaded_video'
     ? '/vault-access?view=room&source=upload' : '/vault-access';
   if (alert.useCase !== 'grill_gate') return { branch_exterior: '/branch-exterior/live' }[alert.useCase];
@@ -262,6 +266,8 @@ export function evidenceLabel(alert) {
   if ((alert.snapshotCount ?? snapshotRefs(alert).length)>0) return 'Snapshot captured';
   if (alert.clipCount>0) return 'Clip available';
   if (alert.evidenceStatus === 'PENDING') return 'Snapshot pending';
+  if (alert.evidenceStatus === 'FAILED') return 'Evidence capture failed';
+  if (alert.evidenceUnavailableReason === 'not_suspicious') return 'Not captured by evidence policy';
   if (alert.evidenceStatus === 'CAPTURED') return 'Snapshot reference unavailable';
   return 'No snapshot attached';
 }

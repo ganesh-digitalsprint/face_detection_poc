@@ -7,6 +7,8 @@ import { useNewEvents } from '../feed.js';
 import { beep, setSound, soundOn } from '../sound.js';
 import AddCameraModal, { rescanVideosFolder } from '../components/AddCameraModal.jsx';
 import { Empty } from '../components/ui.jsx';
+import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
+import { branchIdBody } from '../branchContext.js';
 
 // Every detection the system can make, in plain words, with how many incidents of each were seen in this video.
 const RULES = [
@@ -39,6 +41,7 @@ const stageMsg = { height: '100%', display: 'flex', flexDirection: 'column', ali
 
 export default function LiveMonitoringPage() {
   const navigate = useNavigate();
+  const activeScope = useOptionalActiveBranch()?.scope;
   const incidentStates = useCommonIncidentStates('branch_exterior');
   const [cameras, setCameras] = useState([]);
   const [statuses, setStatuses] = useState({});
@@ -73,12 +76,15 @@ export default function LiveMonitoringPage() {
     setStreamNonce((n) => n + 1);
     if (id) localStorage.setItem('liveCameraId', id); else localStorage.removeItem('liveCameraId');
     try {
-      if (id) { setStarting(true); await api.post(`/cameras/${id}/activate`); } // stops every other video, starts this one
+      if (id) {
+        setStarting(true);
+        await api.post(`/cameras/${id}/activate`, branchIdBody(activeScope));
+      } // stops every other video, starts this one
       else await api.post('/cameras/stop-all');
     } catch (e) { alert(`Could not switch video: ${e.message}`); }
     await loadCameras();
     setStarting(false);
-  }, [loadCameras]);
+  }, [activeScope?.id, activeScope?.type, loadCameras]);
 
   // Initial load + polling. Re-activate the video chosen last time (the server starts with every video idle).
   useEffect(() => {
@@ -120,7 +126,10 @@ export default function LiveMonitoringPage() {
 
   const toggleRun = async () => {
     if (!cam) return;
-    try { if (running) await api.post(`/cameras/${cam.id}/stop`); else await api.post(`/cameras/${cam.id}/activate`); } catch (e) { alert(e.message); }
+    try {
+      if (running) await api.post(`/cameras/${cam.id}/stop`);
+      else await api.post(`/cameras/${cam.id}/activate`, branchIdBody(activeScope));
+    } catch (e) { alert(e.message); }
     setStreamNonce((n) => n + 1); await loadCameras();
   };
   const toggleOverlay = async (endpoint, current) => {

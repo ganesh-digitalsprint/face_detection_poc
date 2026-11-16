@@ -36,9 +36,9 @@ test('Vault stream URLs resolve against the Vault base, absolute URLs pass throu
 
 const faceMask = await import('../use-cases/face-mask/api/index.js');
 
-test('Face Mask defaults to port 8014 and its URL helper uses the single configured base', () => {
-  assert.equal(config.FACE_MASK_BASE_URL, 'http://localhost:8014');
-  assert.equal(faceMask.fmApiUrl('/streams/c1/processed'), 'http://localhost:8014/api/streams/c1/processed');
+test('Face Mask defaults to the authenticated same-origin proxy and its URL helper uses that base', () => {
+  assert.equal(config.FACE_MASK_BASE_URL, '/face-mask-service');
+  assert.equal(faceMask.fmApiUrl('/streams/c1/processed'), '/face-mask-service/api/streams/c1/processed');
   assert.equal(faceMask.qs({ a: 1, b: '', c: null, d: 'x y' }), '?a=1&d=x+y');
   assert.equal(faceMask.qs({}), '');
 });

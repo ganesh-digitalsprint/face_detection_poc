@@ -251,6 +251,60 @@ def test_start_runs_once_and_duplicate_requests_are_rejected(harness):
     assert harness.runs == [job_id]
 
 
+def test_start_snapshots_selected_branch_when_video_was_uploaded_before_branch_selection(harness, monkeypatch):
+    platform = harness.dir / "platform-start.db"
+    monkeypatch.setenv("FEDBANK_PLATFORM_DB_PATH", str(platform))
+    with sqlite3.connect(platform) as db:
+        db.executescript("""
+            CREATE TABLE zones(id TEXT PRIMARY KEY,name TEXT);
+            CREATE TABLE cities(id TEXT PRIMARY KEY,zone_id TEXT,name TEXT);
+            CREATE TABLE branches(id TEXT PRIMARY KEY,city_id TEXT,code TEXT,name TEXT,manager TEXT);
+        """)
+        db.execute("INSERT INTO zones VALUES (?,?)", ("zone-1", "South"))
+        db.execute("INSERT INTO cities VALUES (?,?,?)", ("city-1", "zone-1", "Goa"))
+        db.execute("INSERT INTO branches VALUES (?,?,?,?,?)",
+                    ("old-goa", "city-1", "C99127-02", "Old Goa", "Old Goa Manager"))
+    job_id = ready_job(harness)
+    response = harness.client.post(f"{BASE}/{job_id}/start", headers=HEADERS,
+                                   json={"branch_id": "old-goa"})
+    assert response.status_code == 202 and response.json()["status"] == "QUEUED"
+    job = harness.client.get(f"{BASE}/{job_id}", headers=HEADERS).json()
+    assert {key: job[key] for key in ("branch_id", "branch_code", "branch_name", "place_name",
+            "region_name", "branch_manager", "camera_name")} == {
+        "branch_id": "old-goa", "branch_code": "C99127-02", "branch_name": "Old Goa",
+        "place_name": "Goa", "region_name": "South", "branch_manager": "Old Goa Manager",
+        "camera_name": "Uploaded video"}
+    with video_jobs_module.SessionLocal() as db:
+        saved = db.get(GrillGateVideoJob, job_id)
+        assert saved.config_snapshot["source_metadata"]["branch_id"] == "old-goa"
+    join_all(harness)
+
+
+def test_processing_start_does_not_replace_upload_time_branch_snapshot(harness, monkeypatch):
+    platform = harness.dir / "platform-start-preserve.db"
+    monkeypatch.setenv("FEDBANK_PLATFORM_DB_PATH", str(platform))
+    with sqlite3.connect(platform) as db:
+        db.executescript("""
+            CREATE TABLE zones(id TEXT PRIMARY KEY,name TEXT);
+            CREATE TABLE cities(id TEXT PRIMARY KEY,zone_id TEXT,name TEXT);
+            CREATE TABLE branches(id TEXT PRIMARY KEY,city_id TEXT,code TEXT,name TEXT,manager TEXT);
+        """)
+        db.execute("INSERT INTO zones VALUES (?,?)", ("zone-1", "South"))
+        db.execute("INSERT INTO cities VALUES (?,?,?)", ("city-1", "zone-1", "Goa"))
+        db.execute("INSERT INTO branches VALUES (?,?,?,?,?)",
+                    ("old-goa", "city-1", "C99127-02", "Old Goa", "Old Goa Manager"))
+        db.execute("INSERT INTO branches VALUES (?,?,?,?,?)",
+                    ("other-branch", "city-1", "C99127-03", "Other Branch", "Other Manager"))
+    job_id = upload(harness, branch_id="old-goa").json()["job_id"]
+    assert harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=config()).status_code == 200
+    response = harness.client.post(f"{BASE}/{job_id}/start", headers=HEADERS,
+                                   json={"branch_id": "other-branch"})
+    assert response.status_code == 202
+    job = harness.client.get(f"{BASE}/{job_id}", headers=HEADERS).json()
+    assert job["branch_id"] == "old-goa" and job["branch_name"] == "Old Goa"
+    join_all(harness)
+
+
 def test_reprocess_creates_a_separate_run_over_the_same_video_and_is_idempotent(harness):
     source_id = ready_job(harness)
     set_job(source_id, status="COMPLETED", frame_count=30, progress_seconds=3.0,

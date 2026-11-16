@@ -321,7 +321,7 @@ def alert_dict(alert: Alert) -> dict:
             "snapshot_count": sum(ref.get('type') == 'snapshot' for ref in evidence),
             "clip_count": sum(ref.get('type') == 'clip' for ref in evidence),
             "evidence_status": 'CAPTURED' if evidence else
-                'PENDING' if alert.domain_data.get('evidence_status') == 'PENDING' else 'UNAVAILABLE',
+                alert.domain_data.get('evidence_status') if alert.domain_data.get('evidence_status') in {'PENDING', 'FAILED'} else 'UNAVAILABLE',
             "producer": alert.producer, "source_event_id": alert.source_event_id,
             "source_event_type": alert.source_event_type, "source_event_version": alert.source_event_version,
             "category": alert.category, "severity": alert.severity, "source_severity": alert.source_severity,

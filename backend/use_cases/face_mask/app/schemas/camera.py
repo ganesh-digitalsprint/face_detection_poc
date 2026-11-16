@@ -21,6 +21,12 @@ class CameraCreate(BaseModel):
     location: str = ""
     enabled: bool = True
     loop_video: bool = False
+    branch_id: str | None = Field(default=None, max_length=128)
+    branch_code: str | None = Field(default=None, max_length=128)
+    branch_name: str | None = Field(default=None, max_length=200)
+    place_name: str | None = Field(default=None, max_length=200)
+    region_name: str | None = Field(default=None, max_length=200)
+    branch_manager: str | None = Field(default=None, max_length=200)
 
 
 class CameraUpdate(BaseModel):
@@ -54,6 +60,8 @@ class Camera(CameraCreate):
             enabled=self.enabled,
             loop_video=self.loop_video,
             created_at=self.created_at,
+            branch_id=self.branch_id, branch_code=self.branch_code, branch_name=self.branch_name,
+            place_name=self.place_name, region_name=self.region_name, branch_manager=self.branch_manager,
         )
 
 
@@ -68,3 +76,9 @@ class CameraPublic(BaseModel):
     enabled: bool
     loop_video: bool
     created_at: UtcDatetime
+    branch_id: str | None = None
+    branch_code: str | None = None
+    branch_name: str | None = None
+    place_name: str | None = None
+    region_name: str | None = None
+    branch_manager: str | None = None

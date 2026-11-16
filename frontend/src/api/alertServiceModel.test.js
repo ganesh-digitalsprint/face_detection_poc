@@ -54,7 +54,7 @@ test('normalizes configured Gate branch metadata for the alert detail page', () 
   assert.equal(alert.regionName, 'South');
   assert.equal(alert.branchManager, 'Configured manager');
   assert.deepEqual(Object.fromEntries(alertDetailLocationFields(alert)), {
-    'Camera name': 'Entrance camera', Branch: 'Koramangala', 'Branch code': 'C99127-01', Place: 'Bengaluru',
+    'Camera name': 'Entrance camera', 'Camera ID': 'gate-camera', Branch: 'Koramangala', 'Branch code': 'C99127-01', Place: 'Bengaluru',
     Region: 'South', 'Branch manager': 'Configured manager',
   });
 });
@@ -65,8 +65,45 @@ test('normalizes Vault snapshot metadata for all centralized detail fields', () 
     branch_code: 'C99127-01', branch_name: 'Koramangala', place_name: 'Bengaluru', region_name: 'South',
     branch_manager: 'Existing Manager' } }));
   assert.deepEqual(Object.fromEntries(alertDetailLocationFields(alert)), {
-    'Camera name': 'Vault Room Camera', Branch: 'Koramangala', 'Branch code': 'C99127-01', Place: 'Bengaluru',
+    'Camera name': 'Vault Room Camera', 'Camera ID': 'vault-camera', Branch: 'Koramangala', 'Branch code': 'C99127-01', Place: 'Bengaluru',
     Region: 'South', 'Branch manager': 'Existing Manager',
+  });
+});
+
+test('Branch Exterior place stays geographic while detection zone remains a separate field', () => {
+  const alert = normalizeServiceAlert(raw({resource_refs:{camera_id:'legacy-camera',camera_name:'Front',
+    branch_id:'branch-1',branch_code:'P001',branch_name:'Central',place_name:'Pune',region_name:'West',
+    branch_manager:'A. Manager',zone_name:'Whole scene'}}));
+  const fields = Object.fromEntries(alertDetailLocationFields(alert));
+  assert.equal(fields.Place, 'Pune');
+  assert.equal(fields['Branch code'], 'P001');
+  assert.equal(alert.zoneName, 'Whole scene');
+  assert.notEqual(fields.Place, alert.zoneName);
+});
+
+test('a detection zone is never used as a fabricated geographic place', () => {
+  const alert = normalizeServiceAlert(raw({resource_refs:{camera_id:'legacy-camera',zone_name:'Whole scene'}}));
+  const fields = Object.fromEntries(alertDetailLocationFields(alert));
+  assert.equal(fields.Place, null);
+  assert.equal(alert.zoneName, 'Whole scene');
+});
+
+test('Branch Exterior preserves the source evidence failure state and diagnostic', () => {
+  const alert = normalizeServiceAlert(raw({evidence_status:'FAILED',domain_data:{confidence:0.63,track_ids:[3],
+    evidence_status:'FAILED',evidence_unavailable_reason:'snapshot_write_failed'}}));
+  assert.equal(alert.evidenceStatus, 'FAILED');
+  assert.equal(alert.evidenceUnavailableReason, 'snapshot_write_failed');
+  assert.equal(alert.domainData.confidence, 0.63);
+  assert.deepEqual(alert.domainData.track_ids, [3]);
+});
+
+test('missing Grill Gate branch metadata stays unattributed without fabricated display values', () => {
+  const alert = normalizeServiceAlert(raw({ use_case: 'grill_gate', resource_refs: { video_job_id: 'job-1' } }));
+  assert.equal(alert.branchId, null);
+  assert.equal(alert.cameraId, null);
+  assert.deepEqual(Object.fromEntries(alertDetailLocationFields(alert)), {
+    'Camera name': undefined, 'Camera ID': undefined, Branch: undefined, 'Branch code': undefined,
+    Place: null, Region: undefined, 'Branch manager': undefined,
   });
 });
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import Response
 
 from app.core.config import get_settings
@@ -80,13 +80,14 @@ async def set_debug_overlay(camera_id: str, on: bool = True) -> dict:
 
 
 @router.post("/{camera_id}/activate", response_model=CameraStatus)
-async def activate_camera(camera_id: str, repos: Repositories = Depends(get_repos)) -> CameraStatus:
+async def activate_camera(camera_id: str, branch_id: str | None = Body(default=None, embed=True),
+                          repos: Repositories = Depends(get_repos)) -> CameraStatus:
     """Make this the camera being analysed. In single-active-camera mode every
     other camera is stopped first, so only this video is processed."""
     camera = await repos.cameras.get(camera_id)
     if not camera:
         raise HTTPException(404, "Camera not found")
-    camera_manager.start(camera)
+    camera_manager.start(camera, branch_id=branch_id)
     return camera_manager.status(camera_id)
 
 
@@ -97,7 +98,8 @@ async def list_cameras(repos: Repositories = Depends(get_repos)) -> list[Camera]
 
 
 @router.post("", response_model=Camera)
-async def create_camera(payload: CameraCreate, start: bool = True, repos: Repositories = Depends(get_repos)) -> Camera:
+async def create_camera(payload: CameraCreate, start: bool = True, branch_id: str | None = Query(default=None),
+                        repos: Repositories = Depends(get_repos)) -> Camera:
     # The scripted "simulated demo scene" has been removed: only real video
     # (files in storage/sample_videos, uploads, RTSP, webcam) is ever analysed.
     if payload.cam_type == "simulated":
@@ -105,7 +107,7 @@ async def create_camera(payload: CameraCreate, start: bool = True, repos: Reposi
     payload.simulation_mode = False
     camera = await repos.cameras.create(payload)
     if camera.enabled and start:  # the Regions page adds cameras with start=false (it only needs a picture)
-        camera_manager.start(camera)
+        camera_manager.start(camera, branch_id=branch_id)
     return camera.redacted()
 
 

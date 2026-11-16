@@ -329,11 +329,13 @@ class Runtime:
             roi = await EntryRoiRepository(session).get(event.roi_id) if event.roi_id else None
             camera = await CameraRepository(session).get(event.camera_id)
         payload = build_payload(AlertEvent(id=event.id, camera_id=event.camera_id,
-            camera_name=camera.name if camera else self.camera_names.get(event.camera_id, ""), roi_name=roi.name if roi else "",
+            camera_name=event.camera_name or (camera.name if camera else self.camera_names.get(event.camera_id, "")), roi_name=roi.name if roi else "",
             track_id=event.track_id, score=event.score, covering_type=event.covering_type,
             occurred_at=event.first_seen, last_seen_at=event.last_seen,
             frames_evaluated=event.frame_count, status=event.status, severity=self.cfg.alerts.severity,
-            roi_id=event.roi_id))
+            roi_id=event.roi_id, branch_id=event.branch_id, branch_code=event.branch_code,
+            branch_name=event.branch_name, place_name=event.place_name, region_name=event.region_name,
+            branch_manager=event.branch_manager))
         if camera:
             payload["resource_refs"]["source_type"] = camera.cam_type
         payload["domain_data"].update(lifecycle_owner="source", review_status=event.status,

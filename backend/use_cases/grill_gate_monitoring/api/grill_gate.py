@@ -68,6 +68,10 @@ class OpenTimerEvaluation(BaseModel):
     threshold_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
+class StartVideoJobRequest(BaseModel):
+    branch_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 Db = Annotated[Session, Depends(get_db)]
 Caller = Annotated[Operator, Depends(get_operator)]
 
@@ -535,7 +539,7 @@ def measure_video_job_endpoints(job_id: str, payload: MeasureEndpointsRequest, d
 
 
 @router.post("/videos/{job_id}/start", status_code=202)
-def start_video_job(job_id: str, db: Db, caller: Caller):
+def start_video_job(job_id: str, db: Db, caller: Caller, payload: StartVideoJobRequest | None = None):
     """Begin processing a saved job. Only ready UPLOADED jobs are eligible; finished jobs cannot restart."""
     row = _job_or_404(db, job_id)
     if row.status == "UPLOADED":
@@ -544,8 +548,13 @@ def start_video_job(job_id: str, db: Db, caller: Caller):
             raise HTTPException(409, detail={"code": "JOB_NOT_READY", "message": "This job is not ready to process",
                                              "missing": checklist["missing"]})
     db.rollback()
+    branch_metadata = None
+    if row.status == "UPLOADED" and payload and payload.branch_id:
+        branch_metadata = resolve_branch_metadata(payload.branch_id)
+        if branch_metadata is None:
+            raise HTTPException(422, "Selected Branch Management branch was not found")
     try:
-        status = get_grill_gate_video_jobs().start(job_id)
+        status = get_grill_gate_video_jobs().start(job_id, branch_metadata=branch_metadata)
     except VideoJobCapacityError as exc:
         raise HTTPException(429, str(exc)) from exc
     if status is None:

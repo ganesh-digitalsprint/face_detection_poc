@@ -10,6 +10,7 @@ from app.db import init_db
 from app.db.repositories.sql_repo import EventRepository, EntryLogRepository
 from app.services import review_service
 from app.services.runtime import Runtime
+from app.services.alert_client import AlertEvent, build_payload
 
 
 def test_commit_review_evidence_and_rollback_only_publish_concealment(tmp_path, cfg, monkeypatch):
@@ -55,7 +56,9 @@ def test_commit_review_evidence_and_rollback_only_publish_concealment(tmp_path, 
             assert runtime.alerts.pending_count() == 0
             from app.models.orm import CameraORM, EntryRoiORM
             async with init_db.session_scope() as session:
-                session.add(CameraORM(id='cam', name='Persisted entrance name', cam_type='webcam', source='0'))
+                session.add(CameraORM(id='cam', name='Persisted entrance name', cam_type='webcam', source='0',
+                    branch_id='branch-1',branch_code='B001',branch_name='Original branch',place_name='Bengaluru',
+                    region_name='South',branch_manager='Asha'))
                 session.add(EntryRoiORM(id='roi', camera_id='cam', name='Entrance region',
                     polygon=[{'x':0,'y':0},{'x':1,'y':0},{'x':1,'y':1}], inward_vector={'x':1,'y':0}))
                 await session.flush()
@@ -63,12 +66,18 @@ def test_commit_review_evidence_and_rollback_only_publish_concealment(tmp_path, 
                 # Older concealment rows need not have a publication marker.
                 await EventRepository(session).update_fields('event', score=.8)
                 assert runtime.alerts.pending_count() == 0
+            async with init_db.session_scope() as session:
+                camera = await session.get(CameraORM, 'cam')
+                camera.branch_name = 'Renamed later'
             await runtime.alerts.dispatch_once()
             assert remote['source_status'] == 'OPEN'
             original_refs = dict(remote['resource_refs'])
             assert original_refs['camera_name'] == 'Persisted entrance name'
             assert original_refs['camera_id'] == 'cam' and original_refs['zone_id'] == 'roi'
             assert original_refs['zone_name'] == 'Entrance region' and original_refs['source_type'] == 'webcam'
+            assert original_refs['branch_id'] == 'branch-1' and original_refs['branch_code'] == 'B001'
+            assert original_refs['branch_name'] == 'Original branch' and original_refs['place_name'] == 'Bengaluru'
+            assert original_refs['region_name'] == 'South' and original_refs['branch_manager'] == 'Asha'
             assert not runtime.camera_names  # Names survive an empty runtime cache after restart.
             async with init_db.session_scope() as session:
                 await EventRepository(session).touch('event', at, 12, .99, 'scarf')
@@ -140,3 +149,21 @@ def test_face_mask_historical_reconciliation_only_reads_concealment_events(tmp_p
             runtime.evidence.shutdown()
             await init_db.shutdown()
     asyncio.run(scenario())
+
+
+def test_payload_preserves_complete_event_branch_snapshot():
+    at = datetime.now(timezone.utc)
+    payload = build_payload(AlertEvent(id='event', camera_id='camera', camera_name='Entrance', roi_name='Door',
+        track_id=7, score=.91, covering_type='scarf', occurred_at=at, last_seen_at=at, frames_evaluated=8,
+        branch_id='branch-1', branch_code='B001', branch_name='MG Road', place_name='Bengaluru',
+        region_name='South', branch_manager='Asha'))
+    assert payload['resource_refs'] == {'camera_id':'camera','camera_name':'Entrance','zone_name':'Door',
+        'branch_id':'branch-1','branch_code':'B001','branch_name':'MG Road','place_name':'Bengaluru',
+        'region_name':'South','branch_manager':'Asha'}
+
+
+def test_payload_keeps_missing_branch_unattributed():
+    at = datetime.now(timezone.utc)
+    payload = build_payload(AlertEvent(id='event', camera_id='camera', camera_name='Entrance', roi_name='',
+        track_id=7, score=.91, covering_type='scarf', occurred_at=at, last_seen_at=at, frames_evaluated=8))
+    assert not any(key.startswith('branch_') for key in payload['resource_refs'])

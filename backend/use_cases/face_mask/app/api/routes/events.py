@@ -101,12 +101,14 @@ async def review_history(event_id: str, session: AsyncSession = Depends(get_sess
 @router.post("/{event_id}/review", response_model=ConcealmentEvent, dependencies=_write)
 async def review(event_id: str, data: ReviewRequest, session: AsyncSession = Depends(get_session)):
     """Move an event along the workflow. Invalid transitions return 409 with the allowed next states."""
-    return await review_service.transition(session, event_id, data.to_status, data.remarks, data.reviewer)
+    return await review_service.transition(session, event_id, data.to_status, data.remarks, data.reviewer,
+                                           data.expected_version)
 
 
 @router.post("/{event_id}/close", response_model=ConcealmentEvent, dependencies=_write)
 async def close(event_id: str, data: CloseRequest, session: AsyncSession = Depends(get_session)):
-    return await review_service.transition(session, event_id, "CLOSED", data.remarks, data.reviewer)
+    return await review_service.transition(session, event_id, "CLOSED", data.remarks, data.reviewer,
+                                           data.expected_version)
 
 
 @router.get("/{event_id}/evidence", response_model=EvidenceDetails)

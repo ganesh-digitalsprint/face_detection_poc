@@ -94,12 +94,15 @@ def _now_utc():
 class CameraWorker(threading.Thread):
     _WEAPON_CONFIRM_STREAK = 3  # consecutive detection passes with a weapon box on the same person
 
-    def __init__(self, camera: Camera, repos: Repositories, loop: asyncio.AbstractEventLoop, guard_recognizer: GuardFaceRecognizer):
+    def __init__(self, camera: Camera, repos: Repositories, loop: asyncio.AbstractEventLoop, guard_recognizer: GuardFaceRecognizer,
+                 branch_metadata: dict[str, str] | None = None):
         super().__init__(daemon=True, name=f"camera-{camera.id}")
         self.camera = camera
         self._repos = repos
         self._loop = loop
         self._guard_recognizer = guard_recognizer
+        # Immutable processing-context snapshot resolved before this run starts.
+        self._branch_metadata = dict(branch_metadata or {})
         self._stop_event = threading.Event()
         self._settings = get_settings()
 
@@ -580,5 +583,6 @@ class CameraWorker(threading.Thread):
                 alert_service.handle_signal(
                     self._repos, sg, self.camera, processed, self._clip_buffer,
                     thresholds, runtime_cfg.notifications.webhook_url,
+                    event_context=self._branch_metadata,
                 )
             )

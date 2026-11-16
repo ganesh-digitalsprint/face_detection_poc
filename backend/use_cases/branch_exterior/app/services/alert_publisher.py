@@ -25,7 +25,7 @@ import httpx
 from app.core.config import get_settings
 from app.core.paths import ALERT_OUTBOX_DIR
 from fedbank_core.events.source_sync import deliver_current
-from fedbank_core.events.metadata import enrich_resource_refs
+from fedbank_core.events.metadata import enrich_resource_refs, resolve_branch_metadata
 from fedbank_core.events.evidence import media_path, evidence_metadata
 from fedbank_core.events.classification import is_security_alert
 from app.schemas.event import Event
@@ -72,8 +72,11 @@ def build_payload(event: Event) -> dict:
             "zone_name": _safe_reference(event.zone_name, 128),
         }.items() if value
     }
-    resource_refs.update({key: value for key in ("branch_id", "branch_name", "source_id")
+    resource_refs.update({key: value for key in ("branch_id", "branch_code", "branch_name", "place_name",
+        "region_name", "branch_manager", "source_id")
         if (value := _safe_reference(event.meta.get(key), 128))})
+    branch = resolve_branch_metadata(resource_refs.get("branch_id")) or {}
+    resource_refs.update({key: value for key, value in branch.items() if key not in resource_refs})
     resource_refs = enrich_resource_refs("branch_exterior", resource_refs)
     camera_name = resource_refs.get("camera_name")
     title = f"{title_type} at {camera_name}" if camera_name else title_type
@@ -114,12 +117,27 @@ def build_sync_payload(event: Event) -> dict:
     payload["domain_data"].update(lifecycle_owner="source", confidence=event.confidence,
         review_status=event.status, resolution_note=event.reviewer_remarks,
         source_status_changed_at=_timestamp(event.updated_at),
-        evidence_status="CAPTURED" if event.snapshot_path or event.clip_path else "UNAVAILABLE")
+        )
     payload["evidence_refs"] = [{"provider": "branch_exterior", "id": f"{event.id}:{kind}",
         "type": kind, "event_path": f"/api/events/{event.id}"}
         for kind, path in (("snapshot", event.snapshot_path), ("clip", event.clip_path))
         if media_path(path, 'branch_exterior')]
-    payload['domain_data'].update(evidence_metadata(payload['evidence_refs']))
+    evidence_state = str((event.meta or {}).get("evidence") or "")
+    missing_reference = bool(event.snapshot_path or event.clip_path) and not payload["evidence_refs"]
+    if payload["evidence_refs"]:
+        status, reason = False, None
+    elif evidence_state.startswith("pending:") or evidence_state == "pending":
+        status, reason = "pending", None
+    elif evidence_state.startswith("failed:"):
+        status, reason = "failed", evidence_state.partition(":")[2] or "evidence_capture_failed"
+    elif missing_reference or evidence_state == "saved":
+        status, reason = "failed", "evidence_file_missing"
+    elif evidence_state.startswith("not_saved:"):
+        status, reason = False, evidence_state.partition(":")[2] or "not_captured"
+    else:
+        status, reason = False, None
+    payload['domain_data'].update(evidence_metadata(payload['evidence_refs'], pending=status == "pending",
+        failed=status == "failed", unavailable_reason=reason))
     return payload
 
 

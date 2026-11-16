@@ -73,6 +73,17 @@ def test_camera_crud_and_online_count(client) -> None:
     assert client.get("/api/cameras").json() == []
 
 
+def test_camera_uses_validated_canonical_branch_metadata(client, monkeypatch) -> None:
+    snapshot = {"branch_id": "branch-1", "branch_code": "B001", "branch_name": "MG Road",
+                "place_name": "Bengaluru", "region_name": "South", "branch_manager": "Asha"}
+    monkeypatch.setattr("app.api.routes.cameras.resolve_branch_metadata",
+                        lambda branch_id: snapshot if branch_id == "branch-1" else None)
+    valid = _camera(client, branch_id="branch-1").json()
+    assert {key: valid[key] for key in snapshot} == snapshot
+    missing = _camera(client, name="Unattributed", branch_id="unknown").json()
+    assert missing["branch_id"] is None and missing["branch_name"] is None
+
+
 def test_start_of_disabled_camera_is_rejected(client) -> None:
     cid = _camera(client, enabled=False).json()["id"]
     assert client.post(f"/api/cameras/{cid}/start").status_code == 409
@@ -220,6 +231,17 @@ def test_fm06_confirmed_path_can_close(client, add_event) -> None:
     eid = add_event(status="UNDER_REVIEW")
     assert client.post(f"/api/events/{eid}/review", json={"to_status": "CONFIRMED"}).json()["status"] == "CONFIRMED"
     assert client.post(f"/api/events/{eid}/close", json={"remarks": "reported"}).json()["status"] == "CLOSED"
+
+
+def test_review_rejects_stale_version_and_preserves_audit(client, add_event) -> None:
+    eid = add_event()
+    first = client.post(f"/api/events/{eid}/review", json={
+        "to_status": "UNDER_REVIEW", "expected_version": 1, "reviewer": "Asha"})
+    assert first.status_code == 200 and first.json()["review_version"] == 2
+    stale = client.post(f"/api/events/{eid}/review", json={
+        "to_status": "FALSE_POSITIVE", "remarks": "stale", "expected_version": 1})
+    assert stale.status_code == 409
+    assert len(client.get(f"/api/events/{eid}/actions").json()) == 1
 
 
 # -- evidence -------------------------------------------------------------------------------------------

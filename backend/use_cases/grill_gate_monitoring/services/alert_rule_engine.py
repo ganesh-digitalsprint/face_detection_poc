@@ -30,7 +30,8 @@ class GrillGateAlertRuleEngine:
                  source_context: dict | None = None, frontend_timer_owned: bool = False):
         self.camera_id, self.assignment_id = str(camera_id), str(assignment_id)
         self._publish, self._config = publish, config
-        self._source_context = source_context or {}
+        self._source_snapshot = dict(source_context or {})
+        self._source_context = dict(self._source_snapshot)
         self._frontend_timer_owned = frontend_timer_owned
         self._state = "UNKNOWN"
         self._open_since: datetime | None = None
@@ -121,7 +122,9 @@ class GrillGateAlertRuleEngine:
                 "alert_raised": self._open_alert_raised}
 
     def update_source_context(self, **context) -> None:
-        self._source_context.update({key: value for key, value in context.items() if value is not None})
+        self._source_context.update({key: value for key, value in context.items()
+                                     if value is not None and (key not in self._source_snapshot
+                                                               or value == self._source_snapshot[key])})
 
     def restore_active(self, alerts: list[dict]) -> None:
         """Rehydrate source identities from local storage after a worker restart."""

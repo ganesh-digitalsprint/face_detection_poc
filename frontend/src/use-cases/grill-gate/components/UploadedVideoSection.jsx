@@ -286,7 +286,8 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
       {videoJob.error && !videoJob.notFound && <p role="status" className="text-xs text-amber-800">Could not refresh this job: {videoJob.error} Showing the last results; retrying.</p>}
       {job && (
         <JobPreview job={job} action={action}
-          onProcess={() => run('start', startGrillGateVideoJob)} onCancel={() => run('cancel', cancelGrillGateVideoJob)}
+          onProcess={() => run('start', (jobId) => startGrillGateVideoJob(jobId, activeBranchId))}
+          onCancel={() => run('cancel', cancelGrillGateVideoJob)}
           onReprocess={reprocess} zoneConfigurations={zoneConfigurations} />
       )}
 
@@ -308,10 +309,6 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
           {job && <SavedVideoCard job={job} busy={action === 'delete'} disabled={uploading} onReplace={replace} onDelete={remove} onOpenZones={onOpenZones} />}
           <MonitoringStats monitoring={monitoring} />
           <TimelinePanel monitoring={monitoring} note="Video time, not clock time." />
-          <div className="flex justify-end">
-            {selectedJobId && <FilePicker label="Upload another video" className={btnGhost} disabled={uploading} onFile={(file) => send(file, null)} />}
-            {selectedJobId && <StorageVideoPicker onFile={(file) => send(file, null)} disabled={uploading} accept=".mp4,.avi" />}
-          </div>
           <SavedVideoList jobs={jobs} error={jobsError} selectedId={selectedJobId} onSelect={onSelectJob} />
         </div>
         <div className="min-w-0 space-y-4">

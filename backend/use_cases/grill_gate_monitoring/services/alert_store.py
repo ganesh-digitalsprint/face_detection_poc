@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models.camera_registry import RegistryCamera
 from app.db.models.vault_room import VaultAuditEvent
+from fedbank_core.events.metadata import safe_reference
 from grill_gate_monitoring.services.alert_delivery import stage_publication, ENTITY, PENDING
 from grill_gate_monitoring.models.alert import GrillGateAlert
 
@@ -81,6 +82,14 @@ def persist_command(db: Session, command: dict) -> GrillGateAlert | None:
         refs = payload.get("resource_refs") or {}
         domain = dict(payload.get("domain_data") or {})
         camera_id = str(refs["camera_id"]) if refs.get("camera_id") else None
+        # Like Vault's metadata_json projection, promote the source-session snapshot to
+        # resource refs at persistence time so branch filtering and delayed publication
+        # read the same immutable attribution.
+        for key in ("registry_camera_id", "branch_id", "branch_code", "branch_name", "place_name",
+                    "region_name", "branch_manager", "camera_name", "source_id", "source_type",
+                    "location_id", "location_name", "video_filename"):
+            if (value := safe_reference(domain.get(key))):
+                refs.setdefault(key, value)
         camera = db.get(RegistryCamera, camera_id) if camera_id else None
         if "camera_name" not in domain:
             domain["camera_name"] = camera.name if camera else None

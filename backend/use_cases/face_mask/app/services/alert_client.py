@@ -23,7 +23,6 @@ import httpx
 
 from app.core.paths import ALERT_OUTBOX_DIR
 from fedbank_core.events.source_sync import deliver_current
-from fedbank_core.events.metadata import enrich_resource_refs
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +49,12 @@ class AlertEvent:
     status: str = "OPEN"
     severity: str = "high"
     roi_id: str | None = None
+    branch_id: str | None = None
+    branch_code: str | None = None
+    branch_name: str | None = None
+    place_name: str | None = None
+    region_name: str | None = None
+    branch_manager: str | None = None
 
 
 def _utc(value: datetime) -> datetime:
@@ -82,8 +87,13 @@ def build_payload(event: AlertEvent) -> dict:
     resource_refs = {k: v for k, v in {
         "camera_id": _safe_reference(event.camera_id, 128), "camera_name": camera_name,
         "zone_id": _safe_reference(event.roi_id, 128), "zone_name": entry,
+        "branch_id": _safe_reference(event.branch_id, 128),
+        "branch_code": _safe_reference(event.branch_code, 128),
+        "branch_name": _safe_reference(event.branch_name, 200),
+        "place_name": _safe_reference(event.place_name, 200),
+        "region_name": _safe_reference(event.region_name, 200),
+        "branch_manager": _safe_reference(event.branch_manager, 200),
     }.items() if v}
-    resource_refs = enrich_resource_refs("face_mask", resource_refs)
     return {
         "schema_version": 1,
         "source_event_id": event.id,

@@ -26,6 +26,7 @@ class CameraManager:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._repos: Repositories | None = None
         self._resume_ids: list[str] = []  # cameras that were running when stop_all() was last called
+        self._branch_contexts: dict[str, dict[str, str]] = {}
 
     @property
     def single_mode(self) -> bool:
@@ -56,13 +57,26 @@ class CameraManager:
             if cam.enabled:
                 self.start(cam)
 
-    def start(self, camera: Camera) -> None:
+    def start(self, camera: Camera, branch_id: str | None = None) -> None:
         assert self._loop is not None and self._repos is not None
+        from fedbank_core.events.metadata import enrich_resource_refs, resolve_branch_metadata
+
+        # The active branch supplied by the UI is the best source for a local
+        # video. Platform cameras can also recover their branch from the
+        # shared camera registry when an activation caller omits branch_id.
+        camera_context = enrich_resource_refs("branch_exterior", {"camera_id": camera.id})
+        # A registered camera's canonical association wins over a UI scope.
+        # Local/uploaded sources have no registry association, so use the
+        # canonical branch captured when that processing session starts.
+        resolved_branch_id = camera_context.get("branch_id") or branch_id
+        branch_metadata = dict(camera_context)
+        branch_metadata.update(resolve_branch_metadata(resolved_branch_id) or {})
+        self._branch_contexts[camera.id] = dict(branch_metadata)
         if self.single_mode:
             for other_id in [cid for cid in self._workers if cid != camera.id]:
                 self.stop(other_id)
         self.stop(camera.id)
-        worker = CameraWorker(camera, self._repos, self._loop, guard_registry.recognizer)
+        worker = CameraWorker(camera, self._repos, self._loop, guard_registry.recognizer, branch_metadata)
         self._workers[camera.id] = worker
         worker.start()
         logger.info("Started camera worker for %s (%s)", camera.name, camera.id)
@@ -77,9 +91,10 @@ class CameraManager:
         """Re-create the worker for a camera whose settings changed - but only
         if it was running. (An idle camera stays idle.)"""
         was_running = camera.id in self._workers
+        branch_id = (self._branch_contexts.get(camera.id) or {}).get("branch_id")
         self.stop(camera.id)
         if was_running and camera.enabled:
-            self.start(camera)
+            self.start(camera, branch_id=branch_id)
 
     def stop_all(self) -> None:
         self._resume_ids = list(self._workers.keys())
@@ -92,7 +107,8 @@ class CameraManager:
         wanted = set(self._resume_ids)
         for cam in await self._repos.cameras.list():
             if cam.enabled and cam.id in wanted:
-                self.start(cam)
+                branch_id = (self._branch_contexts.get(cam.id) or {}).get("branch_id")
+                self.start(cam, branch_id=branch_id)
         self._resume_ids = []
 
     def status(self, camera_id: str) -> CameraStatus:

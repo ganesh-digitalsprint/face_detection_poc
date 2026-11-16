@@ -17,6 +17,7 @@ from app.schemas.camera import Camera, CameraCreate, CameraUpdate
 from app.schemas.stream import CamerasOnline, CameraView, StreamStatus
 from app.services.runtime import Runtime
 from app.services.sources import FILE_TYPES, resolve_video_path
+from fedbank_core.events.metadata import resolve_branch_metadata
 
 router = APIRouter(prefix="/cameras", tags=["cameras"], dependencies=[Depends(require_api_key)])
 
@@ -80,8 +81,12 @@ async def create_camera(data: CameraCreate, start: bool = False, session: AsyncS
                         runtime: Runtime = Depends(get_runtime)):
     source, username, password = _split_credentials(data.source, data.username, data.password)
     _validate_source(data.cam_type, source)
-    camera = await CameraRepository(session).create(
-        data.model_copy(update={"source": source, "username": username, "password": password}))
+    metadata = resolve_branch_metadata(data.branch_id) if data.branch_id else None
+    camera = await CameraRepository(session).create(data.model_copy(update={
+        "source": source, "username": username, "password": password,
+        **{key: (metadata or {}).get(key) for key in
+           ("branch_id", "branch_code", "branch_name", "place_name", "region_name", "branch_manager")},
+    }))
     runtime.camera_names[camera.id] = camera.name
     if start and camera.enabled:
         runtime.start_camera(camera)

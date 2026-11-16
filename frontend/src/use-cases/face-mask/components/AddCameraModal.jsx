@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/index.js';
 import Modal from '../../branch-exterior/components/Modal.jsx';
+import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
 
 /**
  * Register an RTSP/HTTP camera, a webcam, an uploaded video or a video already on the server.
  * Same form pattern as Branch Exterior. The password is sent once and never shown again by the API.
  */
 export default function AddCameraModal({ onClose, onCreated }) {
+  const activeScope = useOptionalActiveBranch()?.scope;
+  const branchId = activeScope?.type === 'branch' ? activeScope.id : null;
   const [form, setForm] = useState({ name: '', type: 'rtsp', location: '', source: '', user: '', pass: '' });
   const [file, setFile] = useState(null);
   const [browse, setBrowse] = useState({ state: 'idle', files: [] });
@@ -45,7 +48,7 @@ export default function AddCameraModal({ onClose, onCreated }) {
       }
       const created = await api.post('/cameras', {
         name: form.name.trim(), cam_type: form.type, source, username: form.user.trim(), password: form.pass,
-        location: form.location.trim(), enabled: true, loop_video: false,
+        location: form.location.trim(), enabled: true, loop_video: false, branch_id: branchId,
       });
       onClose();
       if (onCreated) await onCreated(created);
@@ -66,6 +69,7 @@ export default function AddCameraModal({ onClose, onCreated }) {
       )}
     >
       {error && <div className="bx-diag" role="alert">{error}</div>}
+      {branchId && <div className="bx-hint">Selected branch: {activeScope.name || branchId}. New incidents keep this attribution.</div>}
       <label className="bx-field">Camera name
         <input className="bx-input" value={form.name} onChange={set('name')} placeholder="e.g. Main entrance" autoComplete="off" />
       </label>

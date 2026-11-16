@@ -10,6 +10,7 @@ import { useFmStatus } from '../components/FmStatus.jsx';
 import { EventStatusBadge, PageState, ServiceDown, StateDot, StreamBadge, Empty } from '../components/ui.jsx';
 import usePolling from '../hooks/usePolling.js';
 import { faceMaskEventLink } from '../../../layouts/routes.js';
+import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
 
 const DEFAULT_ROI = {
   name: 'Full frame default',
@@ -22,7 +23,7 @@ const DEFAULT_ROI = {
 const STAGE = { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', textAlign: 'center', padding: 16 };
 const LIVE_STATES = ['ONLINE', 'PROCESSING', 'RECONNECTING', 'DONE'];
 
-function VideoPanel({ onCreated }) {
+function VideoPanel({ onCreated, branchId }) {
   const [files, setFiles] = useState([]);
   const [picked, setPicked] = useState('');
   const [upload, setUpload] = useState(null);
@@ -33,7 +34,7 @@ function VideoPanel({ onCreated }) {
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
   const run = async (path, name) => {
-    const created = await api.post('/videos/process', { path, name, roi: useDefaultRoi ? DEFAULT_ROI : null });
+    const created = await api.post('/videos/process', { path, name, roi: useDefaultRoi ? DEFAULT_ROI : null, branch_id: branchId });
     await onCreated(created);
   };
   const submit = async () => {
@@ -90,6 +91,8 @@ function Progress({ st }) {
 }
 
 export default function LiveMonitoring() {
+  const activeScope = useOptionalActiveBranch()?.scope;
+  const branchId = activeScope?.type === 'branch' ? activeScope.id : null;
   const navigate=useNavigate();
   const incidentStates=useCommonIncidentStates('face_mask');
   const { state: serviceState } = useFmStatus();
@@ -142,7 +145,7 @@ export default function LiveMonitoring() {
       {cams.error && !cams.data && <ServiceDown error={cams.error} onRetry={cams.reload} />}
       {actionError && <div className="bx-diag" role="alert">{actionError}</div>}
 
-      {!down && <VideoPanel onCreated={async (created) => { select(created.id); await cams.reload(); }} />}
+      {!down && <VideoPanel branchId={branchId} onCreated={async (created) => { select(created.id); await cams.reload(); }} />}
 
       <div className="bx-card bx-mb-16">
         <label className="bx-field" style={{ margin: 0 }}>
