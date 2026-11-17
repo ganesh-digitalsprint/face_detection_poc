@@ -4,6 +4,7 @@ export const USE_CASES = [
   { id: 'all', label: 'All' },
   { id: 'vault_access', label: 'Vault Access' },
   { id: 'branch_exterior', label: 'Branch Exterior' },
+  { id: 'grill_gate', label: 'Gate Monitoring' },
   { id: 'face_mask', label: 'Face Mask' },
 ];
 
@@ -11,17 +12,20 @@ export const USE_CASES = [
 export const ZONE_TYPES = {
   vault_access: [],
   branch_exterior: ['entrance', 'atm', 'side_lane', 'forecourt', 'rear', 'restricted', 'other'],
+  grill_gate: ['gate_leaf_roi', 'gate_approach', 'gate_interior', 'mesh_area'],
   face_mask: ['entry_roi'],
 };
 
 export const ZONE_TYPE_LABELS = {
   entrance: 'Entrance / gate', atm: 'ATM area', side_lane: 'Side lane', forecourt: 'Forecourt / parking',
   rear: 'Rear access', restricted: 'Restricted', other: 'Other', entry_roi: 'Entry ROI',
+  gate_leaf_roi: 'Sliding gate leaf', gate_approach: 'Gate approach', gate_interior: 'Gate interior', mesh_area: 'Mesh gathering area',
 };
 
 export const SERVICE_START = {
   branch_exterior: { name: 'Branch Exterior', dir: 'backend/use_cases/branch_exterior', cmd: 'python -m uvicorn app.main:app --port 8011' },
   face_mask: { name: 'Face Mask', dir: 'backend/use_cases/face_mask', cmd: 'uv run uvicorn app.main:app --reload --port 8014' },
+  grill_gate: { name: 'Gate Monitoring', dir: 'backend/use_cases/vault_monitoring', cmd: '.\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8010' },
 };
 
 /** Valid use-case id from a query-string value; anything unknown falls back to "all". */

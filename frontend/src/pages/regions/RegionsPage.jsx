@@ -11,6 +11,7 @@ import { parseUseCase, USE_CASES } from './regionsModel.js';
 // Each use case's editor loads on demand, and only when selected, so a stopped service never blocks the others.
 const BranchZones = lazy(() => import('../../use-cases/branch-exterior/pages/RegionsZonesPage.jsx'));
 const FaceMaskZones = lazy(() => import('../../use-cases/face-mask/components/EntryRoiPanel.jsx'));
+const GateZones = lazy(() => import('./GateRegionsPanel.jsx'));
 
 /** Common Regions & Zones: choose a use case, then draw and manage that use case's zones. */
 export default function RegionsPage() {
@@ -19,10 +20,12 @@ export default function RegionsPage() {
   const theme = useBxTheme();
   const next = theme === 'dark' ? 'bright' : 'dark';
 
-  const select = (id, camera) => setParams(() => {
+  const select = (id, camera, zone) => setParams(() => {
     const query = new URLSearchParams();
     if (id !== 'all') query.set('use_case', id);
     if (camera && id === 'face_mask') query.set('camera', camera);
+    if (id === 'grill_gate' && zone?.assignment_id) { query.set('assignment', zone.assignment_id); query.set('apply', 'live'); }
+    if (id === 'grill_gate' && zone?.job_id) { query.set('job', zone.job_id); query.set('apply', 'video'); }
     return query;
   });
 
@@ -47,6 +50,7 @@ export default function RegionsPage() {
         {useCase === 'all' && <ZonesOverview useCase="all" onOpen={select} />}
         {useCase === 'vault_access' && <Empty icon="🔒">Vault Access has no drawable zones yet. Door authorization does not use regions.</Empty>}
         {useCase === 'branch_exterior' && <BranchZones />}
+        {useCase === 'grill_gate' && <><ZonesOverview useCase="grill_gate" onOpen={select} /><GateZones /></>}
         {useCase === 'face_mask' && <FaceMaskZones />}
       </Suspense>
     </div>

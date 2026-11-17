@@ -4,6 +4,14 @@ Independent common-alert API implementing [Contract v1](../../../docs/alert-serv
 
 ## Run locally
 
+For the local browser and Alert Service together, stop any existing servers on
+ports 3000 and 8012 and run `./start-alerts-local.ps1` from the repository root.
+It gives both processes the same temporary operator credential in memory without
+editing `.env` files. Start them as a pair after either process restarts. This
+enables alert reads in the local UI; producer credentials for publishing alerts
+still need separate configuration. A direct request to `/api/v1/alerts` without
+an operator bearer token remains unauthorized by design.
+
 Use Python 3.11 or 3.12 in an isolated environment. From this directory:
 
 ```powershell
