@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom';
 import { EyeOff, Film, Radio, ScanFace, ScanSearch, ShieldCheck, UserPlus, Video } from 'lucide-react';
-import FaceMaskDashboardSection from '../use-cases/face-mask/components/FaceMaskDashboardSection.jsx';
 import StatusBadge from '../components/common/StatusBadge.jsx';
 import useHealth from '../hooks/useHealth.js';
 
@@ -48,8 +47,6 @@ export default function Dashboard() {
           </Link>
         ))}
       </div>
-
-      <FaceMaskDashboardSection />
     </div>
   );
 }
