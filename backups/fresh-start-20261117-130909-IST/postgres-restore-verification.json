@@ -1,0 +1,82 @@
+[
+  {
+    "source": "face_recognition_db",
+    "restored": "fedbank_verify_face_20261117_130909",
+    "source_counts": {
+      "tables": {
+        "authorized_employees": 7,
+        "camera_sources": 1,
+        "camera_use_case_assignments": 1,
+        "employees": 7,
+        "grill_gate_alerts": 24,
+        "grill_gate_events": 56,
+        "grill_gate_video_jobs": 4,
+        "grill_gate_zone_configurations": 14,
+        "persons": 4,
+        "registry_cameras": 1,
+        "registry_locations": 3,
+        "registry_zones": 0,
+        "vault_alert_conditions": 173,
+        "vault_audit_events": 22984,
+        "vault_evidence": 5,
+        "vault_incident_comments": 0,
+        "vault_incidents": 40,
+        "vault_room_alerts": 96,
+        "vault_room_events": 1276,
+        "vault_room_sessions": 23,
+        "vault_sessions": 44
+      },
+      "column_count": 275
+    },
+    "restored_counts": {
+      "tables": {
+        "authorized_employees": 7,
+        "camera_sources": 1,
+        "camera_use_case_assignments": 1,
+        "employees": 7,
+        "grill_gate_alerts": 24,
+        "grill_gate_events": 56,
+        "grill_gate_video_jobs": 4,
+        "grill_gate_zone_configurations": 14,
+        "persons": 4,
+        "registry_cameras": 1,
+        "registry_locations": 3,
+        "registry_zones": 0,
+        "vault_alert_conditions": 173,
+        "vault_audit_events": 22984,
+        "vault_evidence": 5,
+        "vault_incident_comments": 0,
+        "vault_incidents": 40,
+        "vault_room_alerts": 96,
+        "vault_room_events": 1276,
+        "vault_room_sessions": 23,
+        "vault_sessions": 44
+      },
+      "column_count": 275
+    },
+    "match": true
+  },
+  {
+    "source": "alert_service",
+    "restored": "fedbank_verify_alert_20261117_130909",
+    "source_counts": {
+      "tables": {
+        "alert_audit": 19519,
+        "alert_idempotency": 309,
+        "alerts": 309,
+        "notification_outbox": 0
+      },
+      "column_count": 59
+    },
+    "restored_counts": {
+      "tables": {
+        "alert_audit": 19519,
+        "alert_idempotency": 309,
+        "alerts": 309,
+        "notification_outbox": 0
+      },
+      "column_count": 59
+    },
+    "match": true
+  }
+]

@@ -32,6 +32,16 @@ test('Branch details keep geographic place separate and explain intentionally ex
   assert.match(html,/Download snapshot<\/button>/);
 });
 
+test('Grill Gate detail renders camera and canonical branch metadata from the alert view model',async()=>{
+  const html=await render(baseAlert({useCase:'grill_gate',cameraId:'camera-42',cameraName:'Entrance camera',
+    branchId:'branch-9',branchCode:'C99127-09',branchName:'North branch',placeName:'Bengaluru',
+    regionName:'South',branchManager:'Branch manager',domainData:{gate_state:'FULLY_OPEN',
+      gate_open_duration_seconds:3.036,configured_threshold_seconds:3,video_time_seconds:6.9}}));
+  for (const value of ['Entrance camera','camera-42','North branch','C99127-09','Bengaluru','South','Branch manager']) {
+    assert.ok(html.includes(`<dd>${value}</dd>`), `expected Grill Gate metadata value ${value}`);
+  }
+});
+
 test('storage-limited Branch event shows its unavailable evidence reason',async()=>{
   const html=await render(baseAlert({evidenceStatus:'UNAVAILABLE',snapshotCount:0,clipCount:0,
     evidenceUnavailableReason:'storage_cap_reached',evidenceRefs:[],evidenceSnapshots:[]}));

@@ -1,0 +1,102 @@
+{
+  "sqlite_all_verified": true,
+  "evidence": {
+    "file_count": 133,
+    "total_bytes": 44096371,
+    "archive_entries": 134,
+    "crc_ok": true,
+    "sha256_all_match": true
+  },
+  "artifacts": [
+    {
+      "file": "alert_service-inactive.db",
+      "bytes": 1363968,
+      "sha256": "464990cade170bc2e9d53da90481070d75f5f674c2c0deb69ff4a32f1f5476c5",
+      "readable": true
+    },
+    {
+      "file": "alert_service.dump",
+      "bytes": 1260282,
+      "sha256": "33286c9432955b52c16af04bf55ca9fd1300a1b53040a3a5898345140a8db198",
+      "readable": true
+    },
+    {
+      "file": "alert_service.restore-list.txt",
+      "bytes": 2261,
+      "sha256": "44ac513027101aec8d6e0ceb02bbf4161e2b19f12aa684095f19b7ffe279e773",
+      "readable": true
+    },
+    {
+      "file": "backup-root.txt",
+      "bytes": 52,
+      "sha256": "49d773b637fb4148738f0b0d4e1a1351447a5078bc5b762f92781905fd8a1b8c",
+      "readable": true
+    },
+    {
+      "file": "branch_exterior-app.db",
+      "bytes": 1331200,
+      "sha256": "a7f5a91b15de961c8f419e83b972af0c5a4fd75f0ec4242c70960724782f99c6",
+      "readable": true
+    },
+    {
+      "file": "evidence-manifest.json",
+      "bytes": 102380,
+      "sha256": "9147b6eda50ab42b4b2d73a88cf8623ab588dc21f73d74bfff02a5edc9ea4b30",
+      "readable": true
+    },
+    {
+      "file": "evidence.zip",
+      "bytes": 43486839,
+      "sha256": "042f957d29b04376e5e8c0c873315546010c4c49ecf3dc00796581a43934427a",
+      "readable": true
+    },
+    {
+      "file": "face_mask-app.db",
+      "bytes": 90112,
+      "sha256": "9f14398f359f2d5cf244659242039bf088070df127d36fb3596c35412d519cbf",
+      "readable": true
+    },
+    {
+      "file": "face_recognition_db.dump",
+      "bytes": 1576773,
+      "sha256": "319a27eb20cb48c1134c7f4bb0120531080d69cc81a18fdaab22028486880ee7",
+      "readable": true
+    },
+    {
+      "file": "face_recognition_db.restore-list.txt",
+      "bytes": 11279,
+      "sha256": "dae6162c735fc1ad3369e352a2d9039219f5b79f5bbd049ee9304950a0367556",
+      "readable": true
+    },
+    {
+      "file": "platform.db",
+      "bytes": 122880,
+      "sha256": "351333f47bc0107ef43e2b4af91b18eafa9b4b7ab43393c504f9c5b84db8d585",
+      "readable": true
+    },
+    {
+      "file": "postgres-restore-verification.json",
+      "bytes": 2288,
+      "sha256": "d8a3cf0fc6cf3d24f1d5252bd2b3efaa9238bf7ba199dccf535dc19f2de6600f",
+      "readable": true
+    },
+    {
+      "file": "pre-cleanup-snapshot.json",
+      "bytes": 3632,
+      "sha256": "6e0ecbf6b518cd4b29f4eed452ca39d04313eeb83191b7c6990427aaa26d4b31",
+      "readable": true
+    },
+    {
+      "file": "sqlite-verification.json",
+      "bytes": 4478,
+      "sha256": "bbbae3824a3ae4b4d5731f0288f48efdc27b964c718dad6962547609b3069538",
+      "readable": true
+    },
+    {
+      "file": "vault_monitoring-inactive-app.db",
+      "bytes": 335872,
+      "sha256": "ec92f28c79b99ab21efc2c53e449f408e53b53d88c9970322a9431945ec491ba",
+      "readable": true
+    }
+  ]
+}

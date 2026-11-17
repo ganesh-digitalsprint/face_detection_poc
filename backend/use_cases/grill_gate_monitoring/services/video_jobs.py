@@ -135,8 +135,8 @@ class GrillGateVideoJobs:
                        configured_calibration=bool(config.get("calibration")))
         return job_id
 
-    def start(self, job_id: str, *, branch_metadata: dict | None = None) -> str | None:
-        """Start a saved job once, freezing any missing branch snapshot before processing."""
+    def start(self, job_id: str) -> str | None:
+        """Start a saved job once, preserving only upload-time source attribution."""
         with self._lock:
             if self._closed:
                 raise VideoJobCapacityError("Video processing is shutting down")
@@ -149,10 +149,8 @@ class GrillGateVideoJobs:
                     return None
                 config = dict(job.config_snapshot or {})
                 source_metadata = dict(config.get("source_metadata") or {})
-                # Upload-time attribution is authoritative. If it was absent, use the canonical
-                # branch selected when processing starts, then persist that snapshot with the claim.
-                if branch_metadata and not source_metadata.get("branch_id"):
-                    source_metadata.update(branch_metadata)
+                # Never attribute a video to the UI's current branch selection. Only metadata
+                # explicitly associated with the uploaded source is authoritative.
                 config["source_metadata"] = source_metadata
                 path = Path(job.storage_path)
                 template_id = job.template_assignment_id
