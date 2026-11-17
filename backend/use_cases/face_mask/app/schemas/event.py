@@ -54,6 +54,8 @@ class ConcealmentEvent(BaseModel):
     branch_manager: str | None = None
     camera_name: str | None = None
     review_version: int = 1
+    # Severity is a runtime policy used by the Common Alerts payload, not detector confidence.
+    severity: str | None = None
 
 
 class EventPage(BaseModel):

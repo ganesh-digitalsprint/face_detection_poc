@@ -1,6 +1,6 @@
-import SourceIncidentCard from '../../../components/alerts/SourceIncidentCard.jsx';
+import FaceMaskConcealmentCard from '../components/FaceMaskConcealmentCard.jsx';
 import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
-import { useNavigate } from 'react-router-dom';
+import { sourceMediaUrl } from '../../../api/sourceThumbnail.js';
 import { FACE_MASK_BASE_URL } from '../../../config/services.js';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -9,7 +9,8 @@ import AddCameraModal from '../components/AddCameraModal.jsx';
 import { useFmStatus } from '../components/FmStatus.jsx';
 import { EventStatusBadge, PageState, ServiceDown, StateDot, StreamBadge, Empty } from '../components/ui.jsx';
 import usePolling from '../hooks/usePolling.js';
-import { faceMaskEventLink } from '../../../layouts/routes.js';
+import FaceMaskEventModal from '../components/FaceMaskEventModal.jsx';
+import { normalizeLiveEvents } from './liveEventsModel.js';
 import SourcePicker from '../../../components/video/SourcePicker.jsx';
 import { PlaybackBadge, PlaybackProgress, StartStopControls } from '../../../components/video/PlaybackControls.jsx';
 import { playbackPlaceholder, playbackStatus } from '../../../components/video/playbackState.js';
@@ -30,7 +31,6 @@ const browseFaceMaskVideos = () => api.get('/uploads/browse');
 export default function LiveMonitoring() {
   const activeScope = useOptionalActiveBranch()?.scope;
   const branchId = activeScope?.type === 'branch' ? activeScope.id : null;
-  const navigate=useNavigate();
   const incidentStates=useCommonIncidentStates('face_mask');
   const { state: serviceState } = useFmStatus();
   const [selectedId, setSelectedId] = useState(() => { try { return localStorage.getItem('fmCameraId') || ''; } catch { return ''; } });
@@ -42,6 +42,7 @@ export default function LiveMonitoring() {
   const [useDefaultRoi, setUseDefaultRoi] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState('');
 
   const cams = usePolling(() => api.get('/cameras'), 1500);
   const events = usePolling(() => api.get('/events?limit=10'), 3000);
@@ -81,8 +82,13 @@ export default function LiveMonitoring() {
     if (!window.confirm(`Delete camera "${cam.name}"? Its entry ROIs are removed too; recorded events and evidence are kept.`)) return;
     act(async () => { if (running) await api.post(`/cameras/${cam.id}/stop`); await api.del(`/cameras/${cam.id}`); select(''); });
   };
+  const assignCurrentBranch = () => {
+    if (!cam || !branchId || cam.branch_id || running) return;
+    act(() => api.patch(`/cameras/${cam.id}`, { branch_id: branchId }));
+  };
 
   const trackRows = Object.entries(st.track_states || {});
+  const liveEvents = normalizeLiveEvents(events.data?.items || []);
   const down = serviceState === 'offline';
 
   return (
@@ -106,7 +112,7 @@ export default function LiveMonitoring() {
             select(source.cameraId); await cams.reload();
           } else {
             const created = await api.post('/videos/process', { path: source.processPath,
-              name: source.name.replace(/\.[^.]+$/, ''), roi: useDefaultRoi ? DEFAULT_ROI : null });
+              name: source.name.replace(/\.[^.]+$/, ''), roi: useDefaultRoi ? DEFAULT_ROI : null, branch_id: branchId });
             select(created.id); await cams.reload();
           }
         }}>
@@ -140,6 +146,11 @@ export default function LiveMonitoring() {
               <div>
                 <div className="name">{cam ? cam.name : 'No camera selected'} {cam && <StreamBadge status={displayStatus} />}</div>
                 <div className="loc">{cam ? (cam.location || cam.source) : 'Pick a camera or video from the list above.'}</div>
+                {cam && !cam.branch_id && branchId && !running && <button type="button" className="bx-btn bx-btn-sm" onClick={assignCurrentBranch}>
+                  Assign selected branch: {activeScope.name || branchId}
+                </button>}
+                {cam && !cam.branch_id && running && <div className="bx-hint">Branch is unassigned. Stop this camera before assigning a branch.</div>}
+                {cam && !cam.branch_id && !branchId && !running && <div className="bx-hint">Branch is unassigned. Select a branch in the header to assign it explicitly.</div>}
               </div>
               {<div className="bx-row bx-gap-8 bx-wrap">
                   <StartStopControls selected={!!cam} status={st.status} running={running} starting={starting}
@@ -184,11 +195,19 @@ export default function LiveMonitoring() {
 
           <div className="bx-card">
             <div className="bx-card-title">Concealment events <Link to="/alerts?use_case=face_mask" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></div>
-            <div className="bx-ticker">
+            <div className="bx-ticker" style={{ maxHeight: 480, overflowY: 'auto' }}>
+              {events.error && events.data && <div className="bx-diag" role="status">Connection warning: showing the last loaded concealment events. {events.error.message}</div>}
               {events.error && !events.data && <ServiceDown error={events.error} onRetry={events.reload} />}
-              {events.data && events.data.items.length === 0 && <Empty icon="🕑" bare>No concealment events yet.</Empty>}
-              {(events.data?.items || []).map((e) => <SourceIncidentCard key={e.id} event={e} useCase="face_mask" common={incidentStates.bySource[e.id]} thumbnailUrl={e.snapshot_path ? `${FACE_MASK_BASE_URL}/storage/${e.snapshot_path.replace(/^\/?storage\//,'')}` : undefined} onSelect={(id)=>navigate(faceMaskEventLink(id))} />)}
+              {!events.data && !events.error && <div className="bx-hint" role="status" style={{ padding: 12 }}>Loading concealment events…</div>}
+              {events.data && liveEvents.length === 0 && !events.error && <Empty icon="◷" bare>No concealment events yet.</Empty>}
+              {liveEvents.map((event) => <FaceMaskConcealmentCard key={event.id} event={event} common={incidentStates.bySource[event.id]}
+                thumbnailUrl={event.snapshot_path ? sourceMediaUrl(FACE_MASK_BASE_URL, event.snapshot_path, 'face_mask') : undefined}
+                onSelect={setSelectedEventId} />)}
             </div>
+            {selectedEventId && <FaceMaskEventModal eventId={selectedEventId} cameras={cameras}
+              severity={incidentStates.bySource[selectedEventId]?.severity} incidentStatus={incidentStates.bySource[selectedEventId]?.status}
+              incidentId={incidentStates.bySource[selectedEventId]?.id} incidentLookupError={incidentStates.error}
+              onClose={() => setSelectedEventId('')} onChanged={events.reload} />}
           </div>
         </div>
       </PageState>

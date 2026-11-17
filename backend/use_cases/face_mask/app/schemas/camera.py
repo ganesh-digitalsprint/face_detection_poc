@@ -37,6 +37,8 @@ class CameraUpdate(BaseModel):
     location: str | None = None
     enabled: bool | None = None
     loop_video: bool | None = None
+    # Branch assignment is explicit and resolved to the canonical registry snapshot by the API.
+    branch_id: str | None = Field(default=None, max_length=128)
 
 
 class Camera(CameraCreate):

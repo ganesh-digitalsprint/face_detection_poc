@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toggleTheme, useBxTheme } from '../../branch-exterior/theme.js';
 import { api, coveringLabel, fmtTime, qs } from '../api/index.js';
-import FaceMaskEventDetail from '../components/FaceMaskEventDetail.jsx';
+import FaceMaskEventModal from '../components/FaceMaskEventModal.jsx';
+import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
 import { EventStatusBadge, PageState, PrivacyNote } from '../components/ui.jsx';
 import usePolling from '../hooks/usePolling.js';
 import '../../branch-exterior/branchExterior.css';
@@ -22,6 +23,7 @@ export default function FaceMaskEventsTab() {
   const theme = useBxTheme();
   const [search, setSearch] = useSearchParams();
   const selected = search.get('event') || '';
+  const incidentStates = useCommonIncidentStates('face_mask');
   const [view, setView] = useState('active');
   const [sort, setSort] = useState('desc');
   const [filters, setFilters] = useState(EMPTY);
@@ -94,7 +96,7 @@ export default function FaceMaskEventsTab() {
         <button type="button" className="bx-btn bx-btn-sm" onClick={() => { setFilters(EMPTY); setPage(0); }}>Clear filters</button>
       </div>
 
-      <div className="bx-two-col" style={{ gridTemplateColumns: selected ? 'minmax(0,1.2fr) minmax(0,1fr)' : '1fr', alignItems: 'start' }}>
+      <div className="bx-two-col" style={{ gridTemplateColumns: '1fr', alignItems: 'start' }}>
         <div className="bx-card">
           <PageState loading={list.loading} error={list.error} data={list.data} onRetry={list.reload}
             isEmpty={(d) => d.total === 0} emptyIcon="🛡" emptyText="No Face Mask events match these filters.">
@@ -122,8 +124,11 @@ export default function FaceMaskEventsTab() {
             </div>
           </PageState>
         </div>
-        {selected && <FaceMaskEventDetail eventId={selected} cameras={cameras} onClose={() => select('')} onChanged={refresh} />}
       </div>
+      {selected && <FaceMaskEventModal eventId={selected} cameras={cameras}
+        severity={incidentStates.bySource[selected]?.severity} incidentStatus={incidentStates.bySource[selected]?.status}
+        incidentId={incidentStates.bySource[selected]?.id} incidentLookupError={incidentStates.error}
+        onClose={() => select('')} onChanged={refresh} />}
     </div>
   );
 }

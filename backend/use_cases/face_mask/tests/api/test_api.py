@@ -84,6 +84,27 @@ def test_camera_uses_validated_canonical_branch_metadata(client, monkeypatch) ->
     assert missing["branch_id"] is None and missing["branch_name"] is None
 
 
+def test_unassigned_camera_can_receive_an_explicit_canonical_branch(client, monkeypatch) -> None:
+    camera = _camera(client, name="Unassigned camera").json()
+    snapshot = {"branch_id": "branch-1", "branch_code": "B001", "branch_name": "MG Road",
+                "place_name": "Bengaluru", "region_name": "South", "branch_manager": "Asha"}
+    monkeypatch.setattr("app.api.routes.cameras.resolve_branch_metadata", lambda branch_id: snapshot if branch_id == "branch-1" else None)
+    response = client.patch(f"/api/cameras/{camera['id']}", json={"branch_id": "branch-1"})
+    assert response.status_code == 200
+    assert {key: response.json()[key] for key in snapshot} == snapshot
+
+
+def test_camera_branch_assignment_requires_valid_branch_and_stopped_session(client, monkeypatch) -> None:
+    camera = _camera(client, name="Unassigned camera").json()
+    monkeypatch.setattr("app.api.routes.cameras.resolve_branch_metadata", lambda _branch_id: None)
+    assert client.patch(f"/api/cameras/{camera['id']}", json={"branch_id": "missing"}).status_code == 422
+    runtime = client.app.state.runtime
+    monkeypatch.setattr(runtime, "status", lambda _camera_id: type("Status", (), {"running": True})())
+    monkeypatch.setattr("app.api.routes.cameras.resolve_branch_metadata", lambda _branch_id: {"branch_id": "branch-1"})
+    response = client.patch(f"/api/cameras/{camera['id']}", json={"branch_id": "branch-1"})
+    assert response.status_code == 409
+
+
 def test_start_of_disabled_camera_is_rejected(client) -> None:
     cid = _camera(client, enabled=False).json()["id"]
     assert client.post(f"/api/cameras/{cid}/start").status_code == 409
@@ -206,6 +227,18 @@ def test_events_list_filters_and_pagination(client, add_event) -> None:
     assert get(f"date_from={since.replace('+', '%2B')}")["total"] == 2
     assert client.get("/api/events?status=BOGUS").status_code == 422
     assert client.get("/api/events?limit=0").status_code == 422
+
+
+def test_event_responses_include_the_configured_alert_severity(client, add_event) -> None:
+    event_id = add_event()
+    runtime = client.app.state.runtime
+    runtime.cfg = runtime.cfg.model_copy(update={
+        "alerts": runtime.cfg.alerts.model_copy(update={"severity": "medium"})
+    })
+    listed = client.get("/api/events?limit=1").json()["items"][0]
+    detail = client.get(f"/api/events/{event_id}").json()
+    assert listed["id"] == event_id and listed["severity"] == "MEDIUM"
+    assert detail["severity"] == "MEDIUM"
 
 
 def test_fm06_review_workflow_valid_and_invalid_transitions(client, add_event) -> None:

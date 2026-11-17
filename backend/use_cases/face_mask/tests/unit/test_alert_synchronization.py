@@ -167,3 +167,54 @@ def test_payload_keeps_missing_branch_unattributed():
     payload = build_payload(AlertEvent(id='event', camera_id='camera', camera_name='Entrance', roi_name='',
         track_id=7, score=.91, covering_type='scarf', occurred_at=at, last_seen_at=at, frames_evaluated=8))
     assert not any(key.startswith('branch_') for key in payload['resource_refs'])
+
+
+def test_snapshot_only_concealment_with_failed_clip_is_published(tmp_path, cfg, monkeypatch):
+    monkeypatch.setenv('FEDBANK_STORAGE_ROOT', str(tmp_path / 'media'))
+    media = tmp_path / 'media'
+    media.mkdir()
+    (media / 'snapshot.jpg').write_bytes(b'synthetic snapshot')
+    published = []
+
+    def handler(request):
+        if request.method == 'GET':
+            return httpx.Response(404)
+        payload = json.loads(request.content)
+        published.append(payload)
+        return httpx.Response(201, json={'id': 'synthetic-common-incident'})
+
+    async def scenario():
+        settings = Settings(db_sqlite_path=str(tmp_path / 'snapshot-only.db'),
+            alert_service_base_url='http://common', alert_service_token='synthetic-face-token')
+        await init_db.startup(settings)
+        runtime = Runtime(cfg, settings)
+        runtime.alerts._pending = tmp_path / 'outbox' / 'pending'
+        runtime.alerts._failed = tmp_path / 'outbox' / 'failed'
+        runtime.alerts._client_factory = lambda **kw: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), **kw)
+        init_db.event_publisher = runtime.alerts
+        try:
+            assert runtime.alerts.enabled
+            from app.models.orm import CameraORM
+            async with init_db.session_scope() as session:
+                session.add(CameraORM(id='snapshot-camera', name='Synthetic entrance', cam_type='webcam', source='0'))
+                await session.flush()
+                await EventRepository(session).create('snapshot-only-event', 'snapshot-camera', None, 4,
+                    .93, 'scarf', 9, datetime.now(timezone.utc))
+                await EventRepository(session).update_fields('snapshot-only-event', snapshot_path='snapshot.jpg',
+                    clip_path='', clip_status='failed')
+            assert runtime.alerts.pending_count() == 1
+            await runtime.alerts.dispatch_once()
+            assert runtime.alerts.pending_count() == 0
+        finally:
+            init_db.event_publisher = None
+            runtime.evidence.shutdown()
+            await init_db.shutdown()
+
+    asyncio.run(scenario())
+    assert len(published) == 1
+    assert published[0]['source_event_id'] == 'snapshot-only-event'
+    assert published[0]['source_event_type'] == 'FACE_CONCEALMENT'
+    assert published[0]['domain_data']['clip_status'] == 'failed'
+    assert published[0]['domain_data']['evidence_status'] == 'CAPTURED'
+    assert [ref['type'] for ref in published[0]['evidence_refs']] == ['snapshot']
