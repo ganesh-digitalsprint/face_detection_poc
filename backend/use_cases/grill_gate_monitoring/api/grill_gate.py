@@ -548,13 +548,8 @@ def start_video_job(job_id: str, db: Db, caller: Caller, payload: StartVideoJobR
             raise HTTPException(409, detail={"code": "JOB_NOT_READY", "message": "This job is not ready to process",
                                              "missing": checklist["missing"]})
     db.rollback()
-    branch_metadata = None
-    if row.status == "UPLOADED" and payload and payload.branch_id:
-        branch_metadata = resolve_branch_metadata(payload.branch_id)
-        if branch_metadata is None:
-            raise HTTPException(422, "Selected Branch Management branch was not found")
     try:
-        status = get_grill_gate_video_jobs().start(job_id, branch_metadata=branch_metadata)
+        status = get_grill_gate_video_jobs().start(job_id)
     except VideoJobCapacityError as exc:
         raise HTTPException(429, str(exc)) from exc
     if status is None:

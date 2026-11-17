@@ -1,0 +1,167 @@
+{
+  "captured_at": "2026-11-17 13:12:24.700504+05:30",
+  "postgres_source": {
+    "vault_alert_status": [
+      {
+        "status": "ACKNOWLEDGED",
+        "count": 1
+      },
+      {
+        "status": "OPEN",
+        "count": 41
+      },
+      {
+        "status": "RESOLVED",
+        "count": 54
+      }
+    ],
+    "vault_incidents": 40,
+    "vault_holds": 0,
+    "vault_evidence": 5,
+    "vault_comments": 0,
+    "vault_alert_events": 104,
+    "vault_nonalert_events": 1172,
+    "vault_conditions": 173,
+    "alert_related_audit_scope": 22891,
+    "preserved_audit_scope": 93,
+    "grill_alert_status": [
+      {
+        "status": "OPEN",
+        "count": 14
+      },
+      {
+        "status": "RESOLVED",
+        "count": 10
+      }
+    ],
+    "latest_outbox_state": [
+      {
+        "entity_type": "alert_service_delivery",
+        "action": "ALERT_SERVICE_PUBLICATION_SUCCEEDED",
+        "count": 5
+      },
+      {
+        "entity_type": "grill_gate_alert_delivery",
+        "action": "GRILL_ALERT_DELIVERED",
+        "count": 20
+      },
+      {
+        "entity_type": "vault_alert_lifecycle",
+        "action": "VAULT_LIFECYCLE_DELIVERED",
+        "count": 7
+      }
+    ],
+    "outbox_history_rows": [
+      {
+        "entity_type": "alert_service_delivery",
+        "action": "ALERT_SERVICE_PUBLICATION_QUEUED",
+        "count": 5
+      },
+      {
+        "entity_type": "alert_service_delivery",
+        "action": "ALERT_SERVICE_PUBLICATION_SUCCEEDED",
+        "count": 5
+      },
+      {
+        "entity_type": "grill_gate_alert_delivery",
+        "action": "GRILL_ALERT_DELIVERED",
+        "count": 27
+      },
+      {
+        "entity_type": "vault_alert_lifecycle",
+        "action": "VAULT_LIFECYCLE_DELIVERED",
+        "count": 22500
+      }
+    ]
+  },
+  "common": {
+    "alerts_by_use_case_status": [
+      {
+        "use_case": "branch_exterior",
+        "status": "OPEN",
+        "count": 287
+      },
+      {
+        "use_case": "face_mask",
+        "status": "OPEN",
+        "count": 2
+      },
+      {
+        "use_case": "grill_gate",
+        "status": "OPEN",
+        "count": 13
+      },
+      {
+        "use_case": "vault_monitoring",
+        "status": "OPEN",
+        "count": 7
+      }
+    ],
+    "alerts": 309,
+    "audit": 19519,
+    "idempotency": 309,
+    "notification_outbox": 0
+  },
+  "sqlite": {
+    "branch": {
+      "events": [
+        {
+          "status": "open",
+          "count": 651
+        }
+      ],
+      "cameras": 18,
+      "zones": 0,
+      "guards": 0
+    },
+    "face": {
+      "events": [
+        {
+          "status": "OPEN",
+          "count": 22
+        }
+      ],
+      "reviews": 0,
+      "entry_logs": 55,
+      "cameras": 5,
+      "rois": 3
+    },
+    "legacy_vault": {
+      "alerts": 1,
+      "audit": 1,
+      "conditions": 1
+    },
+    "legacy_common": {
+      "alerts": 8,
+      "audit": 3454,
+      "idempotency": 8,
+      "outbox": 0
+    },
+    "platform": {
+      "branches": 2,
+      "cities": 2,
+      "zones": 2,
+      "cameras": 0,
+      "uploads": 0
+    }
+  },
+  "protected": {
+    "employees": 7,
+    "authorized_employees": 7,
+    "persons": 4,
+    "registry_locations": 3,
+    "registry_cameras": 1,
+    "camera_sources": 1,
+    "camera_assignments": 1,
+    "registry_zones": 0,
+    "vault_sessions": 44,
+    "vault_room_sessions": 23,
+    "grill_events": 56,
+    "grill_video_jobs": 4,
+    "grill_zone_configurations": 14
+  },
+  "evidence": {
+    "files": 133,
+    "bytes": 44096371
+  }
+}

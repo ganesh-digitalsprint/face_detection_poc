@@ -1,0 +1,163 @@
+﻿;
+; Archive created at 2026-11-17 13:09:33
+;     dbname: face_recognition_db
+;     TOC Entries: 152
+;     Compression: gzip
+;     Dump Version: 1.16-0
+;     Format: CUSTOM
+;     Integer: 4 bytes
+;     Offset: 8 bytes
+;     Dumped from database version: 18.6
+;     Dumped by pg_dump version: 18.6
+;
+;
+; Selected TOC Entries:
+;
+879; 1247 16408 TYPE public authorization_status postgres
+224; 1259 16458 TABLE public authorized_employees postgres
+223; 1259 16457 SEQUENCE public authorized_employees_id_seq postgres
+5335; 0 0 SEQUENCE OWNED BY public authorized_employees_id_seq postgres
+237; 1259 16876 TABLE public camera_sources postgres
+238; 1259 16904 TABLE public camera_use_case_assignments postgres
+222; 1259 16418 TABLE public employees postgres
+221; 1259 16417 SEQUENCE public employees_id_seq postgres
+5336; 0 0 SEQUENCE OWNED BY public employees_id_seq postgres
+243; 1259 17541 TABLE public grill_gate_alerts postgres
+240; 1259 17202 TABLE public grill_gate_events postgres
+241; 1259 17238 TABLE public grill_gate_video_jobs postgres
+242; 1259 17443 TABLE public grill_gate_zone_configurations postgres
+220; 1259 16390 TABLE public persons postgres
+219; 1259 16389 SEQUENCE public persons_id_seq postgres
+5337; 0 0 SEQUENCE OWNED BY public persons_id_seq postgres
+236; 1259 16849 TABLE public registry_cameras postgres
+235; 1259 16829 TABLE public registry_locations postgres
+239; 1259 16935 TABLE public registry_zones postgres
+231; 1259 16597 TABLE public vault_alert_conditions postgres
+229; 1259 16571 TABLE public vault_audit_events postgres
+232; 1259 16612 TABLE public vault_evidence postgres
+233; 1259 16652 TABLE public vault_incident_comments postgres
+234; 1259 16719 SEQUENCE public vault_incident_number_seq postgres
+228; 1259 16536 TABLE public vault_incidents postgres
+227; 1259 16516 TABLE public vault_room_alerts postgres
+226; 1259 16501 TABLE public vault_room_events postgres
+225; 1259 16482 TABLE public vault_room_sessions postgres
+230; 1259 16587 TABLE public vault_sessions postgres
+4948; 2604 16461 DEFAULT public authorized_employees id postgres
+4945; 2604 16421 DEFAULT public employees id postgres
+4942; 2604 16393 DEFAULT public persons id postgres
+5309; 0 16458 TABLE DATA public authorized_employees postgres
+5322; 0 16876 TABLE DATA public camera_sources postgres
+5323; 0 16904 TABLE DATA public camera_use_case_assignments postgres
+5307; 0 16418 TABLE DATA public employees postgres
+5328; 0 17541 TABLE DATA public grill_gate_alerts postgres
+5325; 0 17202 TABLE DATA public grill_gate_events postgres
+5326; 0 17238 TABLE DATA public grill_gate_video_jobs postgres
+5327; 0 17443 TABLE DATA public grill_gate_zone_configurations postgres
+5305; 0 16390 TABLE DATA public persons postgres
+5321; 0 16849 TABLE DATA public registry_cameras postgres
+5320; 0 16829 TABLE DATA public registry_locations postgres
+5324; 0 16935 TABLE DATA public registry_zones postgres
+5316; 0 16597 TABLE DATA public vault_alert_conditions postgres
+5314; 0 16571 TABLE DATA public vault_audit_events postgres
+5317; 0 16612 TABLE DATA public vault_evidence postgres
+5318; 0 16652 TABLE DATA public vault_incident_comments postgres
+5313; 0 16536 TABLE DATA public vault_incidents postgres
+5312; 0 16516 TABLE DATA public vault_room_alerts postgres
+5311; 0 16501 TABLE DATA public vault_room_events postgres
+5310; 0 16482 TABLE DATA public vault_room_sessions postgres
+5315; 0 16587 TABLE DATA public vault_sessions postgres
+5338; 0 0 SEQUENCE SET public authorized_employees_id_seq postgres
+5339; 0 0 SEQUENCE SET public employees_id_seq postgres
+5340; 0 0 SEQUENCE SET public persons_id_seq postgres
+5341; 0 0 SEQUENCE SET public vault_incident_number_seq postgres
+5045; 2606 16475 CONSTRAINT public authorized_employees authorized_employees_pkey postgres
+5103; 2606 16896 CONSTRAINT public camera_sources camera_sources_pkey postgres
+5107; 2606 16925 CONSTRAINT public camera_use_case_assignments camera_use_case_assignments_pkey postgres
+5042; 2606 16430 CONSTRAINT public employees employees_pkey postgres
+5135; 2606 17569 CONSTRAINT public grill_gate_alerts grill_gate_alerts_pkey postgres
+5137; 2606 17571 CONSTRAINT public grill_gate_alerts grill_gate_alerts_source_event_id_key postgres
+5119; 2606 17217 CONSTRAINT public grill_gate_events grill_gate_events_pkey postgres
+5126; 2606 17256 CONSTRAINT public grill_gate_video_jobs grill_gate_video_jobs_pkey postgres
+5130; 2606 17459 CONSTRAINT public grill_gate_zone_configurations grill_gate_zone_configurations_pkey postgres
+5040; 2606 16404 CONSTRAINT public persons persons_pkey postgres
+5099; 2606 16867 CONSTRAINT public registry_cameras registry_cameras_pkey postgres
+5094; 2606 16846 CONSTRAINT public registry_locations registry_locations_pkey postgres
+5115; 2606 16959 CONSTRAINT public registry_zones registry_zones_pkey postgres
+5111; 2606 16927 CONSTRAINT public camera_use_case_assignments uq_camera_use_case_assignment postgres
+5133; 2606 17461 CONSTRAINT public grill_gate_zone_configurations uq_grill_gate_zone_configs_owner_name postgres
+5101; 2606 16869 CONSTRAINT public registry_cameras uq_registry_cameras_location_code postgres
+5096; 2606 16848 CONSTRAINT public registry_locations uq_registry_locations_code postgres
+5117; 2606 16961 CONSTRAINT public registry_zones uq_registry_zones_assignment_key postgres
+5087; 2606 16636 CONSTRAINT public vault_evidence uq_vault_evidence_storage_public_id postgres
+5080; 2606 16609 CONSTRAINT public vault_alert_conditions vault_alert_conditions_pkey postgres
+5074; 2606 16585 CONSTRAINT public vault_audit_events vault_audit_events_pkey postgres
+5089; 2606 16634 CONSTRAINT public vault_evidence vault_evidence_pkey postgres
+5092; 2606 16664 CONSTRAINT public vault_incident_comments vault_incident_comments_pkey postgres
+5069; 2606 16565 CONSTRAINT public vault_incidents vault_incidents_incident_number_key postgres
+5071; 2606 16563 CONSTRAINT public vault_incidents vault_incidents_pkey postgres
+5062; 2606 16528 CONSTRAINT public vault_room_alerts vault_room_alerts_pkey postgres
+5053; 2606 16514 CONSTRAINT public vault_room_events vault_room_events_pkey postgres
+5050; 2606 16499 CONSTRAINT public vault_room_sessions vault_room_sessions_pkey postgres
+5076; 2606 16596 CONSTRAINT public vault_sessions vault_sessions_pkey postgres
+5046; 1259 16481 INDEX public ix_authorized_employees_employee_id postgres
+5104; 1259 16902 INDEX public ix_camera_sources_camera_active postgres
+5108; 1259 16934 INDEX public ix_camera_use_case_assignments_camera_id postgres
+5109; 1259 16933 INDEX public ix_camera_use_case_assignments_use_case_active postgres
+5043; 1259 16431 INDEX public ix_employees_employee_id postgres
+5138; 1259 17572 INDEX public ix_grill_gate_alerts_assignment_id postgres
+5139; 1259 17573 INDEX public ix_grill_gate_alerts_assignment_status_time postgres
+5140; 1259 17576 INDEX public ix_grill_gate_alerts_camera_id postgres
+5141; 1259 17579 INDEX public ix_grill_gate_alerts_camera_time postgres
+5142; 1259 17575 INDEX public ix_grill_gate_alerts_status postgres
+5143; 1259 17578 INDEX public ix_grill_gate_alerts_triggered_at postgres
+5144; 1259 17574 INDEX public ix_grill_gate_alerts_type_time postgres
+5145; 1259 17577 INDEX public ix_grill_gate_alerts_video_job_id postgres
+5120; 1259 17221 INDEX public ix_grill_gate_events_assignment_time postgres
+5121; 1259 17218 INDEX public ix_grill_gate_events_assignment_type_time postgres
+5122; 1259 17219 INDEX public ix_grill_gate_events_camera_time postgres
+5123; 1259 17220 INDEX public ix_grill_gate_events_type_time postgres
+5124; 1259 17237 INDEX public ix_grill_gate_events_video_job_time postgres
+5127; 1259 17468 INDEX public ix_grill_gate_video_jobs_asset_job_id postgres
+5128; 1259 17257 INDEX public ix_grill_gate_video_jobs_status_created postgres
+5131; 1259 17462 INDEX public ix_grill_gate_zone_configurations_owner_id postgres
+5037; 1259 16405 INDEX public ix_persons_person_code postgres
+5038; 1259 16406 INDEX public ix_persons_status postgres
+5097; 1259 16875 INDEX public ix_registry_cameras_location_id postgres
+5112; 1259 16967 INDEX public ix_registry_zones_assignment_enabled postgres
+5113; 1259 16968 INDEX public ix_registry_zones_imported_batch_id postgres
+5077; 1259 16611 INDEX public ix_vault_alert_conditions_camera_id postgres
+5078; 1259 16610 INDEX public ix_vault_alert_conditions_session_ref postgres
+5072; 1259 16586 INDEX public ix_vault_audit_entity postgres
+5081; 1259 16651 INDEX public ix_vault_evidence_alert postgres
+5082; 1259 16650 INDEX public ix_vault_evidence_camera_id postgres
+5083; 1259 16647 INDEX public ix_vault_evidence_incident postgres
+5084; 1259 16649 INDEX public ix_vault_evidence_session_id postgres
+5085; 1259 16648 INDEX public ix_vault_evidence_session_ref postgres
+5090; 1259 16675 INDEX public ix_vault_incident_comments_incident_created postgres
+5063; 1259 16568 INDEX public ix_vault_incidents_camera_id postgres
+5064; 1259 16569 INDEX public ix_vault_incidents_session_id postgres
+5065; 1259 16570 INDEX public ix_vault_incidents_session_ref postgres
+5066; 1259 16567 INDEX public ix_vault_incidents_status_updated postgres
+5054; 1259 16714 INDEX public ix_vault_room_alerts_camera_id postgres
+5055; 1259 16717 INDEX public ix_vault_room_alerts_created_id_cursor postgres
+5056; 1259 16715 INDEX public ix_vault_room_alerts_incident_id postgres
+5057; 1259 16529 INDEX public ix_vault_room_alerts_session_id postgres
+5058; 1259 16713 INDEX public ix_vault_room_alerts_session_ref postgres
+5059; 1259 16716 INDEX public ix_vault_room_alerts_status_severity_created postgres
+5051; 1259 16515 INDEX public ix_vault_room_events_session_id postgres
+5047; 1259 16500 INDEX public ix_vault_room_sessions_dual_control_session_id postgres
+5048; 1259 16712 INDEX public ix_vault_room_sessions_session_ref postgres
+5105; 1259 16903 INDEX public uq_camera_sources_active_fingerprint postgres
+5067; 1259 16566 INDEX public uq_vault_incidents_active_session postgres
+5060; 1259 16718 INDEX public uq_vault_room_alerts_active_dedup postgres
+5146; 2606 16476 FK CONSTRAINT public authorized_employees authorized_employees_employee_id_fkey postgres
+5153; 2606 16897 FK CONSTRAINT public camera_sources camera_sources_camera_id_fkey postgres
+5154; 2606 16928 FK CONSTRAINT public camera_use_case_assignments camera_use_case_assignments_camera_id_fkey postgres
+5147; 2606 16707 FK CONSTRAINT public vault_room_alerts fk_vault_room_alerts_incident postgres
+5156; 2606 17463 FK CONSTRAINT public grill_gate_video_jobs grill_gate_video_jobs_asset_job_id_fkey postgres
+5152; 2606 16870 FK CONSTRAINT public registry_cameras registry_cameras_location_id_fkey postgres
+5155; 2606 16962 FK CONSTRAINT public registry_zones registry_zones_assignment_id_fkey postgres
+5148; 2606 16642 FK CONSTRAINT public vault_evidence vault_evidence_alert_id_fkey postgres
+5149; 2606 16637 FK CONSTRAINT public vault_evidence vault_evidence_incident_id_fkey postgres
+5150; 2606 16670 FK CONSTRAINT public vault_incident_comments vault_incident_comments_evidence_id_fkey postgres
+5151; 2606 16665 FK CONSTRAINT public vault_incident_comments vault_incident_comments_incident_id_fkey postgres

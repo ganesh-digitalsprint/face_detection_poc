@@ -251,7 +251,7 @@ def test_start_runs_once_and_duplicate_requests_are_rejected(harness):
     assert harness.runs == [job_id]
 
 
-def test_start_snapshots_selected_branch_when_video_was_uploaded_before_branch_selection(harness, monkeypatch):
+def test_start_does_not_assign_selected_branch_to_unassociated_upload(harness, monkeypatch):
     platform = harness.dir / "platform-start.db"
     monkeypatch.setenv("FEDBANK_PLATFORM_DB_PATH", str(platform))
     with sqlite3.connect(platform) as db:
@@ -271,12 +271,11 @@ def test_start_snapshots_selected_branch_when_video_was_uploaded_before_branch_s
     job = harness.client.get(f"{BASE}/{job_id}", headers=HEADERS).json()
     assert {key: job[key] for key in ("branch_id", "branch_code", "branch_name", "place_name",
             "region_name", "branch_manager", "camera_name")} == {
-        "branch_id": "old-goa", "branch_code": "C99127-02", "branch_name": "Old Goa",
-        "place_name": "Goa", "region_name": "South", "branch_manager": "Old Goa Manager",
-        "camera_name": "Uploaded video"}
+        "branch_id": None, "branch_code": None, "branch_name": None, "place_name": None,
+        "region_name": None, "branch_manager": None, "camera_name": "Uploaded video"}
     with video_jobs_module.SessionLocal() as db:
         saved = db.get(GrillGateVideoJob, job_id)
-        assert saved.config_snapshot["source_metadata"]["branch_id"] == "old-goa"
+        assert "branch_id" not in saved.config_snapshot["source_metadata"]
     join_all(harness)
 
 

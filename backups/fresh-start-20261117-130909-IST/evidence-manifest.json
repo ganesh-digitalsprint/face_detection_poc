@@ -1,0 +1,1679 @@
+{
+  "schema_version": 1,
+  "file_count": 133,
+  "total_bytes": 44096371,
+  "files": [
+    {
+      "path": "D:\\fedbank\\backend\\assets\\alerts\\vault_monitoring\\acf96529-4fe7-415a-8e64-b7246285be1c\\evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg",
+      "relative_path": "backend/assets/alerts/vault_monitoring/acf96529-4fe7-415a-8e64-b7246285be1c/evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg",
+      "size": 82738,
+      "sha256": "514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2",
+      "owner": {
+        "alert_id": "acf96529-4fe7-415a-8e64-b7246285be1c",
+        "incident_id": "6d142b1a-207f-48eb-a86d-7707b69682de"
+      },
+      "associated_database_record": "vault_evidence:07ae71dc-dd80-4b6e-9e33-1b254c13082d",
+      "artifact_kind": "full",
+      "backup_archive_location": "evidence.zip::backend/assets/alerts/vault_monitoring/acf96529-4fe7-415a-8e64-b7246285be1c/evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\assets\\alerts\\vault_monitoring\\acf96529-4fe7-415a-8e64-b7246285be1c\\thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg",
+      "relative_path": "backend/assets/alerts/vault_monitoring/acf96529-4fe7-415a-8e64-b7246285be1c/thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg",
+      "size": 10310,
+      "sha256": "fbd530f6c8a11e3e65d2b4c36f0c03f088c1f57ede8af1ca0be94446fa41a2b5",
+      "owner": {
+        "alert_id": "acf96529-4fe7-415a-8e64-b7246285be1c",
+        "incident_id": "6d142b1a-207f-48eb-a86d-7707b69682de"
+      },
+      "associated_database_record": "vault_evidence:07ae71dc-dd80-4b6e-9e33-1b254c13082d",
+      "artifact_kind": "thumbnail",
+      "backup_archive_location": "evidence.zip::backend/assets/alerts/vault_monitoring/acf96529-4fe7-415a-8e64-b7246285be1c/thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\assets\\alerts\\vault_monitoring\\09edac28-aa0d-42e8-af79-33b06efeb955\\evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg",
+      "relative_path": "backend/assets/alerts/vault_monitoring/09edac28-aa0d-42e8-af79-33b06efeb955/evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg",
+      "size": 82738,
+      "sha256": "514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2",
+      "owner": {
+        "alert_id": "09edac28-aa0d-42e8-af79-33b06efeb955",
+        "incident_id": "2e675c5a-d468-4ba1-8062-e75b443af13b"
+      },
+      "associated_database_record": "vault_evidence:527618c8-82c9-4fce-831f-3433813882f8",
+      "artifact_kind": "full",
+      "backup_archive_location": "evidence.zip::backend/assets/alerts/vault_monitoring/09edac28-aa0d-42e8-af79-33b06efeb955/evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\assets\\alerts\\vault_monitoring\\09edac28-aa0d-42e8-af79-33b06efeb955\\thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg",
+      "relative_path": "backend/assets/alerts/vault_monitoring/09edac28-aa0d-42e8-af79-33b06efeb955/thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg",
+      "size": 10310,
+      "sha256": "fbd530f6c8a11e3e65d2b4c36f0c03f088c1f57ede8af1ca0be94446fa41a2b5",
+      "owner": {
+        "alert_id": "09edac28-aa0d-42e8-af79-33b06efeb955",
+        "incident_id": "2e675c5a-d468-4ba1-8062-e75b443af13b"
+      },
+      "associated_database_record": "vault_evidence:527618c8-82c9-4fce-831f-3433813882f8",
+      "artifact_kind": "thumbnail",
+      "backup_archive_location": "evidence.zip::backend/assets/alerts/vault_monitoring/09edac28-aa0d-42e8-af79-33b06efeb955/thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\assets\\alerts\\vault_monitoring\\62eb4aff-027d-412f-bea0-533c48a76b8f\\evidence_9570b2a726216f05a938c0a0e455f922ade684a63e1136b41efe5c1dea2fc890.jpeg",
+      "relative_path": "backend/assets/alerts/vault_monitoring/62eb4aff-027d-412f-bea0-533c48a76b8f/evidence_9570b2a726216f05a938c0a0e455f922ade684a63e1136b41efe5c1dea2fc890.jpeg",
+      "size": 33675,
+      "sha256": "9570b2a726216f05a938c0a0e455f922ade684a63e1136b41efe5c1dea2fc890",
+      "owner": {
+        "alert_id": "62eb4aff-027d-412f-bea0-533c48a76b8f",
+        "incident_id": "9343aff2-97d9-4dce-a33b-a48a0f6da934"
+      },
+      "associated_database_record": "vault_evidence:c43dc4d6-4012-4f0a-ad5c-4d54e321c6d1",
+      "artifact_kind": "full",
+      "backup_archive_location": "evidence.zip::backend/assets/alerts/vault_monitoring/62eb4aff-027d-412f-bea0-533c48a76b8f/evidence_9570b2a726216f05a938c0a0e455f922ade684a63e1136b41efe5c1dea2fc890.jpeg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\assets\\alerts\\vault_monitoring\\62eb4aff-027d-412f-bea0-533c48a76b8f\\thumbnail_9570b2a726216f05a938c0a0e455f922ade684a63e1136b41efe5c1dea2fc890.jpg",
+      "relative_path": "backend/assets/alerts/vault_monitoring/62eb4aff-027d-412f-bea0-533c48a76b8f/thumbnail_9570b2a726216f05a938c0a0e455f922ade684a63e1136b41efe5c1dea2fc890.jpg",
+      "size": 12788,
+      "sha256": "57ac421de8fc7c1201eca0fef747fb6376de2855f908591f6eb864cc67467537",
+      "owner": {
+        "alert_id": "62eb4aff-027d-412f-bea0-533c48a76b8f",
+        "incident_id": "9343aff2-97d9-4dce-a33b-a48a0f6da934"
+      },
+      "associated_database_record": "vault_evidence:c43dc4d6-4012-4f0a-ad5c-4d54e321c6d1",
+      "artifact_kind": "thumbnail",
+      "backup_archive_location": "evidence.zip::backend/assets/alerts/vault_monitoring/62eb4aff-027d-412f-bea0-533c48a76b8f/thumbnail_9570b2a726216f05a938c0a0e455f922ade684a63e1136b41efe5c1dea2fc890.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\assets\\alerts\\vault_monitoring\\be387c46-89ea-4994-af2c-05ca54c13366\\evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg",
+      "relative_path": "backend/assets/alerts/vault_monitoring/be387c46-89ea-4994-af2c-05ca54c13366/evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg",
+      "size": 82738,
+      "sha256": "514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2",
+      "owner": {
+        "alert_id": "be387c46-89ea-4994-af2c-05ca54c13366",
+        "incident_id": "b38d33a5-4485-4f02-9bd6-c670d2bfea1c"
+      },
+      "associated_database_record": "vault_evidence:e3db3fb6-c8ac-4f59-9281-d6e153296c37",
+      "artifact_kind": "full",
+      "backup_archive_location": "evidence.zip::backend/assets/alerts/vault_monitoring/be387c46-89ea-4994-af2c-05ca54c13366/evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\assets\\alerts\\vault_monitoring\\be387c46-89ea-4994-af2c-05ca54c13366\\thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg",
+      "relative_path": "backend/assets/alerts/vault_monitoring/be387c46-89ea-4994-af2c-05ca54c13366/thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg",
+      "size": 10310,
+      "sha256": "fbd530f6c8a11e3e65d2b4c36f0c03f088c1f57ede8af1ca0be94446fa41a2b5",
+      "owner": {
+        "alert_id": "be387c46-89ea-4994-af2c-05ca54c13366",
+        "incident_id": "b38d33a5-4485-4f02-9bd6-c670d2bfea1c"
+      },
+      "associated_database_record": "vault_evidence:e3db3fb6-c8ac-4f59-9281-d6e153296c37",
+      "artifact_kind": "thumbnail",
+      "backup_archive_location": "evidence.zip::backend/assets/alerts/vault_monitoring/be387c46-89ea-4994-af2c-05ca54c13366/thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\assets\\alerts\\vault_monitoring\\87149054-c481-47d2-b600-6ba17b894878\\evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg",
+      "relative_path": "backend/assets/alerts/vault_monitoring/87149054-c481-47d2-b600-6ba17b894878/evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg",
+      "size": 82738,
+      "sha256": "514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2",
+      "owner": {
+        "alert_id": "87149054-c481-47d2-b600-6ba17b894878",
+        "incident_id": "c402497a-5359-4982-9bfd-1451fa63d368"
+      },
+      "associated_database_record": "vault_evidence:fa276c38-ff4f-4e84-85b1-0c408cd9fb60",
+      "artifact_kind": "full",
+      "backup_archive_location": "evidence.zip::backend/assets/alerts/vault_monitoring/87149054-c481-47d2-b600-6ba17b894878/evidence_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpeg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\assets\\alerts\\vault_monitoring\\87149054-c481-47d2-b600-6ba17b894878\\thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg",
+      "relative_path": "backend/assets/alerts/vault_monitoring/87149054-c481-47d2-b600-6ba17b894878/thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg",
+      "size": 10310,
+      "sha256": "fbd530f6c8a11e3e65d2b4c36f0c03f088c1f57ede8af1ca0be94446fa41a2b5",
+      "owner": {
+        "alert_id": "87149054-c481-47d2-b600-6ba17b894878",
+        "incident_id": "c402497a-5359-4982-9bfd-1451fa63d368"
+      },
+      "associated_database_record": "vault_evidence:fa276c38-ff4f-4e84-85b1-0c408cd9fb60",
+      "artifact_kind": "thumbnail",
+      "backup_archive_location": "evidence.zip::backend/assets/alerts/vault_monitoring/87149054-c481-47d2-b600-6ba17b894878/thumbnail_514322757a8fa356ec92dde2cdc9323501e16187fb69dbab33224b00b10699b2.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\abce275a-8af8-50aa-8e96-6e652f75f01b.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/abce275a-8af8-50aa-8e96-6e652f75f01b.jpg",
+      "size": 695298,
+      "sha256": "cd331f0b83d365217bb6ec2c384ec28589de22bb973271ac4ca995aa3e660ba2",
+      "owner": {
+        "source_event_id": "781145ed-6244-552d-95f1-11235f576d77"
+      },
+      "associated_database_record": "grill_gate_alerts:079041a0-9779-47de-96cc-9ad46d9bab17",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/abce275a-8af8-50aa-8e96-6e652f75f01b.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\abce275a-8af8-50aa-8e96-6e652f75f01b.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/abce275a-8af8-50aa-8e96-6e652f75f01b.json",
+      "size": 704,
+      "sha256": "c7ce1bb8893ccf493a28998248e5aeddd9a271508189b157311e627fec9db25e",
+      "owner": {
+        "source_event_id": "781145ed-6244-552d-95f1-11235f576d77"
+      },
+      "associated_database_record": "grill_gate_alerts:079041a0-9779-47de-96cc-9ad46d9bab17",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/abce275a-8af8-50aa-8e96-6e652f75f01b.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\38fdc94b-2025-5669-9f0b-9938088c4d00.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/38fdc94b-2025-5669-9f0b-9938088c4d00.jpg",
+      "size": 695027,
+      "sha256": "51db43cea117b45ec27d02d5a7692f037fd915a67cb213c6b1b4cb1bd2c5f5fe",
+      "owner": {
+        "source_event_id": "f35e1e3f-2582-5989-b4ce-6a63a0334bae"
+      },
+      "associated_database_record": "grill_gate_alerts:3a36996a-2f96-4f64-ae8f-fefc39843b80",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/38fdc94b-2025-5669-9f0b-9938088c4d00.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\38fdc94b-2025-5669-9f0b-9938088c4d00.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/38fdc94b-2025-5669-9f0b-9938088c4d00.json",
+      "size": 726,
+      "sha256": "982552eb17c03ee4f226f87f67f83c5eaca02af1b3c590411823da6806ed2425",
+      "owner": {
+        "source_event_id": "f35e1e3f-2582-5989-b4ce-6a63a0334bae"
+      },
+      "associated_database_record": "grill_gate_alerts:3a36996a-2f96-4f64-ae8f-fefc39843b80",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/38fdc94b-2025-5669-9f0b-9938088c4d00.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\bcf2bd12-b0e6-513b-a8cb-558cfff88308.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/bcf2bd12-b0e6-513b-a8cb-558cfff88308.jpg",
+      "size": 695888,
+      "sha256": "8f15ccbb8f0ae7b906fff85b488c6ae953c78c0ef1f710d21e8adfbb9ecd586d",
+      "owner": {
+        "source_event_id": "3384c0f1-51ee-5b20-b9f4-c1184ef207c9"
+      },
+      "associated_database_record": "grill_gate_alerts:3c3b76c9-e7c7-4fb3-8855-ed719c20946e",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/bcf2bd12-b0e6-513b-a8cb-558cfff88308.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\bcf2bd12-b0e6-513b-a8cb-558cfff88308.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/bcf2bd12-b0e6-513b-a8cb-558cfff88308.json",
+      "size": 672,
+      "sha256": "17231e546ba405479c877ddc75bdee8886621df98897b80671d66559a965248e",
+      "owner": {
+        "source_event_id": "3384c0f1-51ee-5b20-b9f4-c1184ef207c9"
+      },
+      "associated_database_record": "grill_gate_alerts:3c3b76c9-e7c7-4fb3-8855-ed719c20946e",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/bcf2bd12-b0e6-513b-a8cb-558cfff88308.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\aa133026-0824-5c2d-a2ff-1c349a6b2524.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/aa133026-0824-5c2d-a2ff-1c349a6b2524.jpg",
+      "size": 694272,
+      "sha256": "c1f8d621f7bba16923e1b8bb4371351b909dde8ef3f570279145722f650d9541",
+      "owner": {
+        "source_event_id": "01d57191-ec7b-585b-8d02-59ee153b1514"
+      },
+      "associated_database_record": "grill_gate_alerts:46abb773-e6e7-421d-94ff-d734acf6073a",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/aa133026-0824-5c2d-a2ff-1c349a6b2524.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\aa133026-0824-5c2d-a2ff-1c349a6b2524.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/aa133026-0824-5c2d-a2ff-1c349a6b2524.json",
+      "size": 726,
+      "sha256": "12b66c0611a678962094f8595e07ded2aaf9c317260f11c3e5be3e734c110347",
+      "owner": {
+        "source_event_id": "01d57191-ec7b-585b-8d02-59ee153b1514"
+      },
+      "associated_database_record": "grill_gate_alerts:46abb773-e6e7-421d-94ff-d734acf6073a",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/aa133026-0824-5c2d-a2ff-1c349a6b2524.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\801c7adc-d7b8-54fe-bdd9-33ef7740bd5f.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/801c7adc-d7b8-54fe-bdd9-33ef7740bd5f.jpg",
+      "size": 695298,
+      "sha256": "cd331f0b83d365217bb6ec2c384ec28589de22bb973271ac4ca995aa3e660ba2",
+      "owner": {
+        "source_event_id": "afb11fdc-8dfc-5905-8d4e-dcadc1a1545a"
+      },
+      "associated_database_record": "grill_gate_alerts:476cb7da-5bf2-488e-8c08-49374c0e394d",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/801c7adc-d7b8-54fe-bdd9-33ef7740bd5f.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\801c7adc-d7b8-54fe-bdd9-33ef7740bd5f.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/801c7adc-d7b8-54fe-bdd9-33ef7740bd5f.json",
+      "size": 704,
+      "sha256": "a598a2b6ccf191ad9de5dcd00b5d805838af2435e65866c3fd26cf04351f8907",
+      "owner": {
+        "source_event_id": "afb11fdc-8dfc-5905-8d4e-dcadc1a1545a"
+      },
+      "associated_database_record": "grill_gate_alerts:476cb7da-5bf2-488e-8c08-49374c0e394d",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/801c7adc-d7b8-54fe-bdd9-33ef7740bd5f.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\79e79fcc-fd39-52b3-a8eb-a06c29a9d894.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/79e79fcc-fd39-52b3-a8eb-a06c29a9d894.jpg",
+      "size": 690465,
+      "sha256": "41319508aba8039dfcb3ce000f81f7cdc3d7ea9765263f84344bc6a12a220559",
+      "owner": {
+        "source_event_id": "52bb4f46-14a1-5117-9eca-fbce35f1db0c"
+      },
+      "associated_database_record": "grill_gate_alerts:5070d889-6ab2-48e2-82ef-7a6a49218e00",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/79e79fcc-fd39-52b3-a8eb-a06c29a9d894.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\79e79fcc-fd39-52b3-a8eb-a06c29a9d894.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/79e79fcc-fd39-52b3-a8eb-a06c29a9d894.json",
+      "size": 715,
+      "sha256": "4e567f051b97eeaaaf95eec79c45ada1657057c23661088f828cd5e9d4a4b813",
+      "owner": {
+        "source_event_id": "52bb4f46-14a1-5117-9eca-fbce35f1db0c"
+      },
+      "associated_database_record": "grill_gate_alerts:5070d889-6ab2-48e2-82ef-7a6a49218e00",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/79e79fcc-fd39-52b3-a8eb-a06c29a9d894.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\6cb26c95-1e5a-5f43-a213-1e5e38195e2e.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/6cb26c95-1e5a-5f43-a213-1e5e38195e2e.jpg",
+      "size": 695298,
+      "sha256": "cd331f0b83d365217bb6ec2c384ec28589de22bb973271ac4ca995aa3e660ba2",
+      "owner": {
+        "source_event_id": "2b73e167-3073-529a-8eb2-ef275c27da0d"
+      },
+      "associated_database_record": "grill_gate_alerts:5ce2f65b-84f4-40ea-9798-bf4c5b29a3fa",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/6cb26c95-1e5a-5f43-a213-1e5e38195e2e.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\6cb26c95-1e5a-5f43-a213-1e5e38195e2e.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/6cb26c95-1e5a-5f43-a213-1e5e38195e2e.json",
+      "size": 661,
+      "sha256": "4b987e91450429188293a57906d450c0fd45eb2ce7693edd6b4fe17d385a6167",
+      "owner": {
+        "source_event_id": "2b73e167-3073-529a-8eb2-ef275c27da0d"
+      },
+      "associated_database_record": "grill_gate_alerts:5ce2f65b-84f4-40ea-9798-bf4c5b29a3fa",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/6cb26c95-1e5a-5f43-a213-1e5e38195e2e.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\f66f6da9-7b86-5a18-8b7a-72ebc550ecd2.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/f66f6da9-7b86-5a18-8b7a-72ebc550ecd2.jpg",
+      "size": 695888,
+      "sha256": "8f15ccbb8f0ae7b906fff85b488c6ae953c78c0ef1f710d21e8adfbb9ecd586d",
+      "owner": {
+        "source_event_id": "085bcdd1-ffac-5f74-91c5-4b8fdc0e5d08"
+      },
+      "associated_database_record": "grill_gate_alerts:62288881-39f9-4041-93d1-88d498bc4ec2",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/f66f6da9-7b86-5a18-8b7a-72ebc550ecd2.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\f66f6da9-7b86-5a18-8b7a-72ebc550ecd2.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/f66f6da9-7b86-5a18-8b7a-72ebc550ecd2.json",
+      "size": 726,
+      "sha256": "50a8171db1a63f5f42780cb3b83332657f7aa2adbfff3a2fa9cacff134c5a4c3",
+      "owner": {
+        "source_event_id": "085bcdd1-ffac-5f74-91c5-4b8fdc0e5d08"
+      },
+      "associated_database_record": "grill_gate_alerts:62288881-39f9-4041-93d1-88d498bc4ec2",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/f66f6da9-7b86-5a18-8b7a-72ebc550ecd2.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\2d9693a4-2bcb-5c0e-8859-107bf5c37e92.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/2d9693a4-2bcb-5c0e-8859-107bf5c37e92.jpg",
+      "size": 651141,
+      "sha256": "dd3835793c167a18ba25d76d9da7de3201ac30d8dc38ff663d64798cf0a18b1b",
+      "owner": {
+        "source_event_id": "03afb601-9b22-5912-ad59-04d230ce05c5"
+      },
+      "associated_database_record": "grill_gate_alerts:6301fd6e-3253-4299-af18-fb78b7a9e69b",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/2d9693a4-2bcb-5c0e-8859-107bf5c37e92.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\2d9693a4-2bcb-5c0e-8859-107bf5c37e92.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/2d9693a4-2bcb-5c0e-8859-107bf5c37e92.json",
+      "size": 673,
+      "sha256": "6c8992a0c4994637e3ed56c75be033cd7759e6e9c585878f87f5f3b157d0bbf6",
+      "owner": {
+        "source_event_id": "03afb601-9b22-5912-ad59-04d230ce05c5"
+      },
+      "associated_database_record": "grill_gate_alerts:6301fd6e-3253-4299-af18-fb78b7a9e69b",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/2d9693a4-2bcb-5c0e-8859-107bf5c37e92.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\de86a60d-55a6-517e-98a7-8db319ce329c.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/de86a60d-55a6-517e-98a7-8db319ce329c.jpg",
+      "size": 695027,
+      "sha256": "51db43cea117b45ec27d02d5a7692f037fd915a67cb213c6b1b4cb1bd2c5f5fe",
+      "owner": {
+        "source_event_id": "6e0db950-1f16-537e-ae26-02db1c42cea7"
+      },
+      "associated_database_record": "grill_gate_alerts:70165697-4125-4dc7-a179-5d566d69c671",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/de86a60d-55a6-517e-98a7-8db319ce329c.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\de86a60d-55a6-517e-98a7-8db319ce329c.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/de86a60d-55a6-517e-98a7-8db319ce329c.json",
+      "size": 726,
+      "sha256": "915c1de3f751ba59d248883520f91e75b3c9aa6c2696f00f816cb60514297006",
+      "owner": {
+        "source_event_id": "6e0db950-1f16-537e-ae26-02db1c42cea7"
+      },
+      "associated_database_record": "grill_gate_alerts:70165697-4125-4dc7-a179-5d566d69c671",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/de86a60d-55a6-517e-98a7-8db319ce329c.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\fa6de2b1-7606-5a05-9391-f22043378fc9.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/fa6de2b1-7606-5a05-9391-f22043378fc9.jpg",
+      "size": 695298,
+      "sha256": "cd331f0b83d365217bb6ec2c384ec28589de22bb973271ac4ca995aa3e660ba2",
+      "owner": {
+        "source_event_id": "f80a7f11-f98d-5f4d-8805-a83e5a244e50"
+      },
+      "associated_database_record": "grill_gate_alerts:7a4e81ba-1ab0-45c6-8065-573b6e6165c2",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/fa6de2b1-7606-5a05-9391-f22043378fc9.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\fa6de2b1-7606-5a05-9391-f22043378fc9.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/fa6de2b1-7606-5a05-9391-f22043378fc9.json",
+      "size": 704,
+      "sha256": "6f8f33102174e110787be84078113da5ebf672fe1873c76ca71d062517ed60ef",
+      "owner": {
+        "source_event_id": "f80a7f11-f98d-5f4d-8805-a83e5a244e50"
+      },
+      "associated_database_record": "grill_gate_alerts:7a4e81ba-1ab0-45c6-8065-573b6e6165c2",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/fa6de2b1-7606-5a05-9391-f22043378fc9.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\e43fa69c-6709-5ea1-a146-fdee6a369c4c.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/e43fa69c-6709-5ea1-a146-fdee6a369c4c.jpg",
+      "size": 655281,
+      "sha256": "8d0e01f54959a9887ff811113397816672625e9583a06b351648fcd98a27e361",
+      "owner": {
+        "source_event_id": "5805f32d-75c9-5e59-97e7-94844a015270"
+      },
+      "associated_database_record": "grill_gate_alerts:9156e78e-d7d1-46e9-9f0b-e13d449cd8a1",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/e43fa69c-6709-5ea1-a146-fdee6a369c4c.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\e43fa69c-6709-5ea1-a146-fdee6a369c4c.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/e43fa69c-6709-5ea1-a146-fdee6a369c4c.json",
+      "size": 673,
+      "sha256": "398430c11e7b1968db8355fe439a7440bf072fcaee8bcdcf6e2cfd7ed50eeb60",
+      "owner": {
+        "source_event_id": "5805f32d-75c9-5e59-97e7-94844a015270"
+      },
+      "associated_database_record": "grill_gate_alerts:9156e78e-d7d1-46e9-9f0b-e13d449cd8a1",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/e43fa69c-6709-5ea1-a146-fdee6a369c4c.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\d17db774-b55b-523b-ba53-85668f30e02e.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/d17db774-b55b-523b-ba53-85668f30e02e.jpg",
+      "size": 693944,
+      "sha256": "709800e82d77046eee95729659c6b934bd4ee1401c9bec5053ca19a1c215ce92",
+      "owner": {
+        "source_event_id": "18f4d571-678c-5dd5-a2af-a1459f972f4f"
+      },
+      "associated_database_record": "grill_gate_alerts:a2c3add8-976c-45f9-8f93-be21d63f699b",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/d17db774-b55b-523b-ba53-85668f30e02e.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\d17db774-b55b-523b-ba53-85668f30e02e.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/d17db774-b55b-523b-ba53-85668f30e02e.json",
+      "size": 704,
+      "sha256": "237349c354251d972b402fcacdd63f6bc5a2ac2beb3915987000edb6d0bd3ac1",
+      "owner": {
+        "source_event_id": "18f4d571-678c-5dd5-a2af-a1459f972f4f"
+      },
+      "associated_database_record": "grill_gate_alerts:a2c3add8-976c-45f9-8f93-be21d63f699b",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/d17db774-b55b-523b-ba53-85668f30e02e.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\dadbd642-9125-57f1-b624-809071542f54.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/dadbd642-9125-57f1-b624-809071542f54.jpg",
+      "size": 695298,
+      "sha256": "cd331f0b83d365217bb6ec2c384ec28589de22bb973271ac4ca995aa3e660ba2",
+      "owner": {
+        "source_event_id": "3f7a2514-1f98-5d70-9cda-faec16a9623c"
+      },
+      "associated_database_record": "grill_gate_alerts:af2a0e7a-2c69-4c52-b5c6-6151b230a19e",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/dadbd642-9125-57f1-b624-809071542f54.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\dadbd642-9125-57f1-b624-809071542f54.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/dadbd642-9125-57f1-b624-809071542f54.json",
+      "size": 704,
+      "sha256": "35784b3bad9f5ca4188524fbc8ea71f46ac81e4fceb2ac383d9c9953358f4ef5",
+      "owner": {
+        "source_event_id": "3f7a2514-1f98-5d70-9cda-faec16a9623c"
+      },
+      "associated_database_record": "grill_gate_alerts:af2a0e7a-2c69-4c52-b5c6-6151b230a19e",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/dadbd642-9125-57f1-b624-809071542f54.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\1c5f9d18-b721-5fcc-a5b2-8e7270e15ed2.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/1c5f9d18-b721-5fcc-a5b2-8e7270e15ed2.jpg",
+      "size": 695888,
+      "sha256": "8f15ccbb8f0ae7b906fff85b488c6ae953c78c0ef1f710d21e8adfbb9ecd586d",
+      "owner": {
+        "source_event_id": "585c9d4f-72f9-51b3-a41c-707c9f1ef4d1"
+      },
+      "associated_database_record": "grill_gate_alerts:b50cae9e-bcdb-46a9-8e3d-ff6e7b911493",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/1c5f9d18-b721-5fcc-a5b2-8e7270e15ed2.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\1c5f9d18-b721-5fcc-a5b2-8e7270e15ed2.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/1c5f9d18-b721-5fcc-a5b2-8e7270e15ed2.json",
+      "size": 726,
+      "sha256": "a9d87111f59833f95667a41ad623795f79768c42d6aaa63db03e4779b3f79c1a",
+      "owner": {
+        "source_event_id": "585c9d4f-72f9-51b3-a41c-707c9f1ef4d1"
+      },
+      "associated_database_record": "grill_gate_alerts:b50cae9e-bcdb-46a9-8e3d-ff6e7b911493",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/1c5f9d18-b721-5fcc-a5b2-8e7270e15ed2.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\085a8634-e478-589f-99b1-f403f5b8c58f.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/085a8634-e478-589f-99b1-f403f5b8c58f.jpg",
+      "size": 696349,
+      "sha256": "de59b90fff5e33c28fce1bdfc4b549ebff9fb8e09010879bd772af073208c52d",
+      "owner": {
+        "source_event_id": "0ea0edc8-5dde-51ab-a80b-4b811b1d16b3"
+      },
+      "associated_database_record": "grill_gate_alerts:bb01c4c6-61ec-408e-a6b3-07413797dc49",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/085a8634-e478-589f-99b1-f403f5b8c58f.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\085a8634-e478-589f-99b1-f403f5b8c58f.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/085a8634-e478-589f-99b1-f403f5b8c58f.json",
+      "size": 726,
+      "sha256": "16526788fe32821df30beb78a6beaacb493d446106764c2e72d61434292f56b7",
+      "owner": {
+        "source_event_id": "0ea0edc8-5dde-51ab-a80b-4b811b1d16b3"
+      },
+      "associated_database_record": "grill_gate_alerts:bb01c4c6-61ec-408e-a6b3-07413797dc49",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/085a8634-e478-589f-99b1-f403f5b8c58f.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\b0153226-a8c5-53ce-a3c0-6e14c8f1e3ca.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/b0153226-a8c5-53ce-a3c0-6e14c8f1e3ca.jpg",
+      "size": 694272,
+      "sha256": "c1f8d621f7bba16923e1b8bb4371351b909dde8ef3f570279145722f650d9541",
+      "owner": {
+        "source_event_id": "15154175-eb62-5751-95e5-8dbe35aefe47"
+      },
+      "associated_database_record": "grill_gate_alerts:c5f774dd-d202-4c38-b58a-14c1751f2c07",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/b0153226-a8c5-53ce-a3c0-6e14c8f1e3ca.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\b0153226-a8c5-53ce-a3c0-6e14c8f1e3ca.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/b0153226-a8c5-53ce-a3c0-6e14c8f1e3ca.json",
+      "size": 726,
+      "sha256": "717edc23340fc07fa62c548e1ea09c6d4e1f62337e677a05799bd2b13fe63ed6",
+      "owner": {
+        "source_event_id": "15154175-eb62-5751-95e5-8dbe35aefe47"
+      },
+      "associated_database_record": "grill_gate_alerts:c5f774dd-d202-4c38-b58a-14c1751f2c07",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/b0153226-a8c5-53ce-a3c0-6e14c8f1e3ca.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\6f3a3aed-2987-533b-8c7e-a2e2b4a369ba.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/6f3a3aed-2987-533b-8c7e-a2e2b4a369ba.jpg",
+      "size": 695298,
+      "sha256": "cd331f0b83d365217bb6ec2c384ec28589de22bb973271ac4ca995aa3e660ba2",
+      "owner": {
+        "source_event_id": "e0927f79-315f-5f72-b069-2a723606dcf3"
+      },
+      "associated_database_record": "grill_gate_alerts:d3ea6742-8e9d-4ab6-9f89-1a55927c2c2c",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/6f3a3aed-2987-533b-8c7e-a2e2b4a369ba.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\6f3a3aed-2987-533b-8c7e-a2e2b4a369ba.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/6f3a3aed-2987-533b-8c7e-a2e2b4a369ba.json",
+      "size": 704,
+      "sha256": "f73dc53b341a8b67149b392c95ac38c3b8a657a05b583f7449ebdc9c18ed7621",
+      "owner": {
+        "source_event_id": "e0927f79-315f-5f72-b069-2a723606dcf3"
+      },
+      "associated_database_record": "grill_gate_alerts:d3ea6742-8e9d-4ab6-9f89-1a55927c2c2c",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/6f3a3aed-2987-533b-8c7e-a2e2b4a369ba.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\ba10dcbd-8357-5439-a045-86a786ce9ecd.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/ba10dcbd-8357-5439-a045-86a786ce9ecd.jpg",
+      "size": 695298,
+      "sha256": "cd331f0b83d365217bb6ec2c384ec28589de22bb973271ac4ca995aa3e660ba2",
+      "owner": {
+        "source_event_id": "54fdd091-f750-5aa8-9e7b-db5ba663bae6"
+      },
+      "associated_database_record": "grill_gate_alerts:d59eecc6-f7f5-4770-9053-8580846a93ea",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/ba10dcbd-8357-5439-a045-86a786ce9ecd.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\ba10dcbd-8357-5439-a045-86a786ce9ecd.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/ba10dcbd-8357-5439-a045-86a786ce9ecd.json",
+      "size": 704,
+      "sha256": "88e49979228457dd80e5d8c5535591abcb79df1bc7c5a7c0bfbd9a1899ebba35",
+      "owner": {
+        "source_event_id": "54fdd091-f750-5aa8-9e7b-db5ba663bae6"
+      },
+      "associated_database_record": "grill_gate_alerts:d59eecc6-f7f5-4770-9053-8580846a93ea",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/ba10dcbd-8357-5439-a045-86a786ce9ecd.json"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\a0837772-c30d-53df-b76d-a0d48bb2cf48.jpg",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/a0837772-c30d-53df-b76d-a0d48bb2cf48.jpg",
+      "size": 696349,
+      "sha256": "de59b90fff5e33c28fce1bdfc4b549ebff9fb8e09010879bd772af073208c52d",
+      "owner": {
+        "source_event_id": "3589c0b2-2bb3-5633-8f2c-5a8934d37e73"
+      },
+      "associated_database_record": "grill_gate_alerts:e3bd9a75-2fa6-423a-8251-621bb13abdee",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/a0837772-c30d-53df-b76d-a0d48bb2cf48.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\backend\\use_cases\\vault_monitoring\\var\\evidence-spool\\grill-gate-snapshots\\a0837772-c30d-53df-b76d-a0d48bb2cf48.json",
+      "relative_path": "backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/a0837772-c30d-53df-b76d-a0d48bb2cf48.json",
+      "size": 672,
+      "sha256": "d02ba6261b177d7e8bc88bc268cf4ea4a8923acab54459fdadffea1df25d9f74",
+      "owner": {
+        "source_event_id": "3589c0b2-2bb3-5633-8f2c-5a8934d37e73"
+      },
+      "associated_database_record": "grill_gate_alerts:e3bd9a75-2fa6-423a-8251-621bb13abdee",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::backend/use_cases/vault_monitoring/var/evidence-spool/grill-gate-snapshots/a0837772-c30d-53df-b76d-a0d48bb2cf48.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822522_fd0cf3.jpg",
+      "relative_path": "storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822522_fd0cf3.jpg",
+      "size": 61683,
+      "sha256": "48b7d4e9bb648926408e65fad48133c92075216b63121f6441437a6f8a3fed40",
+      "owner": {
+        "source_event_id": "0438c8227d2848099becb046e632c97f"
+      },
+      "associated_database_record": "events:0438c8227d2848099becb046e632c97f",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822522_fd0cf3.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\clips\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822527_82bd01.mp4",
+      "relative_path": "storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822527_82bd01.mp4",
+      "size": 3563039,
+      "sha256": "2863cfb8ba17cb0b919f9f3670656ecfe5139ebbf5ed2cff0dfa5eb0cf5b4549",
+      "owner": {
+        "source_event_id": "0438c8227d2848099becb046e632c97f"
+      },
+      "associated_database_record": "events:0438c8227d2848099becb046e632c97f",
+      "artifact_kind": "clip",
+      "backup_archive_location": "evidence.zip::storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822527_82bd01.mp4"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822086_cc8f89.jpg",
+      "relative_path": "storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822086_cc8f89.jpg",
+      "size": 60738,
+      "sha256": "dc57217eaf2aab5921712b4bc2947763cf775cd2633a89acc0a376a2f787abe7",
+      "owner": {
+        "source_event_id": "25a5559a0ea24aaf80e5f054566e0873"
+      },
+      "associated_database_record": "events:25a5559a0ea24aaf80e5f054566e0873",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822086_cc8f89.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\clips\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822091_ee9a01.mp4",
+      "relative_path": "storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822091_ee9a01.mp4",
+      "size": 3650782,
+      "sha256": "89ebcf529cdca04e6496b5bab01da4d2ac97c1f37115dd557cab791e058e9411",
+      "owner": {
+        "source_event_id": "25a5559a0ea24aaf80e5f054566e0873"
+      },
+      "associated_database_record": "events:25a5559a0ea24aaf80e5f054566e0873",
+      "artifact_kind": "clip",
+      "backup_archive_location": "evidence.zip::storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822091_ee9a01.mp4"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822376_a7639f.jpg",
+      "relative_path": "storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822376_a7639f.jpg",
+      "size": 60890,
+      "sha256": "489787437e4df3e60e4d4d41d4de6814c6eeb4278eef9c4b69fc96083ed5b4a7",
+      "owner": {
+        "source_event_id": "46007809c56943399937088612397f94"
+      },
+      "associated_database_record": "events:46007809c56943399937088612397f94",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822376_a7639f.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\clips\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822381_4e15e0.mp4",
+      "relative_path": "storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822381_4e15e0.mp4",
+      "size": 3571310,
+      "sha256": "e7247cedff61e2dce8d0faf0781a1567f3b7613fed0ba81a2ab90d599d8b888d",
+      "owner": {
+        "source_event_id": "46007809c56943399937088612397f94"
+      },
+      "associated_database_record": "events:46007809c56943399937088612397f94",
+      "artifact_kind": "clip",
+      "backup_archive_location": "evidence.zip::storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822381_4e15e0.mp4"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794848795_0b77fb.jpg",
+      "relative_path": "storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794848795_0b77fb.jpg",
+      "size": 53801,
+      "sha256": "bcba0f21325308e1c4bfc50594dc3ecbb88912e21db0fb21b5846b77de2724b0",
+      "owner": {
+        "source_event_id": "5b3b7da98d25430d9186af6614876747"
+      },
+      "associated_database_record": "events:5b3b7da98d25430d9186af6614876747",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794848795_0b77fb.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794848842_17969b.jpg",
+      "relative_path": "storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794848842_17969b.jpg",
+      "size": 57356,
+      "sha256": "1e38fc48f4e62ba37ca4d419519940f7d66d308db880f5855f6d3eefcbcd75cb",
+      "owner": {
+        "source_event_id": "6be17ff1425244ca91e65648bd6debab"
+      },
+      "associated_database_record": "events:6be17ff1425244ca91e65648bd6debab",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794848842_17969b.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\branch_exterior\\e2ba126a43cc4565b735b42e74bbbd2a_1794773166_f02f16.jpg",
+      "relative_path": "storage/screenshots/branch_exterior/e2ba126a43cc4565b735b42e74bbbd2a_1794773166_f02f16.jpg",
+      "size": 106237,
+      "sha256": "27a64f358b7dec1a55a5ceb39c3da2c2578eaecc6442a1d8c3d866d9f3f121a9",
+      "owner": {
+        "source_event_id": "73e15930e12f4c7bafefdf53bce0383f"
+      },
+      "associated_database_record": "events:73e15930e12f4c7bafefdf53bce0383f",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/branch_exterior/e2ba126a43cc4565b735b42e74bbbd2a_1794773166_f02f16.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\clips\\branch_exterior\\e2ba126a43cc4565b735b42e74bbbd2a_1794773173_20dc2b.mp4",
+      "relative_path": "storage/clips/branch_exterior/e2ba126a43cc4565b735b42e74bbbd2a_1794773173_20dc2b.mp4",
+      "size": 4311476,
+      "sha256": "2d5965e2fed8a370122472d4e2d67cc06d9b73d7abf931f7791a4beed689f2f0",
+      "owner": {
+        "source_event_id": "73e15930e12f4c7bafefdf53bce0383f"
+      },
+      "associated_database_record": "events:73e15930e12f4c7bafefdf53bce0383f",
+      "artifact_kind": "clip",
+      "backup_archive_location": "evidence.zip::storage/clips/branch_exterior/e2ba126a43cc4565b735b42e74bbbd2a_1794773173_20dc2b.mp4"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822234_d18a16.jpg",
+      "relative_path": "storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822234_d18a16.jpg",
+      "size": 61387,
+      "sha256": "d293348589efb83d216e82a1ae827e559ebf5c42bc90bf69ba357cc73d837b43",
+      "owner": {
+        "source_event_id": "aaf02207e0d24cf6b2d24c53b52fd8a1"
+      },
+      "associated_database_record": "events:aaf02207e0d24cf6b2d24c53b52fd8a1",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822234_d18a16.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\clips\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822239_fb2739.mp4",
+      "relative_path": "storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822239_fb2739.mp4",
+      "size": 3788905,
+      "sha256": "4f3f5efd07deaa615ca9967b2fd2198bbfaae9ee664259c0e7e61616d53ec701",
+      "owner": {
+        "source_event_id": "aaf02207e0d24cf6b2d24c53b52fd8a1"
+      },
+      "associated_database_record": "events:aaf02207e0d24cf6b2d24c53b52fd8a1",
+      "artifact_kind": "clip",
+      "backup_archive_location": "evidence.zip::storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822239_fb2739.mp4"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822519_7815db.jpg",
+      "relative_path": "storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822519_7815db.jpg",
+      "size": 61696,
+      "sha256": "5b7e35163a95d2333c151da606538764c74bf36434a214a13fb0d214d04536ef",
+      "owner": {
+        "source_event_id": "bc97c81b54224ce3a936346f9572105d"
+      },
+      "associated_database_record": "events:bc97c81b54224ce3a936346f9572105d",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822519_7815db.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\clips\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822524_de7a7e.mp4",
+      "relative_path": "storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822524_de7a7e.mp4",
+      "size": 3445198,
+      "sha256": "97cb4671dc713a432b3922a99de86e5b1e416ca8afe46726993e6a8562b6bef9",
+      "owner": {
+        "source_event_id": "bc97c81b54224ce3a936346f9572105d"
+      },
+      "associated_database_record": "events:bc97c81b54224ce3a936346f9572105d",
+      "artifact_kind": "clip",
+      "backup_archive_location": "evidence.zip::storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822524_de7a7e.mp4"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\branch_exterior\\07c61ff0609a43c5b183a0635bc0ccff_1794850309_3efeb5.jpg",
+      "relative_path": "storage/screenshots/branch_exterior/07c61ff0609a43c5b183a0635bc0ccff_1794850309_3efeb5.jpg",
+      "size": 94277,
+      "sha256": "c03468a236046ad2a80c09fdde2fa9da28743cfb699e7ef5bdcc9da9232a18b8",
+      "owner": {
+        "source_event_id": "d4d1a772af664fe09a413694557b4a87"
+      },
+      "associated_database_record": "events:d4d1a772af664fe09a413694557b4a87",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/branch_exterior/07c61ff0609a43c5b183a0635bc0ccff_1794850309_3efeb5.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822813_84ca58.jpg",
+      "relative_path": "storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822813_84ca58.jpg",
+      "size": 61438,
+      "sha256": "98588596a6dee8f6f2bb41be25912f9e8172f8b9b315dc407ea3381f3fb5a94f",
+      "owner": {
+        "source_event_id": "ef6cd1e590374edc94e69d74e7844c11"
+      },
+      "associated_database_record": "events:ef6cd1e590374edc94e69d74e7844c11",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822813_84ca58.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\clips\\branch_exterior\\381ba863be8541a2b5ec4fc846d6d674_1794822818_57bea0.mp4",
+      "relative_path": "storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822818_57bea0.mp4",
+      "size": 3655677,
+      "sha256": "bc0e81573a702ab511f4e8dcc73082f33e94e5c16ce3e8909b7bd0e9a971dad4",
+      "owner": {
+        "source_event_id": "ef6cd1e590374edc94e69d74e7844c11"
+      },
+      "associated_database_record": "events:ef6cd1e590374edc94e69d74e7844c11",
+      "artifact_kind": "clip",
+      "backup_archive_location": "evidence.zip::storage/clips/branch_exterior/381ba863be8541a2b5ec4fc846d6d674_1794822818_57bea0.mp4"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\0116d68f29c146899d704e0b0f3ffb0e.jpg",
+      "relative_path": "storage/screenshots/face_mask/0116d68f29c146899d704e0b0f3ffb0e.jpg",
+      "size": 137398,
+      "sha256": "02c6b52ee639f83587ebd246065b4dd41aad1a79c1e377d1717a04ea62055868",
+      "owner": {
+        "source_event_id": "0116d68f29c146899d704e0b0f3ffb0e",
+        "evidence_id": "0116d68f29c146899d704e0b0f3ffb0e"
+      },
+      "associated_database_record": "fm_concealment_event:0116d68f29c146899d704e0b0f3ffb0e",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/0116d68f29c146899d704e0b0f3ffb0e.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\0116d68f29c146899d704e0b0f3ffb0e_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/0116d68f29c146899d704e0b0f3ffb0e_person.jpg",
+      "size": 6975,
+      "sha256": "a132b426415649f909696dc39e590a38abcfd15f79edf17de8f9980236a048bf",
+      "owner": {
+        "source_event_id": "0116d68f29c146899d704e0b0f3ffb0e",
+        "evidence_id": "0116d68f29c146899d704e0b0f3ffb0e"
+      },
+      "associated_database_record": "fm_concealment_event:0116d68f29c146899d704e0b0f3ffb0e",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/0116d68f29c146899d704e0b0f3ffb0e_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\0116d68f29c146899d704e0b0f3ffb0e.json",
+      "relative_path": "storage/screenshots/face_mask/0116d68f29c146899d704e0b0f3ffb0e.json",
+      "size": 247,
+      "sha256": "ba5f1d599c9a46d8e271d0539a2ab344ad818e1e499aa444171d42dd48b2cf56",
+      "owner": {
+        "source_event_id": "0116d68f29c146899d704e0b0f3ffb0e",
+        "evidence_id": "0116d68f29c146899d704e0b0f3ffb0e"
+      },
+      "associated_database_record": "fm_concealment_event:0116d68f29c146899d704e0b0f3ffb0e",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/0116d68f29c146899d704e0b0f3ffb0e.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\01847f57624f45b0a8d167101dc6a3bb.jpg",
+      "relative_path": "storage/screenshots/face_mask/01847f57624f45b0a8d167101dc6a3bb.jpg",
+      "size": 137376,
+      "sha256": "cd43d99760866929a7d15d8b6e3e76874a44120dcde63fabdb9f605b58c1cfac",
+      "owner": {
+        "source_event_id": "01847f57624f45b0a8d167101dc6a3bb",
+        "evidence_id": "01847f57624f45b0a8d167101dc6a3bb"
+      },
+      "associated_database_record": "fm_concealment_event:01847f57624f45b0a8d167101dc6a3bb",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/01847f57624f45b0a8d167101dc6a3bb.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\01847f57624f45b0a8d167101dc6a3bb_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/01847f57624f45b0a8d167101dc6a3bb_person.jpg",
+      "size": 6975,
+      "sha256": "a132b426415649f909696dc39e590a38abcfd15f79edf17de8f9980236a048bf",
+      "owner": {
+        "source_event_id": "01847f57624f45b0a8d167101dc6a3bb",
+        "evidence_id": "01847f57624f45b0a8d167101dc6a3bb"
+      },
+      "associated_database_record": "fm_concealment_event:01847f57624f45b0a8d167101dc6a3bb",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/01847f57624f45b0a8d167101dc6a3bb_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\01847f57624f45b0a8d167101dc6a3bb.json",
+      "relative_path": "storage/screenshots/face_mask/01847f57624f45b0a8d167101dc6a3bb.json",
+      "size": 247,
+      "sha256": "d09a950ee8a0d52a78276efdf281c2ce10d77388b67b5f5d57bfa807e54d2f89",
+      "owner": {
+        "source_event_id": "01847f57624f45b0a8d167101dc6a3bb",
+        "evidence_id": "01847f57624f45b0a8d167101dc6a3bb"
+      },
+      "associated_database_record": "fm_concealment_event:01847f57624f45b0a8d167101dc6a3bb",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/01847f57624f45b0a8d167101dc6a3bb.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\3934a0dc18ec4e62adf91fe1fa2e1dc6.jpg",
+      "relative_path": "storage/screenshots/face_mask/3934a0dc18ec4e62adf91fe1fa2e1dc6.jpg",
+      "size": 137377,
+      "sha256": "22b655a1ed9729b8c4ae8c789ecdf7980c2fbf9dbf22f54f592337be8a24e3fa",
+      "owner": {
+        "source_event_id": "3934a0dc18ec4e62adf91fe1fa2e1dc6",
+        "evidence_id": "3934a0dc18ec4e62adf91fe1fa2e1dc6"
+      },
+      "associated_database_record": "fm_concealment_event:3934a0dc18ec4e62adf91fe1fa2e1dc6",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/3934a0dc18ec4e62adf91fe1fa2e1dc6.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\3934a0dc18ec4e62adf91fe1fa2e1dc6_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/3934a0dc18ec4e62adf91fe1fa2e1dc6_person.jpg",
+      "size": 6975,
+      "sha256": "a132b426415649f909696dc39e590a38abcfd15f79edf17de8f9980236a048bf",
+      "owner": {
+        "source_event_id": "3934a0dc18ec4e62adf91fe1fa2e1dc6",
+        "evidence_id": "3934a0dc18ec4e62adf91fe1fa2e1dc6"
+      },
+      "associated_database_record": "fm_concealment_event:3934a0dc18ec4e62adf91fe1fa2e1dc6",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/3934a0dc18ec4e62adf91fe1fa2e1dc6_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\3934a0dc18ec4e62adf91fe1fa2e1dc6.json",
+      "relative_path": "storage/screenshots/face_mask/3934a0dc18ec4e62adf91fe1fa2e1dc6.json",
+      "size": 247,
+      "sha256": "8a0c113ba91cd96349a9885e63c33cc1153a58580940c5f7d5dbac5735e33632",
+      "owner": {
+        "source_event_id": "3934a0dc18ec4e62adf91fe1fa2e1dc6",
+        "evidence_id": "3934a0dc18ec4e62adf91fe1fa2e1dc6"
+      },
+      "associated_database_record": "fm_concealment_event:3934a0dc18ec4e62adf91fe1fa2e1dc6",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/3934a0dc18ec4e62adf91fe1fa2e1dc6.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\3cf3ca1e64f2410b90cf48e55901706a.jpg",
+      "relative_path": "storage/screenshots/face_mask/3cf3ca1e64f2410b90cf48e55901706a.jpg",
+      "size": 136318,
+      "sha256": "fb385345be8bea65368a4a2c14197a874d2f32049f6dffb44c1b7d47edf40da6",
+      "owner": {
+        "source_event_id": "3cf3ca1e64f2410b90cf48e55901706a",
+        "evidence_id": "3cf3ca1e64f2410b90cf48e55901706a"
+      },
+      "associated_database_record": "fm_concealment_event:3cf3ca1e64f2410b90cf48e55901706a",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/3cf3ca1e64f2410b90cf48e55901706a.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\3cf3ca1e64f2410b90cf48e55901706a_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/3cf3ca1e64f2410b90cf48e55901706a_person.jpg",
+      "size": 10454,
+      "sha256": "11ad7419632207a9139ee43476456e4bf2afb23fa96d1ba560c6a998559ab85c",
+      "owner": {
+        "source_event_id": "3cf3ca1e64f2410b90cf48e55901706a",
+        "evidence_id": "3cf3ca1e64f2410b90cf48e55901706a"
+      },
+      "associated_database_record": "fm_concealment_event:3cf3ca1e64f2410b90cf48e55901706a",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/3cf3ca1e64f2410b90cf48e55901706a_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\3cf3ca1e64f2410b90cf48e55901706a.json",
+      "relative_path": "storage/screenshots/face_mask/3cf3ca1e64f2410b90cf48e55901706a.json",
+      "size": 263,
+      "sha256": "c2e2302c428580eaa2a99a3024f44eb146ea671ad798a46e1c016e674c5246e3",
+      "owner": {
+        "source_event_id": "3cf3ca1e64f2410b90cf48e55901706a",
+        "evidence_id": "3cf3ca1e64f2410b90cf48e55901706a"
+      },
+      "associated_database_record": "fm_concealment_event:3cf3ca1e64f2410b90cf48e55901706a",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/3cf3ca1e64f2410b90cf48e55901706a.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\41056228b9094851afe7c51a08dc731b.jpg",
+      "relative_path": "storage/screenshots/face_mask/41056228b9094851afe7c51a08dc731b.jpg",
+      "size": 137382,
+      "sha256": "a2da9e74b0e5eb508981c04babe3a85d0316c919ea0a8a79e38a181c18c6fa63",
+      "owner": {
+        "source_event_id": "41056228b9094851afe7c51a08dc731b",
+        "evidence_id": "41056228b9094851afe7c51a08dc731b"
+      },
+      "associated_database_record": "fm_concealment_event:41056228b9094851afe7c51a08dc731b",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/41056228b9094851afe7c51a08dc731b.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\41056228b9094851afe7c51a08dc731b_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/41056228b9094851afe7c51a08dc731b_person.jpg",
+      "size": 6975,
+      "sha256": "a132b426415649f909696dc39e590a38abcfd15f79edf17de8f9980236a048bf",
+      "owner": {
+        "source_event_id": "41056228b9094851afe7c51a08dc731b",
+        "evidence_id": "41056228b9094851afe7c51a08dc731b"
+      },
+      "associated_database_record": "fm_concealment_event:41056228b9094851afe7c51a08dc731b",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/41056228b9094851afe7c51a08dc731b_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\41056228b9094851afe7c51a08dc731b.json",
+      "relative_path": "storage/screenshots/face_mask/41056228b9094851afe7c51a08dc731b.json",
+      "size": 247,
+      "sha256": "380ff9e3ba9fc72c7a0113e0a6f5963fa4781bc938d6b661dc96771d7a24552d",
+      "owner": {
+        "source_event_id": "41056228b9094851afe7c51a08dc731b",
+        "evidence_id": "41056228b9094851afe7c51a08dc731b"
+      },
+      "associated_database_record": "fm_concealment_event:41056228b9094851afe7c51a08dc731b",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/41056228b9094851afe7c51a08dc731b.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\4388eae216ef49fb886017099ce56e17.jpg",
+      "relative_path": "storage/screenshots/face_mask/4388eae216ef49fb886017099ce56e17.jpg",
+      "size": 137371,
+      "sha256": "01bf991d50167aaafc698b87fa5cec56481c91b50ac52904e4ff052e6c18c424",
+      "owner": {
+        "source_event_id": "4388eae216ef49fb886017099ce56e17",
+        "evidence_id": "4388eae216ef49fb886017099ce56e17"
+      },
+      "associated_database_record": "fm_concealment_event:4388eae216ef49fb886017099ce56e17",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/4388eae216ef49fb886017099ce56e17.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\4388eae216ef49fb886017099ce56e17_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/4388eae216ef49fb886017099ce56e17_person.jpg",
+      "size": 6975,
+      "sha256": "a132b426415649f909696dc39e590a38abcfd15f79edf17de8f9980236a048bf",
+      "owner": {
+        "source_event_id": "4388eae216ef49fb886017099ce56e17",
+        "evidence_id": "4388eae216ef49fb886017099ce56e17"
+      },
+      "associated_database_record": "fm_concealment_event:4388eae216ef49fb886017099ce56e17",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/4388eae216ef49fb886017099ce56e17_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\4388eae216ef49fb886017099ce56e17.json",
+      "relative_path": "storage/screenshots/face_mask/4388eae216ef49fb886017099ce56e17.json",
+      "size": 247,
+      "sha256": "5fa532a8a4ed8bf496d430d2fbd275018389fc3d74eacd4a82a587441caa218c",
+      "owner": {
+        "source_event_id": "4388eae216ef49fb886017099ce56e17",
+        "evidence_id": "4388eae216ef49fb886017099ce56e17"
+      },
+      "associated_database_record": "fm_concealment_event:4388eae216ef49fb886017099ce56e17",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/4388eae216ef49fb886017099ce56e17.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\563368acf31a42e5a53a69f1a70f17bd.jpg",
+      "relative_path": "storage/screenshots/face_mask/563368acf31a42e5a53a69f1a70f17bd.jpg",
+      "size": 135895,
+      "sha256": "105c546f27a69fa55a129d8356a38e63a7e123456375c280bf5ef988c1d04152",
+      "owner": {
+        "source_event_id": "563368acf31a42e5a53a69f1a70f17bd",
+        "evidence_id": "563368acf31a42e5a53a69f1a70f17bd"
+      },
+      "associated_database_record": "fm_concealment_event:563368acf31a42e5a53a69f1a70f17bd",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/563368acf31a42e5a53a69f1a70f17bd.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\563368acf31a42e5a53a69f1a70f17bd_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/563368acf31a42e5a53a69f1a70f17bd_person.jpg",
+      "size": 8604,
+      "sha256": "27e199f2084c1b2bc20bcb3b3df3009808f6f549f77779b6467617fa5c085c62",
+      "owner": {
+        "source_event_id": "563368acf31a42e5a53a69f1a70f17bd",
+        "evidence_id": "563368acf31a42e5a53a69f1a70f17bd"
+      },
+      "associated_database_record": "fm_concealment_event:563368acf31a42e5a53a69f1a70f17bd",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/563368acf31a42e5a53a69f1a70f17bd_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\563368acf31a42e5a53a69f1a70f17bd.json",
+      "relative_path": "storage/screenshots/face_mask/563368acf31a42e5a53a69f1a70f17bd.json",
+      "size": 246,
+      "sha256": "42222b0f7ddfa5541aec1c15527ba726ee1ac6986b4675c0fdfb54a3a0396b8c",
+      "owner": {
+        "source_event_id": "563368acf31a42e5a53a69f1a70f17bd",
+        "evidence_id": "563368acf31a42e5a53a69f1a70f17bd"
+      },
+      "associated_database_record": "fm_concealment_event:563368acf31a42e5a53a69f1a70f17bd",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/563368acf31a42e5a53a69f1a70f17bd.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\5b415ad864d142a5b2543ec2618bf468.jpg",
+      "relative_path": "storage/screenshots/face_mask/5b415ad864d142a5b2543ec2618bf468.jpg",
+      "size": 135894,
+      "sha256": "442071814463d947e64ebaea6b72b9ca11dde4a85ada1dab25e8eb7bb1dfee48",
+      "owner": {
+        "source_event_id": "5b415ad864d142a5b2543ec2618bf468",
+        "evidence_id": "5b415ad864d142a5b2543ec2618bf468"
+      },
+      "associated_database_record": "fm_concealment_event:5b415ad864d142a5b2543ec2618bf468",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/5b415ad864d142a5b2543ec2618bf468.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\5b415ad864d142a5b2543ec2618bf468_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/5b415ad864d142a5b2543ec2618bf468_person.jpg",
+      "size": 8604,
+      "sha256": "27e199f2084c1b2bc20bcb3b3df3009808f6f549f77779b6467617fa5c085c62",
+      "owner": {
+        "source_event_id": "5b415ad864d142a5b2543ec2618bf468",
+        "evidence_id": "5b415ad864d142a5b2543ec2618bf468"
+      },
+      "associated_database_record": "fm_concealment_event:5b415ad864d142a5b2543ec2618bf468",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/5b415ad864d142a5b2543ec2618bf468_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\5b415ad864d142a5b2543ec2618bf468.json",
+      "relative_path": "storage/screenshots/face_mask/5b415ad864d142a5b2543ec2618bf468.json",
+      "size": 246,
+      "sha256": "aab947698788f1dce038249a3e82ac1ed18e9d9ea765cc09c104834b02cdac2a",
+      "owner": {
+        "source_event_id": "5b415ad864d142a5b2543ec2618bf468",
+        "evidence_id": "5b415ad864d142a5b2543ec2618bf468"
+      },
+      "associated_database_record": "fm_concealment_event:5b415ad864d142a5b2543ec2618bf468",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/5b415ad864d142a5b2543ec2618bf468.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\798ac65071b64737b96ca6e896b288e9.jpg",
+      "relative_path": "storage/screenshots/face_mask/798ac65071b64737b96ca6e896b288e9.jpg",
+      "size": 137389,
+      "sha256": "981c92f730da1298753fb6102d7ae63cbf2bcc4496df090748b0127571830e91",
+      "owner": {
+        "source_event_id": "798ac65071b64737b96ca6e896b288e9",
+        "evidence_id": "798ac65071b64737b96ca6e896b288e9"
+      },
+      "associated_database_record": "fm_concealment_event:798ac65071b64737b96ca6e896b288e9",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/798ac65071b64737b96ca6e896b288e9.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\798ac65071b64737b96ca6e896b288e9_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/798ac65071b64737b96ca6e896b288e9_person.jpg",
+      "size": 6975,
+      "sha256": "a132b426415649f909696dc39e590a38abcfd15f79edf17de8f9980236a048bf",
+      "owner": {
+        "source_event_id": "798ac65071b64737b96ca6e896b288e9",
+        "evidence_id": "798ac65071b64737b96ca6e896b288e9"
+      },
+      "associated_database_record": "fm_concealment_event:798ac65071b64737b96ca6e896b288e9",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/798ac65071b64737b96ca6e896b288e9_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\798ac65071b64737b96ca6e896b288e9.json",
+      "relative_path": "storage/screenshots/face_mask/798ac65071b64737b96ca6e896b288e9.json",
+      "size": 247,
+      "sha256": "7e0601248180132a095f9f4105a7d5d756b57fb769c1c24169802d3a489fc85a",
+      "owner": {
+        "source_event_id": "798ac65071b64737b96ca6e896b288e9",
+        "evidence_id": "798ac65071b64737b96ca6e896b288e9"
+      },
+      "associated_database_record": "fm_concealment_event:798ac65071b64737b96ca6e896b288e9",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/798ac65071b64737b96ca6e896b288e9.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\7b4e18be4c39454ab868e0cc0ea38941.jpg",
+      "relative_path": "storage/screenshots/face_mask/7b4e18be4c39454ab868e0cc0ea38941.jpg",
+      "size": 135902,
+      "sha256": "7a5a4288091e8140d56dafb0af0c9db0b21571266cee8698427cbffe40b4f4a3",
+      "owner": {
+        "source_event_id": "7b4e18be4c39454ab868e0cc0ea38941",
+        "evidence_id": "7b4e18be4c39454ab868e0cc0ea38941"
+      },
+      "associated_database_record": "fm_concealment_event:7b4e18be4c39454ab868e0cc0ea38941",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/7b4e18be4c39454ab868e0cc0ea38941.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\7b4e18be4c39454ab868e0cc0ea38941_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/7b4e18be4c39454ab868e0cc0ea38941_person.jpg",
+      "size": 8604,
+      "sha256": "27e199f2084c1b2bc20bcb3b3df3009808f6f549f77779b6467617fa5c085c62",
+      "owner": {
+        "source_event_id": "7b4e18be4c39454ab868e0cc0ea38941",
+        "evidence_id": "7b4e18be4c39454ab868e0cc0ea38941"
+      },
+      "associated_database_record": "fm_concealment_event:7b4e18be4c39454ab868e0cc0ea38941",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/7b4e18be4c39454ab868e0cc0ea38941_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\7b4e18be4c39454ab868e0cc0ea38941.json",
+      "relative_path": "storage/screenshots/face_mask/7b4e18be4c39454ab868e0cc0ea38941.json",
+      "size": 246,
+      "sha256": "34c0c2cb9883261f46e1a6c7c49acecc20b9f3ba0cd39d764527029e2e322b46",
+      "owner": {
+        "source_event_id": "7b4e18be4c39454ab868e0cc0ea38941",
+        "evidence_id": "7b4e18be4c39454ab868e0cc0ea38941"
+      },
+      "associated_database_record": "fm_concealment_event:7b4e18be4c39454ab868e0cc0ea38941",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/7b4e18be4c39454ab868e0cc0ea38941.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\89ac9d47a1f34d7f91e293ac23b76db9.jpg",
+      "relative_path": "storage/screenshots/face_mask/89ac9d47a1f34d7f91e293ac23b76db9.jpg",
+      "size": 137380,
+      "sha256": "ee54166670a600c7a7bd68c299b0b6db34b13d2914c4cd0a2766ef77c82ce385",
+      "owner": {
+        "source_event_id": "89ac9d47a1f34d7f91e293ac23b76db9",
+        "evidence_id": "89ac9d47a1f34d7f91e293ac23b76db9"
+      },
+      "associated_database_record": "fm_concealment_event:89ac9d47a1f34d7f91e293ac23b76db9",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/89ac9d47a1f34d7f91e293ac23b76db9.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\89ac9d47a1f34d7f91e293ac23b76db9_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/89ac9d47a1f34d7f91e293ac23b76db9_person.jpg",
+      "size": 6975,
+      "sha256": "a132b426415649f909696dc39e590a38abcfd15f79edf17de8f9980236a048bf",
+      "owner": {
+        "source_event_id": "89ac9d47a1f34d7f91e293ac23b76db9",
+        "evidence_id": "89ac9d47a1f34d7f91e293ac23b76db9"
+      },
+      "associated_database_record": "fm_concealment_event:89ac9d47a1f34d7f91e293ac23b76db9",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/89ac9d47a1f34d7f91e293ac23b76db9_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\89ac9d47a1f34d7f91e293ac23b76db9.json",
+      "relative_path": "storage/screenshots/face_mask/89ac9d47a1f34d7f91e293ac23b76db9.json",
+      "size": 247,
+      "sha256": "c950af241b56190e70c32c4251e946cfe68d9771f54566456f0b58432013dadc",
+      "owner": {
+        "source_event_id": "89ac9d47a1f34d7f91e293ac23b76db9",
+        "evidence_id": "89ac9d47a1f34d7f91e293ac23b76db9"
+      },
+      "associated_database_record": "fm_concealment_event:89ac9d47a1f34d7f91e293ac23b76db9",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/89ac9d47a1f34d7f91e293ac23b76db9.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\94c94273c0814d4c8f141ac8e38c0ce7.jpg",
+      "relative_path": "storage/screenshots/face_mask/94c94273c0814d4c8f141ac8e38c0ce7.jpg",
+      "size": 135892,
+      "sha256": "0ad82936722a801c0acd6d4bd8b22666615507a2afd0e2186d6ccc66f5993935",
+      "owner": {
+        "source_event_id": "94c94273c0814d4c8f141ac8e38c0ce7",
+        "evidence_id": "94c94273c0814d4c8f141ac8e38c0ce7"
+      },
+      "associated_database_record": "fm_concealment_event:94c94273c0814d4c8f141ac8e38c0ce7",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/94c94273c0814d4c8f141ac8e38c0ce7.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\94c94273c0814d4c8f141ac8e38c0ce7_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/94c94273c0814d4c8f141ac8e38c0ce7_person.jpg",
+      "size": 8604,
+      "sha256": "27e199f2084c1b2bc20bcb3b3df3009808f6f549f77779b6467617fa5c085c62",
+      "owner": {
+        "source_event_id": "94c94273c0814d4c8f141ac8e38c0ce7",
+        "evidence_id": "94c94273c0814d4c8f141ac8e38c0ce7"
+      },
+      "associated_database_record": "fm_concealment_event:94c94273c0814d4c8f141ac8e38c0ce7",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/94c94273c0814d4c8f141ac8e38c0ce7_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\94c94273c0814d4c8f141ac8e38c0ce7.json",
+      "relative_path": "storage/screenshots/face_mask/94c94273c0814d4c8f141ac8e38c0ce7.json",
+      "size": 246,
+      "sha256": "d41b63c2a180c0c2dbc44d1a96e12d9970a5a8fb51389e87416e4fc11771ba54",
+      "owner": {
+        "source_event_id": "94c94273c0814d4c8f141ac8e38c0ce7",
+        "evidence_id": "94c94273c0814d4c8f141ac8e38c0ce7"
+      },
+      "associated_database_record": "fm_concealment_event:94c94273c0814d4c8f141ac8e38c0ce7",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/94c94273c0814d4c8f141ac8e38c0ce7.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\9751e0bcd1584b40a1ec2d09e1eb4c9c.jpg",
+      "relative_path": "storage/screenshots/face_mask/9751e0bcd1584b40a1ec2d09e1eb4c9c.jpg",
+      "size": 137381,
+      "sha256": "01673e588f5b234ab6c0e9cd6f31947da47634d4a60b6a71c4faa5d9e1d506e5",
+      "owner": {
+        "source_event_id": "9751e0bcd1584b40a1ec2d09e1eb4c9c",
+        "evidence_id": "9751e0bcd1584b40a1ec2d09e1eb4c9c"
+      },
+      "associated_database_record": "fm_concealment_event:9751e0bcd1584b40a1ec2d09e1eb4c9c",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/9751e0bcd1584b40a1ec2d09e1eb4c9c.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\9751e0bcd1584b40a1ec2d09e1eb4c9c_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/9751e0bcd1584b40a1ec2d09e1eb4c9c_person.jpg",
+      "size": 6975,
+      "sha256": "a132b426415649f909696dc39e590a38abcfd15f79edf17de8f9980236a048bf",
+      "owner": {
+        "source_event_id": "9751e0bcd1584b40a1ec2d09e1eb4c9c",
+        "evidence_id": "9751e0bcd1584b40a1ec2d09e1eb4c9c"
+      },
+      "associated_database_record": "fm_concealment_event:9751e0bcd1584b40a1ec2d09e1eb4c9c",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/9751e0bcd1584b40a1ec2d09e1eb4c9c_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\9751e0bcd1584b40a1ec2d09e1eb4c9c.json",
+      "relative_path": "storage/screenshots/face_mask/9751e0bcd1584b40a1ec2d09e1eb4c9c.json",
+      "size": 247,
+      "sha256": "9be529c8a1a2d5ef8a8e4f23048ea4abc0c1f3a1bc512c80406a7166c885ff10",
+      "owner": {
+        "source_event_id": "9751e0bcd1584b40a1ec2d09e1eb4c9c",
+        "evidence_id": "9751e0bcd1584b40a1ec2d09e1eb4c9c"
+      },
+      "associated_database_record": "fm_concealment_event:9751e0bcd1584b40a1ec2d09e1eb4c9c",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/9751e0bcd1584b40a1ec2d09e1eb4c9c.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\a12c4473ec324d0a91f46afda1515551.jpg",
+      "relative_path": "storage/screenshots/face_mask/a12c4473ec324d0a91f46afda1515551.jpg",
+      "size": 137386,
+      "sha256": "bd81dd190b37795e2356962e2945c719019ec346e5b4f3050acc84a5c63c2f80",
+      "owner": {
+        "source_event_id": "a12c4473ec324d0a91f46afda1515551",
+        "evidence_id": "a12c4473ec324d0a91f46afda1515551"
+      },
+      "associated_database_record": "fm_concealment_event:a12c4473ec324d0a91f46afda1515551",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/a12c4473ec324d0a91f46afda1515551.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\a12c4473ec324d0a91f46afda1515551_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/a12c4473ec324d0a91f46afda1515551_person.jpg",
+      "size": 6975,
+      "sha256": "a132b426415649f909696dc39e590a38abcfd15f79edf17de8f9980236a048bf",
+      "owner": {
+        "source_event_id": "a12c4473ec324d0a91f46afda1515551",
+        "evidence_id": "a12c4473ec324d0a91f46afda1515551"
+      },
+      "associated_database_record": "fm_concealment_event:a12c4473ec324d0a91f46afda1515551",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/a12c4473ec324d0a91f46afda1515551_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\a12c4473ec324d0a91f46afda1515551.json",
+      "relative_path": "storage/screenshots/face_mask/a12c4473ec324d0a91f46afda1515551.json",
+      "size": 247,
+      "sha256": "bd3c0fccde4f2395988cbc4f62ee46151178d4259638f90a91425b248cec3949",
+      "owner": {
+        "source_event_id": "a12c4473ec324d0a91f46afda1515551",
+        "evidence_id": "a12c4473ec324d0a91f46afda1515551"
+      },
+      "associated_database_record": "fm_concealment_event:a12c4473ec324d0a91f46afda1515551",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/a12c4473ec324d0a91f46afda1515551.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\a3084cd47eeb4798b997b56f3ec0c1d9.jpg",
+      "relative_path": "storage/screenshots/face_mask/a3084cd47eeb4798b997b56f3ec0c1d9.jpg",
+      "size": 137385,
+      "sha256": "4bd14a866c22aabddd2122f749582c9ddd274dc641e62295b499569d555e2c1b",
+      "owner": {
+        "source_event_id": "a3084cd47eeb4798b997b56f3ec0c1d9",
+        "evidence_id": "a3084cd47eeb4798b997b56f3ec0c1d9"
+      },
+      "associated_database_record": "fm_concealment_event:a3084cd47eeb4798b997b56f3ec0c1d9",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/a3084cd47eeb4798b997b56f3ec0c1d9.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\a3084cd47eeb4798b997b56f3ec0c1d9_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/a3084cd47eeb4798b997b56f3ec0c1d9_person.jpg",
+      "size": 6975,
+      "sha256": "a132b426415649f909696dc39e590a38abcfd15f79edf17de8f9980236a048bf",
+      "owner": {
+        "source_event_id": "a3084cd47eeb4798b997b56f3ec0c1d9",
+        "evidence_id": "a3084cd47eeb4798b997b56f3ec0c1d9"
+      },
+      "associated_database_record": "fm_concealment_event:a3084cd47eeb4798b997b56f3ec0c1d9",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/a3084cd47eeb4798b997b56f3ec0c1d9_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\a3084cd47eeb4798b997b56f3ec0c1d9.json",
+      "relative_path": "storage/screenshots/face_mask/a3084cd47eeb4798b997b56f3ec0c1d9.json",
+      "size": 247,
+      "sha256": "f594fe7aa83b15aa7b8641b59458ed47771b60077009ee36681ecf528e221e5b",
+      "owner": {
+        "source_event_id": "a3084cd47eeb4798b997b56f3ec0c1d9",
+        "evidence_id": "a3084cd47eeb4798b997b56f3ec0c1d9"
+      },
+      "associated_database_record": "fm_concealment_event:a3084cd47eeb4798b997b56f3ec0c1d9",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/a3084cd47eeb4798b997b56f3ec0c1d9.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\b5023d7e2c914ab5aaede98dd8d52484.jpg",
+      "relative_path": "storage/screenshots/face_mask/b5023d7e2c914ab5aaede98dd8d52484.jpg",
+      "size": 135902,
+      "sha256": "541373de40eb15946b1934db1cd56d1a992e51aa0a6b8e8e93f4091a82b2ec84",
+      "owner": {
+        "source_event_id": "b5023d7e2c914ab5aaede98dd8d52484",
+        "evidence_id": "b5023d7e2c914ab5aaede98dd8d52484"
+      },
+      "associated_database_record": "fm_concealment_event:b5023d7e2c914ab5aaede98dd8d52484",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/b5023d7e2c914ab5aaede98dd8d52484.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\b5023d7e2c914ab5aaede98dd8d52484_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/b5023d7e2c914ab5aaede98dd8d52484_person.jpg",
+      "size": 8604,
+      "sha256": "27e199f2084c1b2bc20bcb3b3df3009808f6f549f77779b6467617fa5c085c62",
+      "owner": {
+        "source_event_id": "b5023d7e2c914ab5aaede98dd8d52484",
+        "evidence_id": "b5023d7e2c914ab5aaede98dd8d52484"
+      },
+      "associated_database_record": "fm_concealment_event:b5023d7e2c914ab5aaede98dd8d52484",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/b5023d7e2c914ab5aaede98dd8d52484_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\b5023d7e2c914ab5aaede98dd8d52484.json",
+      "relative_path": "storage/screenshots/face_mask/b5023d7e2c914ab5aaede98dd8d52484.json",
+      "size": 246,
+      "sha256": "709300d9b1f37ec2140d1fe9827f108901ce0240013b50aa6fb88936cf12ef6f",
+      "owner": {
+        "source_event_id": "b5023d7e2c914ab5aaede98dd8d52484",
+        "evidence_id": "b5023d7e2c914ab5aaede98dd8d52484"
+      },
+      "associated_database_record": "fm_concealment_event:b5023d7e2c914ab5aaede98dd8d52484",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/b5023d7e2c914ab5aaede98dd8d52484.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\c40ec05a8f0146a78b3fadbe8a43886d.jpg",
+      "relative_path": "storage/screenshots/face_mask/c40ec05a8f0146a78b3fadbe8a43886d.jpg",
+      "size": 136868,
+      "sha256": "65c2567dba626ccc0dc8b9ee6a9fde8d0cf1ac6460e480a0b53fb1faf512e750",
+      "owner": {
+        "source_event_id": "c40ec05a8f0146a78b3fadbe8a43886d",
+        "evidence_id": "c40ec05a8f0146a78b3fadbe8a43886d"
+      },
+      "associated_database_record": "fm_concealment_event:c40ec05a8f0146a78b3fadbe8a43886d",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/c40ec05a8f0146a78b3fadbe8a43886d.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\c40ec05a8f0146a78b3fadbe8a43886d_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/c40ec05a8f0146a78b3fadbe8a43886d_person.jpg",
+      "size": 3182,
+      "sha256": "4b93a29723464503f2f694dfd42a838f122b1b28a1b0cf5a25e262947dcf9d59",
+      "owner": {
+        "source_event_id": "c40ec05a8f0146a78b3fadbe8a43886d",
+        "evidence_id": "c40ec05a8f0146a78b3fadbe8a43886d"
+      },
+      "associated_database_record": "fm_concealment_event:c40ec05a8f0146a78b3fadbe8a43886d",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/c40ec05a8f0146a78b3fadbe8a43886d_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\c40ec05a8f0146a78b3fadbe8a43886d.json",
+      "relative_path": "storage/screenshots/face_mask/c40ec05a8f0146a78b3fadbe8a43886d.json",
+      "size": 278,
+      "sha256": "0a0500cc39ae029e0b05450d8455a058642fed08b99ba0a2cb39a7697bc1067d",
+      "owner": {
+        "source_event_id": "c40ec05a8f0146a78b3fadbe8a43886d",
+        "evidence_id": "c40ec05a8f0146a78b3fadbe8a43886d"
+      },
+      "associated_database_record": "fm_concealment_event:c40ec05a8f0146a78b3fadbe8a43886d",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/c40ec05a8f0146a78b3fadbe8a43886d.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\cc3d8b75269a47d8b4777905fb578915.jpg",
+      "relative_path": "storage/screenshots/face_mask/cc3d8b75269a47d8b4777905fb578915.jpg",
+      "size": 135896,
+      "sha256": "322ab29d5bc17b2a92951898accab3ecf28df7560ff1c1d790c7070f94b82b96",
+      "owner": {
+        "source_event_id": "cc3d8b75269a47d8b4777905fb578915",
+        "evidence_id": "cc3d8b75269a47d8b4777905fb578915"
+      },
+      "associated_database_record": "fm_concealment_event:cc3d8b75269a47d8b4777905fb578915",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/cc3d8b75269a47d8b4777905fb578915.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\cc3d8b75269a47d8b4777905fb578915_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/cc3d8b75269a47d8b4777905fb578915_person.jpg",
+      "size": 8604,
+      "sha256": "27e199f2084c1b2bc20bcb3b3df3009808f6f549f77779b6467617fa5c085c62",
+      "owner": {
+        "source_event_id": "cc3d8b75269a47d8b4777905fb578915",
+        "evidence_id": "cc3d8b75269a47d8b4777905fb578915"
+      },
+      "associated_database_record": "fm_concealment_event:cc3d8b75269a47d8b4777905fb578915",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/cc3d8b75269a47d8b4777905fb578915_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\cc3d8b75269a47d8b4777905fb578915.json",
+      "relative_path": "storage/screenshots/face_mask/cc3d8b75269a47d8b4777905fb578915.json",
+      "size": 246,
+      "sha256": "8ee98b436d7f5a0bb320c121e1312bb68996b6fe8de68d34d417cf80e7ea65ed",
+      "owner": {
+        "source_event_id": "cc3d8b75269a47d8b4777905fb578915",
+        "evidence_id": "cc3d8b75269a47d8b4777905fb578915"
+      },
+      "associated_database_record": "fm_concealment_event:cc3d8b75269a47d8b4777905fb578915",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/cc3d8b75269a47d8b4777905fb578915.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\d8004f666df24d88825386282294a115.jpg",
+      "relative_path": "storage/screenshots/face_mask/d8004f666df24d88825386282294a115.jpg",
+      "size": 135901,
+      "sha256": "44077b156a8d8006f803c1b776e5bd8576268850f0297964e53c4f7e0b9057b9",
+      "owner": {
+        "source_event_id": "d8004f666df24d88825386282294a115",
+        "evidence_id": "d8004f666df24d88825386282294a115"
+      },
+      "associated_database_record": "fm_concealment_event:d8004f666df24d88825386282294a115",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/d8004f666df24d88825386282294a115.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\d8004f666df24d88825386282294a115_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/d8004f666df24d88825386282294a115_person.jpg",
+      "size": 8604,
+      "sha256": "27e199f2084c1b2bc20bcb3b3df3009808f6f549f77779b6467617fa5c085c62",
+      "owner": {
+        "source_event_id": "d8004f666df24d88825386282294a115",
+        "evidence_id": "d8004f666df24d88825386282294a115"
+      },
+      "associated_database_record": "fm_concealment_event:d8004f666df24d88825386282294a115",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/d8004f666df24d88825386282294a115_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\d8004f666df24d88825386282294a115.json",
+      "relative_path": "storage/screenshots/face_mask/d8004f666df24d88825386282294a115.json",
+      "size": 246,
+      "sha256": "7d3e654b17f3d7a24a07d84f25e47215611ba3509ee0d0067684c32bdd06fbd9",
+      "owner": {
+        "source_event_id": "d8004f666df24d88825386282294a115",
+        "evidence_id": "d8004f666df24d88825386282294a115"
+      },
+      "associated_database_record": "fm_concealment_event:d8004f666df24d88825386282294a115",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/d8004f666df24d88825386282294a115.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\d966065131234c298043d7f5a2cc43ee.jpg",
+      "relative_path": "storage/screenshots/face_mask/d966065131234c298043d7f5a2cc43ee.jpg",
+      "size": 135897,
+      "sha256": "bdeb3f000e0f94d59321918aa483c87c137fe80ba6085bf993deae25c6d824f7",
+      "owner": {
+        "source_event_id": "d966065131234c298043d7f5a2cc43ee",
+        "evidence_id": "d966065131234c298043d7f5a2cc43ee"
+      },
+      "associated_database_record": "fm_concealment_event:d966065131234c298043d7f5a2cc43ee",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/d966065131234c298043d7f5a2cc43ee.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\d966065131234c298043d7f5a2cc43ee_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/d966065131234c298043d7f5a2cc43ee_person.jpg",
+      "size": 8604,
+      "sha256": "27e199f2084c1b2bc20bcb3b3df3009808f6f549f77779b6467617fa5c085c62",
+      "owner": {
+        "source_event_id": "d966065131234c298043d7f5a2cc43ee",
+        "evidence_id": "d966065131234c298043d7f5a2cc43ee"
+      },
+      "associated_database_record": "fm_concealment_event:d966065131234c298043d7f5a2cc43ee",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/d966065131234c298043d7f5a2cc43ee_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\d966065131234c298043d7f5a2cc43ee.json",
+      "relative_path": "storage/screenshots/face_mask/d966065131234c298043d7f5a2cc43ee.json",
+      "size": 246,
+      "sha256": "279fa38ab0fc3ab62301e4977ec8ef27a8b4dc93a2cb7a0762ba4f2b732a4276",
+      "owner": {
+        "source_event_id": "d966065131234c298043d7f5a2cc43ee",
+        "evidence_id": "d966065131234c298043d7f5a2cc43ee"
+      },
+      "associated_database_record": "fm_concealment_event:d966065131234c298043d7f5a2cc43ee",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/d966065131234c298043d7f5a2cc43ee.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\e39ebd6d2cc0452aa283fadd85260de1.jpg",
+      "relative_path": "storage/screenshots/face_mask/e39ebd6d2cc0452aa283fadd85260de1.jpg",
+      "size": 135890,
+      "sha256": "6b3ab69cb1795efe804e31ac2cf10bb0647899e295d33ea86bcb13f4eea5d11c",
+      "owner": {
+        "source_event_id": "e39ebd6d2cc0452aa283fadd85260de1",
+        "evidence_id": "e39ebd6d2cc0452aa283fadd85260de1"
+      },
+      "associated_database_record": "fm_concealment_event:e39ebd6d2cc0452aa283fadd85260de1",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/e39ebd6d2cc0452aa283fadd85260de1.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\e39ebd6d2cc0452aa283fadd85260de1_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/e39ebd6d2cc0452aa283fadd85260de1_person.jpg",
+      "size": 8604,
+      "sha256": "27e199f2084c1b2bc20bcb3b3df3009808f6f549f77779b6467617fa5c085c62",
+      "owner": {
+        "source_event_id": "e39ebd6d2cc0452aa283fadd85260de1",
+        "evidence_id": "e39ebd6d2cc0452aa283fadd85260de1"
+      },
+      "associated_database_record": "fm_concealment_event:e39ebd6d2cc0452aa283fadd85260de1",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/e39ebd6d2cc0452aa283fadd85260de1_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\e39ebd6d2cc0452aa283fadd85260de1.json",
+      "relative_path": "storage/screenshots/face_mask/e39ebd6d2cc0452aa283fadd85260de1.json",
+      "size": 246,
+      "sha256": "c9e8e6e11e15d300c112b56222d84d0194565fd55cdd29afeb01507a3ec25b9b",
+      "owner": {
+        "source_event_id": "e39ebd6d2cc0452aa283fadd85260de1",
+        "evidence_id": "e39ebd6d2cc0452aa283fadd85260de1"
+      },
+      "associated_database_record": "fm_concealment_event:e39ebd6d2cc0452aa283fadd85260de1",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/e39ebd6d2cc0452aa283fadd85260de1.json"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\fa3314874312498eaaaa8b0645960e02.jpg",
+      "relative_path": "storage/screenshots/face_mask/fa3314874312498eaaaa8b0645960e02.jpg",
+      "size": 135896,
+      "sha256": "7bf28ef7282ed78023ad2bfb430f4f3588a1af73aca9ae16136ba3867d542f79",
+      "owner": {
+        "source_event_id": "fa3314874312498eaaaa8b0645960e02",
+        "evidence_id": "fa3314874312498eaaaa8b0645960e02"
+      },
+      "associated_database_record": "fm_concealment_event:fa3314874312498eaaaa8b0645960e02",
+      "artifact_kind": "snapshot",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/fa3314874312498eaaaa8b0645960e02.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\fa3314874312498eaaaa8b0645960e02_person.jpg",
+      "relative_path": "storage/screenshots/face_mask/fa3314874312498eaaaa8b0645960e02_person.jpg",
+      "size": 8604,
+      "sha256": "27e199f2084c1b2bc20bcb3b3df3009808f6f549f77779b6467617fa5c085c62",
+      "owner": {
+        "source_event_id": "fa3314874312498eaaaa8b0645960e02",
+        "evidence_id": "fa3314874312498eaaaa8b0645960e02"
+      },
+      "associated_database_record": "fm_concealment_event:fa3314874312498eaaaa8b0645960e02",
+      "artifact_kind": "person_crop",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/fa3314874312498eaaaa8b0645960e02_person.jpg"
+    },
+    {
+      "path": "D:\\fedbank\\storage\\screenshots\\face_mask\\fa3314874312498eaaaa8b0645960e02.json",
+      "relative_path": "storage/screenshots/face_mask/fa3314874312498eaaaa8b0645960e02.json",
+      "size": 246,
+      "sha256": "88e39aaeb2396d5a5b0cea3a5306d520aa67ae80fca956e7adadb92f31cb445a",
+      "owner": {
+        "source_event_id": "fa3314874312498eaaaa8b0645960e02",
+        "evidence_id": "fa3314874312498eaaaa8b0645960e02"
+      },
+      "associated_database_record": "fm_concealment_event:fa3314874312498eaaaa8b0645960e02",
+      "artifact_kind": "metadata_sidecar",
+      "backup_archive_location": "evidence.zip::storage/screenshots/face_mask/fa3314874312498eaaaa8b0645960e02.json"
+    }
+  ]
+}
