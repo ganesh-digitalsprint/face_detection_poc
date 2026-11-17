@@ -70,6 +70,7 @@ export default function AddCameraModal({ onClose, onCreated }) {
     >
       {error && <div className="bx-diag" role="alert">{error}</div>}
       {branchId && <div className="bx-hint">Selected branch: {activeScope.name || branchId}. New incidents keep this attribution.</div>}
+      {!branchId && <div className="bx-hint">No branch is selected. Choose a branch in the header before adding the camera to attribute its future events.</div>}
       <label className="bx-field">Camera name
         <input className="bx-input" value={form.name} onChange={set('name')} placeholder="e.g. Main entrance" autoComplete="off" />
       </label>

@@ -42,12 +42,16 @@ class CameraRepository:
         rows = (await self._s.execute(select(CameraORM).order_by(CameraORM.created_at))).scalars().all()
         return [Camera.model_validate(r) for r in rows]
 
-    async def update(self, camera_id: str, data: CameraUpdate) -> Camera | None:
+    async def update(self, camera_id: str, data: CameraUpdate, *, branch_metadata: dict | None = None) -> Camera | None:
         row = await self._s.get(CameraORM, camera_id)
         if row is None:
             return None
-        for key, value in data.model_dump(exclude_unset=True).items():
-            if value is not None:
+        changes = data.model_dump(exclude_unset=True)
+        if branch_metadata is not None:
+            changes.update(branch_metadata)
+        branch_fields = {"branch_id", "branch_code", "branch_name", "place_name", "region_name", "branch_manager"}
+        for key, value in changes.items():
+            if value is not None or key in branch_fields:
                 setattr(row, key, value)
         await self._s.flush()
         return Camera.model_validate(row)

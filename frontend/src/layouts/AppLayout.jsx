@@ -7,7 +7,6 @@ import ServiceDots from '../components/common/ServiceDots.jsx';
 import useServicesHealth from '../hooks/useServicesHealth.js';
 import useSidebar from '../hooks/useSidebar.js';
 import Sidebar from './Sidebar.jsx';
-import FaceMaskPopups from '../use-cases/face-mask/components/FaceMaskPopups.jsx';
 import { showsBranchChrome } from './routes.js';
 
 const TITLES = [
@@ -108,7 +107,6 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen lg:flex">
-      <FaceMaskPopups />
       <aside
         id={SIDEBAR_ID}
         className={`app-aside sticky top-0 hidden h-screen shrink-0 self-start transition-[width] duration-200 motion-reduce:transition-none lg:block ${

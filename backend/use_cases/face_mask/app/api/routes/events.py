@@ -78,18 +78,21 @@ async def list_events(
     outcome: str | None = Query(default=None, description="Events are always CONCEALED; use /api/entries for other outcomes"),
     limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_session),
+    runtime: Runtime = Depends(get_runtime),
 ):
     if outcome and outcome.upper() != "CONCEALED":
         return EventPage(items=[], total=0, limit=limit, offset=offset)
     items, total = await EventRepository(session).list(
         date_from=date_from, date_to=date_to, camera_id=camera_id, status=status, covering_type=covering_type,
         statuses=parse_statuses(statuses), ascending=sort == "asc", limit=limit, offset=offset)
-    return EventPage(items=items, total=total, limit=limit, offset=offset)
+    severity = runtime.cfg.alerts.severity.upper()
+    return EventPage(items=[item.model_copy(update={"severity": severity}) for item in items], total=total, limit=limit, offset=offset)
 
 
 @router.get("/{event_id}", response_model=ConcealmentEvent)
-async def get_event(event_id: str, session: AsyncSession = Depends(get_session)):
-    return await _event(session, event_id)
+async def get_event(event_id: str, session: AsyncSession = Depends(get_session), runtime: Runtime = Depends(get_runtime)):
+    event = await _event(session, event_id)
+    return event.model_copy(update={"severity": runtime.cfg.alerts.severity.upper()})
 
 
 @router.get("/{event_id}/actions", response_model=list[ReviewAction])

@@ -314,8 +314,11 @@ try {
         if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveBranchEnv -Name $name))) { Add-LauncherWarning "Branch $name is unset; Branch alert publication is disabled." }
     }
     if ($faceMaskEnabled) {
-        foreach ($name in @('ALERT_SERVICE_BASE_URL','ALERT_SERVICE_TOKEN')) {
-            if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveFaceMaskEnv -Name $name))) { Add-LauncherWarning "Face Mask $name is unset; Face Mask alert publication is disabled." }
+        if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveFaceMaskEnv -Name 'ALERT_SERVICE_BASE_URL'))) {
+            Add-LauncherWarning 'Face Mask ALERT_SERVICE_BASE_URL is unset; Face Mask alert publication is disabled.'
+        }
+        if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $effectiveFaceMaskEnv -Name 'ALERT_SERVICE_TOKEN'))) {
+            Add-LauncherWarning 'Face Mask Common Alerts publisher disabled: dedicated producer token not configured.'
         }
     }
     $producerChecks = @(

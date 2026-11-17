@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, coveringLabel, fmApiUrl, fmtTime } from '../api/index.js';
 import { EventStatusBadge, PageState } from './ui.jsx';
 import usePolling from '../hooks/usePolling.js';
@@ -7,6 +7,7 @@ import usePolling from '../hooks/usePolling.js';
 const NEXT = { OPEN: ['UNDER_REVIEW'], UNDER_REVIEW: ['CONFIRMED', 'FALSE_POSITIVE'], CONFIRMED: ['CLOSED'], FALSE_POSITIVE: ['CLOSED'], CLOSED: [] };
 const ACTION_LABEL = { UNDER_REVIEW: 'Mark under review', CONFIRMED: 'Confirm', FALSE_POSITIVE: 'False positive', CLOSED: 'Close' };
 const NEEDS_REASON = { FALSE_POSITIVE: 'Reason (why is this a false positive?)', CLOSED: 'Closing remarks' };
+const INCIDENT_STATUS = { OPEN: 'OPEN', UNDER_REVIEW: 'ACKNOWLEDGED', CONFIRMED: 'ACKNOWLEDGED', FALSE_POSITIVE: 'DISMISSED', CLOSED: 'RESOLVED' };
 
 /** 409 from an invalid transition arrives as the server's sentence; make a missing one readable. */
 function readableReviewError(e) {
@@ -14,7 +15,7 @@ function readableReviewError(e) {
   return e?.message || 'The review action failed.';
 }
 
-export default function FaceMaskEventDetail({ eventId, cameras, onClose, onChanged }) {
+export default function FaceMaskEventDetail({ eventId, cameras, severity, incidentStatus, onClose, onChanged }) {
   const ev = usePolling(async () => {
     const [event, evidence, actions] = await Promise.all([
       api.get(`/events/${eventId}`), api.get(`/events/${eventId}/evidence`), api.get(`/events/${eventId}/actions`)]);
@@ -25,6 +26,8 @@ export default function FaceMaskEventDetail({ eventId, cameras, onClose, onChang
   const [reviewer, setReviewer] = useState(() => { try { return localStorage.getItem('fmReviewer') || ''; } catch { return ''; } });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [snapshotFailed, setSnapshotFailed] = useState(false);
+  useEffect(() => { setSnapshotFailed(false); }, [eventId]);
 
   const act = async (status, remarks) => {
     setBusy(true); setError('');
@@ -52,8 +55,9 @@ export default function FaceMaskEventDetail({ eventId, cameras, onClose, onChang
           <div className="bx-two-col" style={{ gridTemplateColumns: '1fr' }}>
             <div>
               <div className="bx-card-title">Evidence</div>
-              {evidence.snapshot_url
-                ? <img src={fmApiUrl(evidence.snapshot_url.replace(/^\/api/, ''))} alt="Best head frame with the head box" style={{ width: '100%', borderRadius: 6, background: '#000' }} />
+              {evidence.snapshot_url && !snapshotFailed
+                ? <><img src={fmApiUrl(evidence.snapshot_url.replace(/^\/api/, ''))} alt="Best head frame with the head box" onError={() => setSnapshotFailed(true)} style={{ width: '100%', borderRadius: 6, background: '#000' }} />
+                  <a className="bx-btn bx-btn-sm" href={fmApiUrl(evidence.snapshot_url.replace(/^\/api/, ''))} download={`face-mask-${eventId}.jpg`}>Download snapshot</a></>
                 : <div className="bx-hint">The snapshot is not available (yet).</div>}
               <div style={{ marginTop: 10 }}>
                 {evidence.clip_url ? (
@@ -73,8 +77,13 @@ export default function FaceMaskEventDetail({ eventId, cameras, onClose, onChang
               <table className="bx-table">
                 <tbody>
                   {[
-                    ['Status', <EventStatusBadge key="s" status={e.status} />],
-                    ['Camera', cameraName], ['Entry ROI', evidence.roi_name || '-'], ['Track ID', `#${e.track_id}`],
+                    ['Alert', 'Masked person detected'], ['Camera', cameraName], ['Camera ID', e.camera_id],
+                    ['Covering', coveringLabel(e.covering_type)], ['Severity', severity || e.severity || '—'],
+                    ['Confidence / score', e.score.toFixed(2)], ['Track ID', `#${e.track_id}`],
+                    ['Detection time', fmtTime(e.first_seen)], ['Branch', e.branch_name || '—'], ['Branch code', e.branch_code || '—'],
+                    ['Place', e.place_name || '—'], ['Region', e.region_name || '—'], ['Branch manager', e.branch_manager || '—'],
+                    ['Incident status', incidentStatus || INCIDENT_STATUS[e.status] || '—'], ['Review status', <EventStatusBadge key="r" status={e.status} />],
+                    ['Source event ID', e.id], ['Entry ROI', evidence.roi_name || '-'],
                     ['First seen', fmtTime(e.first_seen)], ['Last seen', fmtTime(e.last_seen)],
                     ['Score', e.score.toFixed(2)], ['Covering', coveringLabel(e.covering_type)], ['Frames evaluated', e.frame_count],
                     ['Reviewer', e.reviewer || '-'], ['Remarks', e.remarks || '-'],

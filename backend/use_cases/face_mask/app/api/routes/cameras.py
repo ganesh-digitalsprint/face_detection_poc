@@ -103,6 +103,16 @@ async def update_camera(camera_id: str, data: CameraUpdate, session: AsyncSessio
                         runtime: Runtime = Depends(get_runtime)):
     current = await _get(session, camera_id)
     changes = data.model_dump(exclude_unset=True)
+    branch_metadata = None
+    if "branch_id" in changes:
+        branch_id = changes.pop("branch_id")
+        if runtime.status(camera_id).running:
+            raise HTTPException(409, "Stop this camera before changing its branch attribution; active sessions keep their existing attribution")
+        resolved = resolve_branch_metadata(branch_id) if branch_id else {}
+        if branch_id and resolved is None:
+            raise HTTPException(422, "The selected branch could not be resolved from the canonical branch registry")
+        branch_metadata = {key: (resolved or {}).get(key) for key in
+            ("branch_id", "branch_code", "branch_name", "place_name", "region_name", "branch_manager")}
     if "source" in changes:
         source, username, password = _split_credentials(changes["source"], changes.get("username") or "",
                                                         changes.get("password") or "")
@@ -112,7 +122,7 @@ async def update_camera(camera_id: str, data: CameraUpdate, session: AsyncSessio
             changes["username"] = username
         if password:
             changes["password"] = password
-    camera = await CameraRepository(session).update(camera_id, CameraUpdate(**changes))
+    camera = await CameraRepository(session).update(camera_id, CameraUpdate(**changes), branch_metadata=branch_metadata)
     assert camera is not None
     runtime.camera_names[camera.id] = camera.name
     if runtime.status(camera_id).running:    # restart with the new settings, like branch_exterior
