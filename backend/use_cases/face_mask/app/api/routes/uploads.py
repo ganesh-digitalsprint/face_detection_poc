@@ -49,6 +49,7 @@ class ProcessRoi(BaseModel):
 
 class ProcessRequest(BaseModel):
     path: str = Field(min_length=1)
+    camera_id: str | None = None  # Preserve the camera whose saved Entry ROI was edited.
     name: str = ""
     loop_video: bool = False
     roi: ProcessRoi | None = None
@@ -128,7 +129,14 @@ async def process_video(data: ProcessRequest, session: AsyncSession = Depends(ge
     name = data.name.strip() or resolved.stem.replace("_", " ").replace("-", " ").title()
     source_id = data.path if data.path.startswith("upload:") else _display_path(resolved)
     repository = CameraRepository(session)
-    camera = next((existing for existing in await repository.list() if existing.source == source_id), None)
+    if data.camera_id:
+        camera = await repository.get(data.camera_id)
+        if camera is None or camera.cam_type not in {"upload", "folder"} or (
+            (existing_path := resolve_video_path(camera.source)) is None or existing_path.resolve() != resolved.resolve()
+        ):
+            raise HTTPException(422, "Selected camera does not belong to this video")
+    else:
+        camera = next((existing for existing in await repository.list() if existing.source == source_id), None)
     if camera is None:
         from fedbank_core.events.metadata import resolve_branch_metadata
         metadata = resolve_branch_metadata(data.branch_id) if data.branch_id else None

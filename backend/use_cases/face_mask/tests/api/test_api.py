@@ -142,6 +142,19 @@ def test_upload_browse_and_process_with_progress_and_roi(client, make_video) -> 
         time.sleep(0.2)
     assert status["status"] == "DONE" and status["percent"] == 100.0 and status["frames_total"] == 12
     assert len(client.get(f"/api/roi?camera_id={cid}").json()) == 1
+    mode = client.get(f"/api/cameras/{cid}/roi-mode")
+    assert mode.status_code == 200 and mode.json()["use_saved_roi"] is True
+    assert [roi["name"] for roi in mode.json()["saved_rois"]] == ["Gate"]
+    disabled = client.put(f"/api/cameras/{cid}/roi-mode", json={"use_saved_roi": False})
+    assert disabled.status_code == 200 and disabled.json()["use_saved_roi"] is False
+    assert client.app.state.runtime.effective_rois_for(cid)[0].id == "__default_full_frame__"
+    enabled = client.put(f"/api/cameras/{cid}/roi-mode", json={"use_saved_roi": True})
+    assert enabled.status_code == 200 and enabled.json()["use_saved_roi"] is True
+    assert client.app.state.runtime.effective_rois_for(cid)[0].name == "Gate"
+    replay = client.post("/api/videos/process", json={"path": path, "camera_id": cid,
+                                                       "use_saved_roi": True})
+    assert replay.status_code == 201 and replay.json()["id"] == cid
+    assert client.post("/api/videos/process", json={"path": path, "camera_id": "wrong"}).status_code == 422
 
 
 def test_process_rejects_paths_outside_the_video_folders(client) -> None:

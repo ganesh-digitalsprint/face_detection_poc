@@ -31,7 +31,7 @@ export default function LiveMonitoring() {
   const [nonce, setNonce] = useState(0);
   const [imgFailed, setImgFailed] = useState(false);
   const [debugOverlay, setDebugOverlay] = useState(false);
-  const [useSavedRoi, setUseSavedRoi] = useState(false);
+  const [useSavedRoi, setUseSavedRoi] = useState(true);
   const [stopping, setStopping] = useState(false);
   const [starting, setStarting] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState('');
@@ -40,10 +40,28 @@ export default function LiveMonitoring() {
   const events = usePolling(() => api.get('/events?limit=10'), 3000);
   const cameras = cams.data || [];
   const cam = cameras.find((c) => c.id === selectedId) || null;
+  const roiMode = usePolling(() => cam ? api.get(`/cameras/${cam.id}/roi-mode`) : null, 3000, [cam?.id]);
   const st = cam?.stream || {};
   const hasFrame = !!cam && LIVE_STATES.includes(st.status) && (st.frames_read > 0 || st.status === 'DONE');
   const running = !!(cam && st.running);
   const displayStatus = playbackStatus(st.status, running);
+
+  useEffect(() => {
+    if (cam && roiMode.data?.camera_id === cam.id) setUseSavedRoi(roiMode.data.use_saved_roi);
+  }, [cam?.id, roiMode.data]);
+
+  const changeRoiMode = async (enabled) => {
+    setUseSavedRoi(enabled);
+    if (!cam) return;
+    try {
+      await api.put(`/cameras/${cam.id}/roi-mode`, { use_saved_roi: enabled });
+      await roiMode.reload();
+      setActionError('');
+    } catch (error) {
+      setUseSavedRoi(!enabled);
+      setActionError(error.message);
+    }
+  };
 
   useEffect(() => { setImgFailed(false); }, [selectedId, st.status, nonce]);  // eslint-disable-line react-hooks/exhaustive-deps
   const select = (id) => {
@@ -100,16 +118,16 @@ export default function LiveMonitoring() {
         onProcess={async (source) => {
           if (running && cam) await api.post(`/cameras/${cam.id}/stop`);
           if (source.kind === 'camera') {
-            await api.post(`/cameras/${source.cameraId}/start?restart=true`);
+            await api.post(`/cameras/${source.cameraId}/start?restart=true&use_saved_roi=${useSavedRoi}`);
             select(source.cameraId); await cams.reload();
           } else {
-            const created = await api.post('/videos/process', { path: source.processPath,
+            const created = await api.post('/videos/process', { path: source.processPath, camera_id: source.cameraId || null,
               name: source.name.replace(/\.[^.]+$/, ''), use_saved_roi: useSavedRoi, branch_id: branchId });
             select(created.id); await cams.reload();
           }
         }}>
         <label className="bx-row bx-gap-8" style={{ fontSize: 13, marginTop: 12 }}>
-          <input type="checkbox" checked={useSavedRoi} onChange={(e) => setUseSavedRoi(e.target.checked)} />
+          <input type="checkbox" checked={useSavedRoi} onChange={(e) => changeRoiMode(e.target.checked)} />
           Restrict evaluation to a saved entry area. If unchecked, Face Mask evaluates and plots the whole video frame; configure a reusable zone on <Link to="/regions?use_case=face_mask">Regions &amp; Zones</Link>.
         </label>
       </SourcePicker>}
@@ -157,6 +175,16 @@ export default function LiveMonitoring() {
                 </div>
               }
             </div>
+            {cam && <div className="bx-hint" style={{ margin: '0 16px 10px' }}>
+              <label className="bx-row bx-gap-8"><input type="checkbox" checked={useSavedRoi}
+                onChange={(event) => changeRoiMode(event.target.checked)} /> Use and show saved Entry ROI</label>
+              {roiMode.error && <span role="alert">Entry ROI mode is unavailable. Restart the Face Mask service to apply live changes. </span>}
+              <span>{roiMode.error ? 'Saved zone status could not be verified.' : useSavedRoi
+                ? (roiMode.data?.camera_id === cam.id && roiMode.data.saved_rois?.length
+                  ? `Active: ${roiMode.data.saved_rois.map((roi) => roi.name).join(', ')}`
+                  : 'No saved Entry ROI for this camera; using the full frame.')
+                : 'Entry ROI off; analysing the full frame.'} Camera ID: {cam.id.slice(0, 8)}.</span>
+            </div>}
             {cam && <PlaybackProgress status={st} />}
             {cam && !running && st.frames_read > 0 && <div className="bx-hint" style={{ margin: '0 16px 10px' }}>{playbackPlaceholder(true, displayStatus, st.position_seconds)}</div>}
             {cam && st.status === 'DONE' && (

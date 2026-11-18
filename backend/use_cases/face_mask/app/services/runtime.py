@@ -534,6 +534,9 @@ class Runtime:
         else:
             self._ignore_saved_rois.add(camera_id)
 
+    def uses_saved_roi(self, camera_id: str) -> bool:
+        return camera_id not in self._ignore_saved_rois
+
     # -- sessions --------------------------------------------------------------------------------------
     def start_camera(self, camera: Camera, fresh: bool = False,
                      use_saved_roi: bool | None = None) -> CameraStatus:

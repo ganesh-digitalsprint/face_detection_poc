@@ -16,6 +16,8 @@ export default function EntryRoiPanel() {
   const [params, setParams] = useSearchParams();
   const cams = usePolling(() => api.get('/cameras'), 5000);
   const cameras = cams.data || [];
+  const duplicateNames = new Set(cameras.filter((camera) =>
+    cameras.filter((item) => item.name === camera.name).length > 1).map((camera) => camera.name));
   const cameraId = params.get('camera') || '';
   const camera = cameras.find((c) => c.id === cameraId) || null;
   const isFile = camera && ['upload', 'folder'].includes(camera.cam_type);
@@ -78,7 +80,9 @@ export default function EntryRoiPanel() {
         <label className="bx-field" style={{ margin: 0 }}>Camera
           <select className="bx-input" value={cameraId} onChange={(e) => setParams((prev) => { const next = new URLSearchParams(prev); if (e.target.value) next.set('camera', e.target.value); else next.delete('camera'); return next; })}>
             <option value="">— Select a camera —</option>
-            {cameras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {cameras.map((c) => <option key={c.id} value={c.id}>
+              {c.name}{duplicateNames.has(c.name) ? ` · ${c.id.slice(0, 8)}` : ''}
+            </option>)}
           </select>
         </label>
       </div>

@@ -10,7 +10,7 @@ export const rememberSourceKey = (storage, useCase, key) => {
 
 const comparable = (value) => String(value || '').replaceAll('\\', '/').toLowerCase();
 
-export function sourceCatalog({ files = [], browse = [], cameras = [], statuses = {} }) {
+export function sourceCatalog({ files = [], browse = [], cameras = [], statuses = {}, preferredCameraId = '' }) {
   const videos = [];
   const usedCameras = new Set();
   const usedFiles = new Set();
@@ -27,7 +27,8 @@ export function sourceCatalog({ files = [], browse = [], cameras = [], statuses 
         || comparable(entry.source) === comparable(file.path)
         || comparable(entry.source).endsWith(`/${comparable(file.path)}`)));
     matches.forEach((entry) => usedCameras.add(entry.id));
-    const camera = matches.find((entry) => statuses[entry.id]?.running || entry.stream?.running) || matches[0];
+    const camera = matches.find((entry) => statuses[entry.id]?.running || entry.stream?.running)
+      || matches.find((entry) => entry.id === preferredCameraId) || matches[0];
     videos.push({ ...file, id: key, kind: 'video', cameraId: camera?.id || null,
       processPath: candidate?.path || (file.upload_id ? key : file.path),
       status: camera ? statuses[camera.id]?.status || (statuses[camera.id]?.running ? 'PROCESSING' : '') || camera.stream?.status || 'STOPPED' : '' });

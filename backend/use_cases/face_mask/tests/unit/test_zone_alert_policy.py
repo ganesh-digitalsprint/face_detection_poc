@@ -4,6 +4,20 @@ from app.services.observation import TrackObservation
 from tests.integration.fakes import RecordingSink
 
 
+def test_full_frame_fallback_does_not_draw_a_fake_entry_zone(monkeypatch):
+    import numpy as np
+    from app.services.annotate import annotate
+    from app.services.entry_service import RoiSpec
+
+    drawn = []
+    monkeypatch.setattr('app.services.annotate.draw_roi', lambda image, roi: drawn.append(roi.id))
+    polygon = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
+    fallback = RoiSpec('__default_full_frame__', 'Full frame', polygon, (0.0, -1.0))
+    saved = RoiSpec('saved', 'Door', polygon, (0.0, -1.0))
+    annotate(np.zeros((64, 64, 3), dtype=np.uint8), [], [fallback, saved])
+    assert drawn == ['saved']
+
+
 def observation(track, frame, inside, entering=False):
     return TrackObservation(ts=frame / 5, camera_id="cam", track_id=track,
                             box=(100 * track, 100, 100 * track + 70, 350),

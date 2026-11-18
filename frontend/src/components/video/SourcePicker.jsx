@@ -67,7 +67,8 @@ export default function SourcePicker({ useCase, cameras, statuses = {}, browseVi
   const scopedCameras = useMemo(() => cameras.filter((camera) => !scope || !camera.branch_id
     || (scope.type === 'branch' ? camera.branch_id === scope.id
       : !camera[`${scope.type}_id`] || camera[`${scope.type}_id`] === scope.id)), [cameras, scope?.id, scope?.type]);
-  const groups = useMemo(() => sourceCatalog({ files: inventory, browse, cameras: scopedCameras, statuses }), [inventory, browse, scopedCameras, statuses]);
+  const groups = useMemo(() => sourceCatalog({ files: inventory, browse, cameras: scopedCameras, statuses,
+    preferredCameraId: activeCameraId }), [inventory, browse, scopedCameras, statuses, activeCameraId]);
   const all = useMemo(() => flattenSources(groups), [groups]);
   const selected = all.find((item) => item.id === selectedKey);
   const sameRunningSource = isRunning && selected && (selected.cameraId === activeCameraId || (selected.processPath && selected.processPath === activeSourcePath));

@@ -59,7 +59,8 @@ def annotate(frame: np.ndarray, observations: list[TrackObservation], rois: list
     image = frame.copy()
     scale = max(0.7, min(image.shape[1] / 960, 1.8))
     for roi in rois:
-        draw_roi(image, roi)
+        if roi.id != "__default_full_frame__":
+            draw_roi(image, roi)
     for obs in observations:
         visual_state = obs.visibility.coverage_state if obs.visibility and obs.display == "CONCEALED" else obs.display
         color = COLORS.get(visual_state, COLORS["EVALUATING"])

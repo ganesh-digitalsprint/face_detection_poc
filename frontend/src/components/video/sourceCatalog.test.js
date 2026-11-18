@@ -30,6 +30,18 @@ test('selection survives remount by stable media ID and stays separate per use c
   assert.equal(savedSourceKey(storage, 'face_mask'), '');
 });
 
+test('a video keeps the active camera record so its edited Entry ROI is not lost', () => {
+  const groups = sourceCatalog({
+    files: [{ path: 'sample_videos/door.mp4', category: 'sample_videos', name: 'door.mp4' }],
+    cameras: [
+      { id: 'old', cam_type: 'folder', name: 'door', source: 'D:/storage/sample_videos/door.mp4' },
+      { id: 'edited', cam_type: 'folder', name: 'door', source: 'sample_videos/door.mp4' },
+    ],
+    preferredCameraId: 'edited',
+  });
+  assert.equal(groups.samples[0].cameraId, 'edited');
+});
+
 test('uploaded videos are newest first, and unfinished uploads are not selectable', () => {
   const groups = sourceCatalog({ files: [
     { path: 'uploads/old.mp4', category: 'uploads', upload_id: 'old', name: 'old.mp4', modified: 100, upload_status: 'uploaded' },

@@ -8,6 +8,7 @@ from __future__ import annotations
 from urllib.parse import urlsplit, urlunsplit, unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_runtime, get_session, require_api_key
@@ -20,6 +21,10 @@ from app.services.sources import FILE_TYPES, resolve_video_path
 from fedbank_core.events.metadata import resolve_branch_metadata
 
 router = APIRouter(prefix="/cameras", tags=["cameras"], dependencies=[Depends(require_api_key)])
+
+
+class RoiMode(BaseModel):
+    use_saved_roi: bool
 
 _LIVE_SCHEMES = ("rtsp", "rtsps", "http", "https")
 
@@ -142,11 +147,28 @@ async def delete_camera(camera_id: str, session: AsyncSession = Depends(get_sess
 
 @router.post("/{camera_id}/start", response_model=StreamStatus)
 async def start_camera(camera_id: str, restart: bool = Query(default=False),
+                       use_saved_roi: bool | None = Query(default=None),
                        session: AsyncSession = Depends(get_session), runtime: Runtime = Depends(get_runtime)):
     camera = await _get(session, camera_id)
     if not camera.enabled:
         raise HTTPException(409, "Camera is disabled")
-    return StreamStatus.of(runtime.start_camera(camera, fresh=restart))
+    return StreamStatus.of(runtime.start_camera(camera, fresh=restart, use_saved_roi=use_saved_roi))
+
+
+@router.get("/{camera_id}/roi-mode")
+async def get_roi_mode(camera_id: str, session: AsyncSession = Depends(get_session),
+                       runtime: Runtime = Depends(get_runtime)):
+    await _get(session, camera_id)
+    return {"camera_id": camera_id, "use_saved_roi": runtime.uses_saved_roi(camera_id),
+            "saved_rois": [{"id": roi.id, "name": roi.name} for roi in runtime.rois_for(camera_id)]}
+
+
+@router.put("/{camera_id}/roi-mode")
+async def put_roi_mode(camera_id: str, data: RoiMode, session: AsyncSession = Depends(get_session),
+                       runtime: Runtime = Depends(get_runtime)):
+    await _get(session, camera_id)
+    runtime.set_use_saved_roi(camera_id, data.use_saved_roi)
+    return await get_roi_mode(camera_id, session, runtime)
 
 
 @router.post("/{camera_id}/stop", response_model=StreamStatus)
