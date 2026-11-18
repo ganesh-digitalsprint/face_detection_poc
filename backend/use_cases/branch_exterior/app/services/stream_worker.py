@@ -47,7 +47,7 @@ from app.schemas.zone import Point, Zone
 from app.services import alert_service
 from app.services.analytics.after_hours import AfterHoursEngine
 from app.services.analytics.behavior import BehaviorConfig, BehaviorEngine
-from app.services.analytics.fusion import STRONG_WEAPON_CONFIDENCE, apply_weapon_override, build_anomaly_signals
+from app.services.analytics.fusion import apply_weapon_override, build_anomaly_signals
 from app.services.analytics.gathering import GatheringEngine
 from app.services.analytics.loitering import LoiteringEngine
 from app.services.analytics.movement import MovementEngine
@@ -68,7 +68,7 @@ from app.services.detection.face_recognizer import GuardFaceRecognizer
 from app.services.detection.factory import build_person_detector
 from app.services.detection.pose_estimator import get_pose_estimator
 from app.services.detection.tracker import CentroidTracker
-from app.services.detection.weapon_detector import associate_weapons
+from app.services.detection.weapon_detector import associate_weapons, confirmed_weapon_detections
 from app.services.evidence_service import RollingClipBuffer
 from app.services.frame_bus import frame_bus
 from app.services.frame_prep import FramePrep
@@ -220,8 +220,6 @@ class CameraWorker(threading.Thread):
         self._movement = MovementEngine()
         self._after_hours = AfterHoursEngine()
         self._people = PeopleCounter(0.9)
-        self._last_weapon_objs: list = []
-        self._last_weapon_ts = 0.0
 
         if backend == "rfdetr" and not self._uses_rfdetr:
             self._detector_desc = "MOTION (RF-DETR unavailable - see server log)"
@@ -284,11 +282,14 @@ class CameraWorker(threading.Thread):
 
     # ------------------------------------------------------------------ frame source
     def _next_frame(self, cap, st: dict):
-        """Returns (ok, frame). For video files, frames are DROPPED as needed so the
-        footage plays at its true speed no matter how slow analysis is - dwell times,
-        running speed and clip durations are therefore real-world correct."""
+        """Read file frames sequentially for analysis, or drop them for real-time preview."""
         if self.camera.cam_type not in _FILE_CAM_TYPES:
             return cap.read()
+        if self._settings.analyze_every_video_frame:
+            ok, frame = cap.read()
+            if ok:
+                st["consumed"] += 1
+            return ok, frame
         native = cap.get(cv2.CAP_PROP_FPS) or 0.0
         if not (1.0 < native < 120.0):
             native = 25.0
@@ -479,10 +480,10 @@ class CameraWorker(threading.Thread):
             tracked = [d for d in dets if d.label in TRACKED_LABELS]
             weapon_objs = [d for d in dets if d.label == "weapon"] if s.weapon_detector_enabled else []
             bag_objs = [d for d in dets if d.label == "object"]
-            tracks = self._tracker.update(tracked, w, h)
+            tracks = self._tracker.update(tracked, w, h, now=now)
             self._last_bags, self._last_bags_ts = bag_objs, now
         else:
-            tracks = self._tracker.predict_only()
+            tracks = self._tracker.predict_only(now=now)
             weapon_objs = []
             bag_objs = None
 
@@ -512,6 +513,8 @@ class CameraWorker(threading.Thread):
                     logger.warning("Weapon crop pass failed", exc_info=True)
 
         # 2) associate every weapon box with the person holding it; confirm over several checks
+        confirmed_weapon_objs = []
+        current_weapon_ids: set[int] = set()
         if run_detect and s.weapon_detector_enabled:
             hits = associate_weapons(weapon_objs, person_visible)
             k = max(1, s.weapon_confirm_hits)
@@ -526,10 +529,8 @@ class CameraWorker(threading.Thread):
                     if trk.weapon_streak == 0:
                         trk.weapon_confidence = 0.0
                 trk.weapon_flag = trk.weapon_streak >= k
-            if weapon_objs:
-                self._last_weapon_objs, self._last_weapon_ts = weapon_objs, now
-            elif thorough:
-                self._last_weapon_objs = []
+            confirmed_weapon_objs = confirmed_weapon_detections(hits, person_visible)
+            current_weapon_ids = {tid for tid in hits if person_visible[tid].weapon_flag}
 
         # ---- pose (RTMPose) ---------------------------------------------------------
         pose_ok = bool(self._pose and self._pose.available)
@@ -557,15 +558,15 @@ class CameraWorker(threading.Thread):
         # ---- actions + people count ---------------------------------------------------------
         self._action_recognizer.update(person_visible, w, h, pose_available=pose_ok, now=now,
                                        fall_hold_seconds=thresholds.fall_hold_seconds)
-        stats: PeopleStats = self._people.update(person_visible, thresholds.group_distance_factor)
+        stats: PeopleStats = self._people.update(person_visible, thresholds.group_distance_factor, now=now)
 
         # ---- Tasks 1-4: rule engines ----------------------------------------------------------
         now_dt = datetime.fromtimestamp(now, timezone.utc) if is_file else _now_utc()
         zone_vis = {tid: zone_of_track.get(tid) for tid in person_visible}
         signals: list[ScenarioSignal] = []
         signals += self._loitering.evaluate(person_alive, zone_of_track, thresholds, runtime_cfg.operating_hours, now_dt, now_ts=now)
-        signals += self._gathering.evaluate(person_visible, zone_vis, thresholds, runtime_cfg.operating_hours, now_dt, w, h)
-        signals += self._movement.evaluate(person_alive, zone_of_track, thresholds, now_dt)
+        signals += self._gathering.evaluate(person_visible, zone_vis, thresholds, runtime_cfg.operating_hours, now_dt, w, h, now_ts=now)
+        signals += self._movement.evaluate(person_alive, zone_of_track, thresholds, now_dt, now_ts=now)
         signals += self._after_hours.evaluate(person_alive, zone_of_track, thresholds, runtime_cfg.operating_hours, now_dt, now_ts=now)
 
         # ---- behaviour patterns: snatch/flee, vehicle escape, violent action, scanning, gate, groups ----
@@ -579,9 +580,8 @@ class CameraWorker(threading.Thread):
         signals += zone_signals
 
         # ---- Task 5: anomaly signals + severity fusion ---------------------------------------------
-        signals += build_anomaly_signals(person_visible, zone_vis, thresholds)
-        weapon_ids = {tid for tid, t in person_visible.items() if t.weapon_flag and t.weapon_confidence >= STRONG_WEAPON_CONFIDENCE}
-        signals = [apply_weapon_override(sg, weapon_ids, thresholds) for sg in signals]
+        signals += build_anomaly_signals(person_visible, zone_vis, thresholds, current_weapon_ids)
+        signals = [apply_weapon_override(sg, current_weapon_ids, thresholds) for sg in signals]
 
         # ---- zone context: suspicious things AT a zone (and everything else linked to the zone it happens in) ----
         signals, ctx_active = self._zone_ctx.process(signals, person_visible, self._real_zones, w, h, now,
@@ -613,12 +613,14 @@ class CameraWorker(threading.Thread):
             processed = self._heatmap.render_overlay(processed)
         processed = draw_zones(processed, self._zones, self._zone_active)
         self._heatmap.update((h, w), {tid: t for tid, t in alive.items() if t.visible})
-        processed = draw_tracks(processed, alive, zone_of_track, stats.group_of_track, show_pose=pose_ok)
+        processed = draw_tracks(processed, alive, zone_of_track, stats.group_of_track, show_pose=pose_ok, now=now)
         if self._last_bags_ts and (now - self._last_bags_ts) <= 1.0:
             processed = draw_objects(processed, self._last_bags, self._behavior.unattended_boxes())
-        if self._last_weapon_objs and (now - self._last_weapon_ts) <= 1.0:
-            processed = draw_weapon_objects(processed, self._last_weapon_objs)
-        if self._state.debug_overlay and self._raw_dets:
+        # Object boxes belong to this exact frame. Old boxes on a moving person
+        # would make live video and evidence point at the wrong location.
+        if confirmed_weapon_objs:
+            processed = draw_weapon_objects(processed, confirmed_weapon_objs)
+        if self._state.debug_overlay and run_detect and self._raw_dets:
             processed = draw_raw_detections(processed, self._raw_dets)
         mode = self._detector_desc + (" + POSE" if pose_ok else "") + (" + TILES" if self._tiles_now else "")
         processed = draw_hud(processed, self.camera.name, self._state.fps, stats.summary(), vehicles_visible, mode)
@@ -627,7 +629,7 @@ class CameraWorker(threading.Thread):
         armed = [t for t in person_visible.values() if t.weapon_flag]
         self._weapon_seen.update(t.track_id for t in armed)
         count = lambda lbl: sum(1 for t in person_visible.values() if t.action_label == lbl)  # noqa: E731
-        weapons_now = len(self._last_weapon_objs) if (now - self._last_weapon_ts) <= 1.5 else 0
+        weapons_now = len(confirmed_weapon_objs)
         kpis = dict(
             weapons_now=weapons_now, armed_people=len(armed), weapons_seen=len(self._weapon_seen),
             weapon_labels=sorted({t.weapon_label for t in armed if t.weapon_label}),

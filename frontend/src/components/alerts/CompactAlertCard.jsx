@@ -14,7 +14,7 @@ const highlightValues = (description, className) => description.split(/(\b\d+(?:
   .map((part, index) => index % 2 ? <strong key={index} className={`font-bold ${className}`}>{part}</strong> : part);
 
 /** Compact presentation only: the existing panel owns persisted data and selection. */
-export default function CompactAlertCard({ alert, selected, onSelect, thumbnailUrl, children, showMetadata = false }) {
+export default function CompactAlertCard({ alert, selected, onSelect, thumbnailUrl, children, showMetadata = false, categoryLabel = '' }) {
   const style = severityStyles[alert.severity] || { accent: 'border-l-slate-400', badge: 'bg-slate-100 text-slate-700', dot: 'bg-slate-500', value: 'text-slate-700' };
   const description = alert.summary || alert.title || alert.sourceEventType || 'Monitoring alert';
   return <article className={`@container min-w-0 ${showMetadata ? 'center-alert-row' : ''}`}>
@@ -29,6 +29,7 @@ export default function CompactAlertCard({ alert, selected, onSelect, thumbnailU
           <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} aria-hidden="true" />{alert.severity || 'ALERT'}
         </span>
         {showMetadata && <span className="center-row-badges"><span>{alert.status?.replaceAll('_', ' ').toLowerCase()}</span><span>{useCaseLabel(alert.useCase)}</span><span className={alert.evidenceStatus === 'CAPTURED' ? 'has-evidence' : 'no-evidence'}>{evidenceLabel(alert)}</span></span>}
+        {categoryLabel && <span className="mb-1 block text-xs font-bold text-[#152449]">{categoryLabel}</span>}
         <span className="block break-words text-sm leading-[1.55] text-[#202530]">{highlightValues(description, style.value)}</span>
         {showMetadata && <span className="center-row-source">{[alert.branchName, alertSourceLabel(alert), alert.incidentNumber || alert.sourceEventId || alert.id, alert.occurredAt ? new Date(alert.occurredAt).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : null].filter(Boolean).join(' · ')}</span>}
       </span>

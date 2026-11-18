@@ -114,6 +114,7 @@ class Settings(BaseSettings):
 
     face_recognition_enabled: bool = True
     processing_fps: int = 10   # upper limit; real speed is whatever the CPU manages
+    analyze_every_video_frame: bool = True  # accuracy-first file playback; may run slower than real time
     cpu_threads: int = 0       # torch threads. 0 = auto (CPU cores - 2) so the web server always has room to answer
     frame_width: int = 1280   # analysis width (no upscaling). Small far-away people need pixels.
 

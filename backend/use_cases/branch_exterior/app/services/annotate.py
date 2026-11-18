@@ -59,7 +59,9 @@ def draw_skeleton(frame: np.ndarray, kpts, scores, color=(255, 255, 255)) -> Non
 
 
 def draw_tracks(frame: np.ndarray, tracks: dict[int, Track], zone_of_track: dict[int, Zone | None],
-                group_of_track: dict[int, int] | None = None, show_pose: bool = True) -> np.ndarray:
+                group_of_track: dict[int, int] | None = None, show_pose: bool = True,
+                now: float | None = None) -> np.ndarray:
+    now = time.time() if now is None else now
     group_of_track = group_of_track or {}
     for tid, trk in tracks.items():
         if not trk.visible or not trk.confirmed:
@@ -97,7 +99,7 @@ def draw_tracks(frame: np.ndarray, tracks: dict[int, Track], zone_of_track: dict
         cv2.rectangle(frame, (det.x1, max(0, det.y1 - th - 8)), (det.x1 + tw + 6, det.y1), color, -1)
         cv2.putText(frame, label, (det.x1 + 3, max(12, det.y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 1, cv2.LINE_AA)
 
-        if show_pose and trk.keypoints is not None and (time.time() - trk.pose_ts) < 1.0:
+        if show_pose and trk.keypoints is not None and (now - trk.pose_ts) < 1.0:
             draw_skeleton(frame, trk.keypoints, trk.keypoint_scores)
 
         # short trail of the recent path

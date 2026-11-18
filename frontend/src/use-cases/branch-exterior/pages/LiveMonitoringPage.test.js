@@ -49,7 +49,7 @@ test('ticker cards render a saved snapshot and keep the camera placeholder when 
   try {
     const { default: SourceIncidentCard } = await server.ssrLoadModule('/src/components/alerts/SourceIncidentCard.jsx');
     const saved = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(SourceIncidentCard, {
-      event:{ id:'source-1', camera_name:'Front', severity:'high', message:'Loitering', status:'open', snapshot_path:'snapshots/front.jpg' },
+      event:{ id:'source-1', camera_name:'Front', scenario:'movement', severity:'high', message:'Loitering', status:'open', snapshot_path:'snapshots/front.jpg' },
       useCase:'branch_exterior', common:{ id:'common-1', severity:'WARNING', status:'OPEN', summary:'Central alert description' },
       thumbnailUrl:'http://localhost:8011/storage/snapshots/front.jpg', onSelect:()=>{},
     })));
@@ -59,9 +59,16 @@ test('ticker cards render a saved snapshot and keep the camera placeholder when 
     })));
     assert.match(saved, /src="http:\/\/localhost:8011\/storage\/snapshots\/front.jpg"/);
     assert.match(saved, /HIGH/);
+    assert.match(saved, /Unusual movement/);
     assert.match(missing, /No captured snapshot/);
     assert.match(missing, /MEDIUM/);
     assert.doesNotMatch(missing, /<img/);
+    const weapon = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(SourceIncidentCard, {
+      event:{ id:'source-3', camera_name:'ATM', scenario:'anomaly', severity:'critical', message:'Possible tool', status:'open', meta:{ kind:'weapon' } },
+      useCase:'branch_exterior', onSelect:()=>{},
+    })));
+    assert.match(weapon, /Weapon-like object/);
+    assert.match(weapon, /CRITICAL/);
   } finally { await server.close(); }
 });
 

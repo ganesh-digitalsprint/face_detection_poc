@@ -34,6 +34,7 @@ class WeaponHit:
     label: str
     confidence: float
     method: str
+    detection: Detection
 
 
 def _contains_or_overlaps(person: Detection, weapon: Detection, margin: float = 0.20) -> bool:
@@ -58,7 +59,12 @@ def _plausible_size(person: Detection, weapon: Detection) -> bool:
     """A hand-held weapon is a fraction of the person's height. Boxes far too small (noise)
     or as big as the person (a mis-labelled body part / bag) are rejected."""
     ratio = max(weapon.width, weapon.height) / float(person.height)
-    return 0.10 <= ratio <= 0.85
+    # A knife in a CCTV person crop may span only 5-10% of body height.
+    # Temporal confirmation in the worker still prevents a one-frame guess
+    # from becoming an incident.
+    compact_weapon = weapon.raw_label.lower() in {"knife", "gun", "handgun", "pistol", "firearm"}
+    minimum = 0.05 if compact_weapon else 0.10
+    return minimum <= ratio <= 0.85
 
 
 def associate_weapons(weapons: list[Detection], person_tracks: dict[int, Track]) -> dict[int, WeaponHit]:
@@ -79,5 +85,11 @@ def associate_weapons(weapons: list[Detection], person_tracks: dict[int, Track])
             continue
         prev = hits.get(best_tid)
         if prev is None or w.confidence > prev.confidence:
-            hits[best_tid] = WeaponHit(best_tid, display_name(w.raw_label), round(w.confidence, 2), w.source or "rfdetr")
+            hits[best_tid] = WeaponHit(best_tid, display_name(w.raw_label), round(w.confidence, 2), w.source or "rfdetr", w)
     return hits
+
+
+def confirmed_weapon_detections(hits: dict[int, WeaponHit], person_tracks: dict[int, Track]) -> list[Detection]:
+    """Only measured boxes from this detection pass whose holder is confirmed."""
+    return [hit.detection for tid, hit in hits.items()
+            if tid in person_tracks and person_tracks[tid].weapon_flag]

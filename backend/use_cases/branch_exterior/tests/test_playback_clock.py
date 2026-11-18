@@ -5,6 +5,9 @@ from types import SimpleNamespace
 from app.services.analytics.after_hours import AfterHoursEngine
 from app.services.analytics.loitering import LoiteringEngine
 from app.services import camera_manager
+from app.services.detection.base import Detection
+from app.services.detection.bytetrack import ByteTracker
+from app.services.detection.tracker import CentroidTracker
 
 
 def test_paused_wall_time_does_not_inflate_video_dwell(monkeypatch):
@@ -24,6 +27,18 @@ def test_paused_wall_time_does_not_inflate_video_dwell(monkeypatch):
     monkeypatch.setattr("time.time", lambda: 130)  # 30 seconds passed while the file was paused
     assert loitering.evaluate(tracks, zones, thresholds, {}, now, now_ts=101) == []
     assert after_hours.evaluate(tracks, zones, thresholds, {}, now, now_ts=101) == []
+
+
+def test_track_history_uses_video_time_even_when_wall_clock_differs(monkeypatch):
+    monkeypatch.setattr('time.time', lambda: 1_000_000)
+    for tracker in (ByteTracker(), CentroidTracker()):
+        first = Detection(10, 10, 60, 110, 'person', 0.9)
+        second = Detection(20, 10, 70, 110, 'person', 0.9)
+        tracker.update([first], 200, 200, now=100.0)
+        tracks = tracker.update([second], 200, 200, now=100.5)
+        person = next(iter(tracks.values()))
+        assert person.history[-1][0] == 100.5
+        assert person.speed_mps() > 0
 
 
 def test_saved_position_is_visible_after_manager_restart(tmp_path, monkeypatch):

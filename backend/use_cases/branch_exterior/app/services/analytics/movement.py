@@ -40,9 +40,10 @@ class MovementEngine:
         zone_of_track: dict[int, Zone | None],
         thresholds: ThresholdConfig,
         now: datetime,
+        now_ts: float | None = None,
     ) -> list[ScenarioSignal]:
         signals: list[ScenarioSignal] = []
-        now_ts = time.time()
+        now_ts = time.time() if now_ts is None else now_ts
         window = thresholds.movement_window_seconds
 
         for tid, trk in tracks.items():

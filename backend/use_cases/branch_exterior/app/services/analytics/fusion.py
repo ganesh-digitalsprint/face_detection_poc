@@ -14,28 +14,27 @@ from app.services.analytics.zone_engine import Zone
 from app.services.detection.tracker import Track
 
 
-# A weapon-like detection only counts as CRITICAL (and only then overrides other signals) when the detector is
-# reasonably sure; weaker hits still raise an alert, but at a level that asks for a person to look.
-STRONG_WEAPON_CONFIDENCE = 0.7
-_WEAPON_HIGH_CONFIDENCE = 0.5
-
-
 def weapon_severity(confidence: float) -> str:
-    if confidence >= STRONG_WEAPON_CONFIDENCE:
-        return "critical"
-    return "high" if confidence >= _WEAPON_HIGH_CONFIDENCE else "medium"
+    """A temporally confirmed weapon-like object is a critical safety signal.
+
+    Confidence remains in the event for human verification; the caller must
+    confirm the hit on the current frame before this policy is applied.
+    """
+    return "critical"
 
 
 def build_anomaly_signals(
     tracks: dict[int, Track],
     zone_of_track: dict[int, Zone | None],
     thresholds: ThresholdConfig,
+    current_weapon_ids: set[int] | None = None,
 ) -> list[ScenarioSignal]:
     signals: list[ScenarioSignal] = []
     for tid, trk in tracks.items():
         zone = zone_of_track.get(tid)
 
-        if trk.weapon_flag and trk.weapon_confidence >= thresholds.weapon_confidence_threshold:
+        if (trk.weapon_flag and trk.weapon_confidence >= thresholds.weapon_confidence_threshold
+                and (current_weapon_ids is None or tid in current_weapon_ids)):
             signals.append(
                 ScenarioSignal(
                     scenario="anomaly",

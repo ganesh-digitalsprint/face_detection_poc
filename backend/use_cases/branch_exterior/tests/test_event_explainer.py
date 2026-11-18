@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.schemas.event import Event
-from app.services.analytics.fusion import STRONG_WEAPON_CONFIDENCE, weapon_severity
+from app.services.analytics.fusion import weapon_severity
 from app.services.brief_service import build_brief
 from app.services.event_explainer import explain_event, get_explanation, verification_label
 from app.services.incident_report import build_incident_report
@@ -93,8 +93,8 @@ def test_explanation_is_deterministic_and_stored_copy_is_reused():
     assert get_explanation(_event(meta={"kind": "running", "explanation": stored}))["title"] == "Stored title"
 
 
-@pytest.mark.parametrize("conf,sev", [(0.36, "medium"), (0.5, "high"), (0.69, "high"), (STRONG_WEAPON_CONFIDENCE, "critical")])
-def test_weapon_severity_depends_on_confidence(conf, sev):
+@pytest.mark.parametrize("conf,sev", [(0.36, "critical"), (0.5, "critical"), (0.69, "critical"), (0.7, "critical")])
+def test_confirmed_weapon_severity_is_critical(conf, sev):
     assert weapon_severity(conf) == sev
 
 

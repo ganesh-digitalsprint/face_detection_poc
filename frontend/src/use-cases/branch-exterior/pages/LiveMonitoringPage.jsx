@@ -252,6 +252,12 @@ export default function LiveMonitoringPage() {
               {st.weapon_labels && st.weapon_labels.length > 0 && <> — <b style={{ color: '#ef4444' }}>{st.weapon_labels.join(', ').toUpperCase()}</b></>}
             </div>
           )}
+          {cam && st.features?.some((feature) => feature.includes('Zone alerts: no armed zones')) && (
+            <div className="bx-diag" role="status" style={{ margin: '4px 16px' }}>
+              No active ATM or restricted zone is configured for this source. Staring at, gathering at, and tampering with the ATM need a zone around it.{' '}
+              <button type="button" className="bx-btn bx-btn-sm" onClick={() => navigate(`/regions?camera=${cam.id}`)}>Configure zones</button>
+            </div>
+          )}
           {running && st.features && st.features.length > 0 && (
             <div style={{ padding: '0 16px 6px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {st.features.map((f) => <span key={f} className="bx-tag" style={{ fontSize: 11, whiteSpace: 'normal' }}>{f}</span>)}

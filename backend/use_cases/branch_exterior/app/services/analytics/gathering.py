@@ -33,9 +33,10 @@ class GatheringEngine:
         now: datetime,
         frame_w: int,
         frame_h: int,
+        now_ts: float | None = None,
     ) -> list[ScenarioSignal]:
         signals: list[ScenarioSignal] = []
-        now_ts = time.time()
+        now_ts = time.time() if now_ts is None else now_ts
         px_per_m = approx_pixels_per_metre(frame_w, frame_h)
         max_dist_px = thresholds.gathering_distance_m * px_per_m
         band = time_band(now, operating_hours)

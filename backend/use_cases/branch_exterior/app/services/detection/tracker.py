@@ -114,13 +114,13 @@ class CentroidTracker:
     def tracks(self) -> dict[int, Track]:
         return self._tracks
 
-    def predict_only(self) -> dict[int, Track]:
+    def predict_only(self, now: float | None = None) -> dict[int, Track]:
         """No-op: this simple tracker has no motion model (interface parity
         with ByteTracker, which the worker calls on frames that skip detection)."""
         return self._tracks
 
-    def update(self, detections: list[Detection], frame_w: int, frame_h: int) -> dict[int, Track]:
-        now = time.time()
+    def update(self, detections: list[Detection], frame_w: int, frame_h: int, now: float | None = None) -> dict[int, Track]:
+        now = time.time() if now is None else now
         diag = math.hypot(frame_w, frame_h)
         max_dist = diag * self._match_dist_frac
 

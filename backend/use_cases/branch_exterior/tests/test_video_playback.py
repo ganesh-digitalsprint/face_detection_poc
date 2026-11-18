@@ -75,6 +75,27 @@ def test_file_finishes_once_and_releases_capture(monkeypatch):
     assert w._state.frame_count == 3
 
 
+def test_file_analysis_never_skips_a_short_action_after_a_slow_pass(monkeypatch):
+    class CountingCapture(Capture):
+        def __init__(self):
+            super().__init__(4)
+            self.grabs = 0
+
+        def grab(self):
+            self.grabs += 1
+            return super().grab()
+
+    capture = CountingCapture()
+    w = worker(monkeypatch, capture)
+    assert w._settings.analyze_every_video_frame
+    state = {"t0": time.time() - 10, "consumed": 0}
+    for expected in range(1, 5):
+        ok, frame = w._next_frame(capture, state)
+        assert ok and frame is not None
+        assert state["consumed"] == expected
+    assert capture.grabs == 0
+
+
 def test_stop_is_idempotent_and_halts_worker(monkeypatch):
     capture = Capture(10000)
     w = worker(monkeypatch, capture)
