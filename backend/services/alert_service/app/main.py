@@ -30,10 +30,10 @@ def create_app(settings: Settings | None = None, *, engine=None, start_notificat
         ensure_database_exists(config.database_url)
         initialize(db_engine)
         worker = None
-        if config.notification_webhook_url and start_notification_worker:
+        if (config.notification_webhook_url or config.email_notifications_enabled) and start_notification_worker:
             worker = asyncio.create_task(run_worker(session_factory, config.notification_webhook_url,
                 poll_seconds=config.notification_poll_seconds,
-                max_attempts=config.notification_max_attempts))
+                max_attempts=config.notification_max_attempts, config=config, email_sender=smtp_sender))
         yield
         if worker:
             worker.cancel()

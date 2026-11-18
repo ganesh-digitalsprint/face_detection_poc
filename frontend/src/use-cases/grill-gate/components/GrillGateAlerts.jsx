@@ -3,10 +3,11 @@ import GrillGateAlertCard from './GrillGateAlertCard.jsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import useServiceAlerts from '../../../hooks/useServiceAlerts.js';
-import { normalizeGrillGateAlert } from '../../../api/alertServiceModel.js';
+import { grillGateRegistryLookupPaths, mergeGrillGateRegistryMetadata, normalizeGrillGateAlert } from '../../../api/alertServiceModel.js';
 import { AlertCard, SourceAlertDetail } from '../../../components/alerts/AlertPresentation.jsx';
 import { describeError } from '../../../utils/errors.js';
 import { createGrillAlertApi } from '../grillAlertFeed.js';
+import { platformApi } from '../../../features/branches/api.js';
 import { getLiveActiveAlerts, getLiveAlertHistory, getGrillGateVideoResults, getGrillGateAlert,
   acknowledgeGrillGateAlert, resolveGrillGateAlert, dismissGrillGateAlert } from '../api/grillGate.js';
 
@@ -18,6 +19,7 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
   const [detail, setDetail] = useState(null);
   const [detailError, setDetailError] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
+  const [branchRegistry, setBranchRegistry] = useState({ branchId: null, branch: null, cameras: [] });
   const [pending, setPending] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState(null);
   const [detailRetry, setDetailRetry] = useState(0);
@@ -30,6 +32,9 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
   useEffect(() => { setSelectedId(null); setDetail(null); setNotice(''); setDetailError(''); }, [scope]);
   const requested = query.get('alert');
   const selected = feed.items.find((a) => a.id === selectedId || (selectedId === null && requested && a.sourceEventId === requested));
+  const visibleDetail = detail?.id === selected?.id ? detail : selected;
+  const registryBranchId = visibleDetail?.branchId || visibleDetail?.resourceRefs?.branch_id || null;
+  const registryCameraId = visibleDetail?.cameraId || visibleDetail?.resourceRefs?.camera_id || null;
   const selectedVersion = selected?.rowVersion;
   const selectedKey = selected?.id;
   useEffect(() => {
@@ -42,6 +47,29 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
     }).catch((error) => { if (!ctl.signal.aborted) setDetailError(describeError(error).message); }).finally(() => { if (!ctl.signal.aborted) setDetailLoading(false); });
     return () => ctl.abort();
   }, [selectedKey, selectedVersion, scope, detailRetry]);
+  useEffect(() => {
+    if (!registryBranchId) {
+      setBranchRegistry({ branchId: null, branch: null, cameras: [] });
+      return undefined;
+    }
+    const paths = grillGateRegistryLookupPaths(visibleDetail);
+    if (!paths) return undefined;
+    const controller = new AbortController();
+    let current = true;
+    setBranchRegistry({ branchId: registryBranchId, branch: null, cameras: [] });
+    const branchRequest = platformApi(paths.branch, { signal: controller.signal });
+    const cameraRequest = paths.cameras
+      ? platformApi(paths.cameras, { signal: controller.signal }).catch(() => [])
+      : Promise.resolve([]);
+    Promise.all([branchRequest, cameraRequest]).then(([branch, cameras]) => {
+      if (!current || controller.signal.aborted) return;
+      if (String(branch.id) !== String(registryBranchId)) throw new Error('Branch registry returned a different branch.');
+      setBranchRegistry({ branchId: registryBranchId, branch, cameras });
+    }).catch(() => {
+      if (current && !controller.signal.aborted) setBranchRegistry({ branchId: registryBranchId, branch: null, cameras: [] });
+    });
+    return () => { current = false; controller.abort(); };
+  }, [registryBranchId, registryCameraId, visibleDetail?.id]);
   const act = async (target, note) => {
     const alert = detail?.id === selected?.id ? detail : null;
     if (!alert || pending || detailLoading || detailError || !alert.allowedActions.includes(target)) return;
@@ -58,6 +86,9 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
     } catch (error) { if (scopeRef.current === atScope) { setNotice(describeError(error).message); if (error?.response?.status === 409) setDetailRetry((value) => value + 1); } }
     finally { setPending(false); if (scopeRef.current === atScope) feed.refresh(); }
   };
+  const registryBranch = branchRegistry.branchId === registryBranchId ? branchRegistry.branch : null;
+  const registryCameras = branchRegistry.branchId === registryBranchId ? branchRegistry.cameras : [];
+  const displayDetail = mergeGrillGateRegistryMetadata(visibleDetail, registryBranch, registryCameras);
   return <section className="vault-card p-4 sm:p-5" aria-label="Grill Gate alerts">
     <header className="mb-3 flex items-center justify-between gap-3"><h2 className="font-bold text-[#0F1B3D]">{status === 'ACTIVE' ? 'Active Alerts' : 'Alert History'}</h2><Link to="/alerts?use_case=grill_gate" className="text-xs font-semibold text-[#34479B]">View all &rsaquo;</Link></header>
     <div className="mb-3 flex gap-2" role="tablist" aria-label="Grill Gate alert status">{['ACTIVE','HISTORY'].map((value) => <button type="button" key={value} role="tab" aria-selected={status === value} onClick={() => { setStatus(value); setSelectedId(''); }} className={`rounded-lg px-3 py-2 text-xs font-semibold ${status === value ? 'bg-[#34479B] text-white' : 'border border-[#E3E7F0] text-[#55607A]'}`}>{value === 'ACTIVE' ? 'Active' : 'History'}{adapter.count(value) != null ? ` (${adapter.count(value)})` : ''}</button>)}<button type="button" onClick={feed.refresh} className="ml-auto text-xs text-[#34479B]">Refresh</button></div>
@@ -67,7 +98,7 @@ export default function GrillGateAlerts({ assignmentId, jobId, compact = false }
     {!feed.loading && !feed.error && !feed.items.length && (assignmentId || jobId) && <p className="text-sm text-[#55607A]">{status === 'ACTIVE' ? (adapter.count('HISTORY') > 0 ? 'No active alerts. Resolved or dismissed incidents are available in History.' : 'No active alerts.') : feed.hasMore ? 'No matching alerts on this page. Load more alerts below.' : 'No historical alerts.'}</p>}
     <div className={`grid gap-3 ${!compact && selected ? 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]' : ''}`}>
       <div className="min-w-0 space-y-3">{feed.items.map((alert) => compact ? <GrillGateAlertCard key={alert.id} alert={alert} selected={selected?.id === alert.id} onSelect={setSelectedId} /> : <AlertCard key={alert.id} alert={alert} selected={selected?.id === alert.id} onSelect={setSelectedId} />)}</div>
-      {selected && <div className="min-w-0">{detailLoading && <p role="status" className="mb-2 text-xs text-slate-500">Refreshing alert details...</p>}{detailError && <p role="alert" className="mb-2 text-sm text-red-800">Could not load latest details: {detailError} <button type="button" onClick={() => setDetailRetry((value) => value + 1)} className="underline">Retry details</button></p>}<SourceAlertDetail alert={detail?.id === selected.id ? detail : selected} onClose={() => setSelectedId('')}>
+      {selected && <div className="min-w-0">{detailLoading && <p role="status" className="mb-2 text-xs text-slate-500">Refreshing alert details...</p>}{detailError && <p role="alert" className="mb-2 text-sm text-red-800">Could not load latest details: {detailError} <button type="button" onClick={() => setDetailRetry((value) => value + 1)} className="underline">Retry details</button></p>}<SourceAlertDetail alert={displayDetail} onClose={() => setSelectedId('')}>
         {detail?.id === selected.id && !detailLoading && !detailError && <div className="flex flex-wrap gap-2">{detail.allowedActions.filter((action) => ({OPEN:['ACKNOWLEDGED','RESOLVED','DISMISSED'],ACKNOWLEDGED:['RESOLVED','DISMISSED']}[detail.status] || []).includes(action)).map((target) => <button key={target} type="button" disabled={pending} onClick={() => setConfirmTarget(target)} className="rounded-lg border border-[#D0D7E6] px-4 py-2 text-sm font-semibold text-[#34479B] disabled:opacity-50">{{ACKNOWLEDGED:'Acknowledge',RESOLVED:'Resolve',DISMISSED:'Discard'}[target]}</button>)}</div>}
         {confirmTarget && detail?.id === selected.id && <LifecycleConfirmation key={selected.id} target={confirmTarget} pending={pending} onClose={() => setConfirmTarget(null)} onConfirm={(reason) => { act(confirmTarget, reason); setConfirmTarget(null); }} />}
       </SourceAlertDetail></div>}

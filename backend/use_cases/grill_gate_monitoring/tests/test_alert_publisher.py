@@ -39,6 +39,21 @@ def test_create_publication_uses_shared_service_idempotency_and_clears_outbox(tm
     assert list((tmp_path / "pending").glob("*.json")) == []
 
 
+def test_uploaded_alert_publication_preserves_branch_camera_and_source_identity(tmp_path):
+    client = Client(Response(201))
+    publisher = GrillGateAlertPublisher("http://alerts", "producer", outbox_dir=tmp_path,
+        client_factory=lambda **_kwargs: client, retry_wait=lambda _seconds: None)
+    value = command()
+    value["payload"]["resource_refs"].update({"video_job_id": "video-job-1",
+        "branch_id": "koramangala", "camera_name": "Front gate"})
+    publisher._persist_and_deliver(value)
+    posted = client.calls[0][1]["json"]
+    assert posted["source_event_id"] == "source-1"
+    assert posted["resource_refs"] == {"camera_id": "cam-1", "assignment_id": "assignment-1",
+        "video_job_id": "video-job-1", "branch_id": "koramangala", "camera_name": "Front gate"}
+    assert client.calls[0][1]["headers"]["Idempotency-Key"] == "stable-key"
+
+
 def test_republishing_a_retry_uses_the_same_logical_alert_idempotency_key(tmp_path):
     client = Client(Response(201))
     publisher = GrillGateAlertPublisher("http://alerts", "producer", outbox_dir=tmp_path,

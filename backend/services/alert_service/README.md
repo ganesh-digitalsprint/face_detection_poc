@@ -56,3 +56,65 @@ The separate operator map entry uses `{"actor_id":"<operator-id>","use_cases":["
 ## Validation
 
 From this directory, run `python -m pytest -q`. Tests use local SQLite and mocked producer tokens/notification delivery; they do not start cameras, ML, PostgreSQL, Qdrant, or call real webhook destinations.
+
+## Branch notification settings migration (revision 0002)
+
+The additive migration `migrations/branch_notification_settings_v1.py` creates the
+`branch_notification_settings` table in the Alert Service database. It is deliberately
+not applied by service startup. The table is keyed by `branch_id`; it has no foreign key
+to the separate platform registry database.
+
+After backing up the target Alert Service database and confirming its URL, run from
+`backend/services/alert_service` with that database URL explicitly selected:
+
+```powershell
+$env:ALERT_DATABASE_URL = 'sqlite:///./alert_service.db' # or the approved PostgreSQL URL
+python -m migrations.branch_notification_settings_v1 upgrade $env:ALERT_DATABASE_URL
+```
+
+The migration uses `checkfirst=True`, so repeating the upgrade is safe. For rollback,
+first preserve data if needed (for SQLite, use SQLite's online backup API or copy a
+quiescent database; for PostgreSQL, use `pg_dump`), then run:
+
+```powershell
+python -m migrations.branch_notification_settings_v1 downgrade $env:ALERT_DATABASE_URL
+```
+
+Downgrade drops only the settings table. Restore or retain the backup to preserve saved
+settings. Existing alert, audit, idempotency, and outbox tables are not modified.
+
+## Automatic branch email (PoC)
+
+The automatic email worker is opt-in and remains off unless
+`ALERT_EMAIL_NOTIFICATIONS_ENABLED=true` is explicitly configured. Set
+`FEDBANK_PUBLIC_BASE_URL` to the browser-visible Fedbank origin for alert links.
+SMTP uses the existing `SMTP_*` configuration. Do not put credentials in the source
+tree. The worker sends one message per saved To recipient and records SMTP acceptance
+as `ACCEPTED`; it does not claim delivery or read confirmation. Branch Exterior snapshots
+are fetched by exact source event ID and checked against the configured branch before
+they are attached. Other use cases show snapshot unavailable unless they supply a future
+trusted evidence integration.
+
+### Notification outbox migration (revision 0003)
+
+The additive `migrations/notification_email_outbox_v1.py` migration adds channel,
+branch, recipient, and last-attempt fields to `notification_outbox` plus a partial unique
+index for alert/recipient email jobs. Existing webhook rows retain the default `webhook`
+channel. It is not applied at service startup. Back up the Alert Service database first,
+then apply both 0002 (if not already present) and 0003 to the explicitly selected target:
+
+```powershell
+. .\scripts\launcher-common.ps1
+$alertEnv = Get-LauncherEnvFile -Path '.\backend\services\alert_service\.env'
+$env:ALERT_DATABASE_URL = Get-LauncherEnvValue -Values $alertEnv -Name 'ALERT_DATABASE_URL'
+if ([string]::IsNullOrWhiteSpace($env:ALERT_DATABASE_URL)) { throw 'Set ALERT_DATABASE_URL in the Alert Service .env first.' }
+Push-Location .\backend\services\alert_service
+try { & .\.venv\Scripts\python.exe -m migrations.notification_email_outbox_v1 upgrade }
+finally { Pop-Location }
+```
+
+The migration can be rerun safely. To roll it back, export `notification_outbox` first
+if the email attempt history must be kept, then run the same command with `downgrade`.
+Downgrade removes the new columns and index; therefore export the email rows before
+rollback if they must be preserved. No alert, evidence, or branch registry data is
+rewritten by this migration.

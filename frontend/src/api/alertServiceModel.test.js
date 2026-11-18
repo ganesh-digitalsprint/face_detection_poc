@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   alertDetailLocationFields, availableActions, buildAlertParams, buildLifecycleBody, describeServiceError, isStaleConflict, matchesStatus,
-  mergeById, normalizeServiceAlert, replaceAlert, useCaseLabel,
+  grillAlertMetadata, grillAlertSourceType, grillGateRegistryLookupPaths, mergeGrillGateRegistryMetadata,
+  mergeById, normalizeGrillGateAlert, normalizeServiceAlert, replaceAlert, useCaseLabel,
 } from './alertServiceModel.js';
 
 const raw = (overrides = {}) => ({
@@ -137,6 +138,50 @@ test('uploaded Gate references never become fabricated camera IDs', () => {
   assert.equal(alert.branchId, null);
 });
 
+test('Grill Gate resolves branch and camera metadata only from the associated registry records', () => {
+  const alert = normalizeGrillGateAlert({ id: 'gate-alert', use_case: 'grill_gate', branch_id: 'branch-1', camera_id: 'camera-1',
+    source_event_type: 'GATE_OPEN_TOO_LONG', source_type: 'rtsp',
+    domain_data: { gate_state: 'FULLY_OPEN', gate_open_duration_seconds: 3.136, configured_threshold_seconds: 3, video_time_seconds: 7.04 },
+    resource_refs: { branch_id: 'branch-1', camera_id: 'camera-1' } });
+  assert.deepEqual(grillGateRegistryLookupPaths(alert), { branch: '/branches/branch-1', cameras: '/branches/branch-1/cameras' });
+  const display = mergeGrillGateRegistryMetadata(alert,
+    { id: 'branch-1', name: 'Koramangala', code: 'C-01', city_name: 'Bengaluru', zone_name: 'South', manager: 'A. Manager' },
+    [{ id: 'camera-1', name: 'Gate 1', source_type: 'rtsp' }, { id: 'other-camera', name: 'Wrong camera' }]);
+  assert.deepEqual(Object.fromEntries(grillAlertMetadata(display)), {
+    'Camera name': 'Gate 1', 'Camera ID': 'camera-1', 'Source type': 'CCTV', Branch: 'Koramangala',
+    'Branch code': 'C-01', Place: 'Bengaluru', Region: 'South', 'Branch manager': 'A. Manager',
+    'Gate state': 'FULLY_OPEN', 'Observed duration': 3.136, Threshold: 3, 'Video time': 7.04,
+  });
+});
+
+test('uploaded video without a camera has no fabricated camera ID or branch attribution', () => {
+  const alert = normalizeGrillGateAlert({ id: 'historic', use_case: 'grill_gate', video_job_id: 'job-1',
+    source_type: 'uploaded_video', resource_refs: { video_job_id: 'job-1' },
+    domain_data: { gate_state: 'FULLY_OPEN', video_timestamp_seconds: 18.75 } });
+  assert.equal(grillGateRegistryLookupPaths(alert), null);
+  const display = mergeGrillGateRegistryMetadata(alert, null);
+  const fields = Object.fromEntries(grillAlertMetadata(display));
+  assert.equal(fields['Camera name'], 'Uploaded video');
+  assert.equal(Object.hasOwn(fields, 'Camera ID'), false);
+  assert.equal(fields['Source type'], 'Uploaded video');
+  assert.equal(fields.Branch, 'Not assigned');
+  assert.equal(Object.hasOwn(fields, 'Branch code'), false);
+  assert.equal(fields['Gate state'], 'FULLY_OPEN');
+  assert.equal(fields['Video time'], 18.75);
+});
+
+test('branch registry mismatch cannot replace historical branch details or assign a missing branch', () => {
+  const alert = normalizeGrillGateAlert({ id: 'gate-alert', use_case: 'grill_gate', branch_id: 'branch-1',
+    resource_refs: { branch_id: 'branch-1', branch_name: 'Saved branch' }, domain_data: {} });
+  const mismatch = mergeGrillGateRegistryMetadata(alert, { id: 'branch-2', name: 'Wrong branch', code: 'wrong' });
+  assert.equal(Object.fromEntries(grillAlertMetadata(mismatch)).Branch, 'Saved branch');
+  const historical = mergeGrillGateRegistryMetadata(normalizeGrillGateAlert({ id: 'old', use_case: 'grill_gate' }),
+    { id: 'branch-1', name: 'Koramangala' });
+  assert.equal(grillGateRegistryLookupPaths(historical), null);
+  assert.equal(Object.fromEntries(grillAlertMetadata(historical)).Branch, 'Not assigned');
+  assert.equal(grillAlertSourceType({ sourceType: 'server_webcam' }), 'Webcam');
+});
+
 test('identifier filters use the same API names as preserved references', () => {
   assert.deepEqual(buildAlertParams({ branchId: 'branch', cameraId: 'camera', assignmentId: 'assignment',
     videoJobId: 'job', sessionRef: 'session', sourceId: 'source', registryCameraId: 'registry', sourceSubtype: 'weapon' }), {
@@ -225,6 +270,9 @@ test('describeServiceError maps unavailable, auth, conflict and validation error
   assert.match(describeServiceError(failure(502)).message, /unavailable/);
   assert.match(describeServiceError(failure(401, { code: 'UNAUTHENTICATED', message: 'x' })).message, /ALERT_SERVICE_OPERATOR_TOKEN/);
   assert.match(describeServiceError(failure(403, { code: 'FORBIDDEN', message: 'x' })).message, /not authorized/);
+  assert.equal(describeServiceError(failure(403, { code: 'BRANCH_FORBIDDEN',
+    message: 'Operator is not authorized to manage notifications for this branch' })).message,
+  'Operator is not authorized to manage notifications for this branch');
   assert.match(describeServiceError(failure(503, { code: 'AUTH_NOT_CONFIGURED', message: 'x' })).message, /not configured/);
   assert.match(describeServiceError(failure(409, { code: 'VERSION_CONFLICT', message: 'x' })).message, /changed/);
   assert.match(describeServiceError(failure(409, { code: 'INVALID_TRANSITION', message: 'x' })).message, /not allowed/);

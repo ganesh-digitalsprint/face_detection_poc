@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Alert, NotificationOutbox
 from app.db.repositories import due_notifications, mark_delivery
+from app.services.email_notifications import dispatch_email_once
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ async def dispatch_once(session_factory, destination: str, *, max_attempts: int 
         return 0
     sender = sender or _send
     with session_factory() as db:
-        rows = due_notifications(db)
+        rows = due_notifications(db, channel="webhook")
         delivery_data = []
         for row in rows:
             alert = db.get(Alert, row.alert_id)
@@ -50,7 +51,7 @@ async def dispatch_once(session_factory, destination: str, *, max_attempts: int 
             retryable = not (isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500)
         with session_factory() as db:
             row = db.get(NotificationOutbox, delivery_id)
-            if row and row.status in {"PENDING", "RETRY"}:
+            if row and row.status == "SENDING":
                 mark_delivery(db, row, success=success, error=error, provider_id=provider_id,
                               max_attempts=max_attempts, retryable=retryable)
         attempted += 1
@@ -64,7 +65,14 @@ async def _send(destination: str, payload: dict) -> str | None:
         return response.headers.get("x-request-id")
 
 
-async def run_worker(session_factory, destination: str, *, poll_seconds: float, max_attempts: int) -> None:
+async def run_worker(session_factory, destination: str, *, poll_seconds: float, max_attempts: int,
+                     config=None, email_sender=None) -> None:
     while True:
-        await dispatch_once(session_factory, destination, max_attempts=max_attempts)
+        try:
+            if destination:
+                await dispatch_once(session_factory, destination, max_attempts=max_attempts)
+            if config and config.email_notifications_enabled:
+                await dispatch_email_once(session_factory, config, max_attempts=max_attempts, sender=email_sender)
+        except Exception as exc:
+            logger.exception("Alert notification worker iteration failed (%s)", type(exc).__name__)
         await asyncio.sleep(max(0.2, poll_seconds))

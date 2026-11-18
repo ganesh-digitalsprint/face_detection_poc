@@ -49,6 +49,13 @@ class Settings:
     notification_webhook_url: str = field(default_factory=lambda: os.getenv("ALERT_NOTIFICATION_WEBHOOK_URL", ""))
     notification_poll_seconds: float = field(default_factory=lambda: float(os.getenv("ALERT_NOTIFICATION_POLL_SECONDS", "2")))
     notification_max_attempts: int = field(default_factory=lambda: int(os.getenv("ALERT_NOTIFICATION_MAX_ATTEMPTS", "8")))
+    email_notifications_enabled: bool = field(default_factory=lambda: _boolean("ALERT_EMAIL_NOTIFICATIONS_ENABLED", False))
+    public_app_base_url: str = field(default_factory=lambda: os.getenv("FEDBANK_PUBLIC_BASE_URL", "").strip().rstrip("/"))
+    branch_exterior_base_url: str = field(default_factory=lambda: os.getenv(
+        "BRANCH_EXTERIOR_API_BASE_URL", "http://127.0.0.1:8011").strip().rstrip("/"))
+    vault_evidence_api_url: str = field(default_factory=lambda: os.getenv(
+        "VAULT_EVIDENCE_API_URL", "http://127.0.0.1:8010").strip().rstrip("/"))
+    vault_evidence_api_key: str = field(default_factory=lambda: os.getenv("VAULT_EVIDENCE_API_KEY", ""), repr=False)
     smtp_enabled: bool = field(default_factory=lambda: _boolean("SMTP_ENABLED", False))
     smtp_host: str = field(default_factory=lambda: os.getenv("SMTP_HOST", "smtp.gmail.com"))
     smtp_port: int = field(default_factory=lambda: int(os.getenv("SMTP_PORT", "587")))

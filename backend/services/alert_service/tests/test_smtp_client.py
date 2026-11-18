@@ -54,6 +54,20 @@ def test_smtp_success_uses_starttls_authentication_and_acceptance():
     assert client.message.get_content().strip() == "Plain text"
 
 
+def test_smtp_adds_html_and_inline_snapshot_as_cid():
+    client = FakeSmtp("smtp.gmail.com", 587, 15)
+    send_email(config(), recipients=["recipient@example.invalid"], subject="Alert", body="Plain",
+        html_body='<img src="cid:snapshot-1">',
+        inline_images=[{"cid": "snapshot-1", "data": b"image", "maintype": "image",
+                        "subtype": "jpeg", "filename": "snapshot.jpg"}],
+        smtp_factory=lambda *_args, **_kwargs: client)
+    html_part = next(part for part in client.message.walk() if part.get_content_type() == "text/html")
+    image_part = next(part for part in client.message.walk() if part.get_content_maintype() == "image")
+    assert "cid:snapshot-1" in html_part.get_content()
+    assert image_part["Content-ID"] == "<snapshot-1>"
+    assert image_part.get_content_disposition() == "inline"
+
+
 @pytest.mark.parametrize(("settings", "recipients", "category"), [
     (config(smtp_enabled=False), ["recipient@example.invalid"], "disabled"),
     (config(smtp_password=""), ["recipient@example.invalid"], "not_configured"),

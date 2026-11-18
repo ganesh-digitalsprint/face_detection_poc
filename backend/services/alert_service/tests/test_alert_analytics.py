@@ -90,6 +90,15 @@ def test_summary_includes_filtered_graph_aggregations_and_unassigned_branch(tmp_
             {"branch_id": None, "branch_name": "Unassigned", "branch_code": None, "count": 2},
             {"branch_id": "branch-2", "branch_name": "North", "branch_code": "N002", "count": 1},
         ]
+        listed = client.get("/api/v1/alerts?limit=100", headers={"Authorization": OPERATOR})
+        assert listed.status_code == 200
+        assert len(listed.json()["items"]) == body["total"]
+        grill_list = client.get("/api/v1/alerts?use_case=grill_gate", headers={"Authorization": OPERATOR})
+        grill_summary = client.get("/api/v1/alerts/summary?use_case=grill_gate",
+            headers={"Authorization": OPERATOR})
+        assert grill_list.status_code == grill_summary.status_code == 200
+        assert len(grill_list.json()["items"]) == grill_summary.json()["total"] == 2
+        assert {row["use_case"] for row in grill_list.json()["items"]} == {"grill_gate"}
 
 
 def test_summary_graph_aggregations_follow_supported_filters(tmp_path):

@@ -85,7 +85,7 @@ def persist_command(db: Session, command: dict) -> GrillGateAlert | None:
         # Like Vault's metadata_json projection, promote the source-session snapshot to
         # resource refs at persistence time so branch filtering and delayed publication
         # read the same immutable attribution.
-        for key in ("registry_camera_id", "branch_id", "branch_code", "branch_name", "place_name",
+        for key in ("camera_id", "registry_camera_id", "branch_id", "branch_code", "branch_name", "place_name",
                     "region_name", "branch_manager", "camera_name", "source_id", "source_type",
                     "location_id", "location_name", "video_filename"):
             if (value := safe_reference(domain.get(key))):

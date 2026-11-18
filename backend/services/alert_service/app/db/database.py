@@ -5,7 +5,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import Base
+from app.db.models import Base, BranchNotificationSettings
 
 
 def make_engine(url: str):
@@ -45,7 +45,11 @@ def ensure_database_exists(url: str) -> None:
 
 
 def initialize(engine) -> None:
-    Base.metadata.create_all(engine)
+    # Keep startup initialization from becoming an implicit migration for new tables.
+    # Additive schema changes are applied through explicit versioned migration files.
+    existing_tables = [table for table in Base.metadata.sorted_tables
+                       if table is not BranchNotificationSettings.__table__]
+    Base.metadata.create_all(engine, tables=existing_tables)
     # Audit immutability is enforced in the database for the supported engines.
     with engine.begin() as connection:
         dialect = engine.dialect.name

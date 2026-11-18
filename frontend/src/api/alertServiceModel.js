@@ -186,6 +186,9 @@ export function describeServiceError(error) {
     return { status, code, message: 'Alert Service is unavailable. Start it on port 8012 and check ALERT_SERVICE_URL for the frontend server.' };
   }
   if (status === 401) return { status, code, message: 'Alert Service rejected the operator credentials. Set ALERT_SERVICE_OPERATOR_TOKEN for the frontend server and restart it.' };
+  if (status === 403 && code === 'BRANCH_FORBIDDEN') {
+    return { status, code, message: serverMessage || 'This operator token is not authorized for that branch.' };
+  }
   if (status === 403) return { status, code, message: 'This operator token is not authorized for that use case.' };
   if (code === 'AUTH_NOT_CONFIGURED') return { status, code, message: 'Alert Service operator authentication is not configured.' };
   if (code === 'VERSION_CONFLICT') return { status, code, message: 'This alert changed since you loaded it. The latest version has been reloaded.' };
@@ -224,15 +227,76 @@ export function alertSourceLink(alert) {
 
 export function grillAlertMetadata(alert) {
   const d = alert.domainData || {};
-  return [
+  const refs = alert.resourceRefs || {};
+  const branchId = alert.branchId || refs.branch_id || null;
+  const sourceType = grillAlertSourceType(alert);
+  const videoTime = d.video_time_seconds ?? d.video_timestamp_seconds;
+  const fields = [
+    ['Camera name', alert.cameraName || (sourceType === 'Uploaded video' ? 'Uploaded video' : 'Unavailable')],
+    ...(alert.cameraId || refs.camera_id ? [['Camera ID', alert.cameraId || refs.camera_id]] : []),
+    ['Source type', sourceType],
+    ['Branch', branchId ? alert.branchName || refs.branch_name || 'Unavailable' : 'Not assigned'],
+  ];
+  if (branchId) fields.push(
+    ['Branch code', alert.branchCode || refs.branch_code || 'Unavailable'],
+    ['Place', alert.placeName || refs.place_name || 'Unavailable'],
+    ['Region', alert.regionName || refs.region_name || 'Unavailable'],
+    ['Branch manager', alert.branchManager || refs.branch_manager || 'Unavailable'],
+  );
+  fields.push(
     ['Gate state', d.gate_state],
     ['Observed duration', d.gate_open_duration_seconds ?? d.observed_duration_seconds ?? d.duration_seconds],
     ['Threshold', d.configured_threshold_seconds ?? d.threshold_seconds],
     ['Entry count', d.entry_count], ['Exit count', d.exit_count],
     ['People in mesh area', d.observed_occupancy ?? d.mesh_people_count ?? d.people_count ?? d.current_count],
     ['Maximum mesh occupancy', d.maximum_occupancy],
-    ['Video time (seconds)', d.video_time_seconds],
-  ].filter(([, value]) => value != null);
+    ['Video time', videoTime],
+  );
+  return fields.filter(([, value]) => value != null);
+}
+
+export function grillAlertSourceType(alert) {
+  const raw = alert?.sourceType || alert?.domainData?.source_type
+    || (alert?.videoJobId ? 'UPLOADED_VIDEO' : null);
+  if (!raw) return 'Unavailable';
+  const value = String(raw).toLowerCase();
+  if (['uploaded_video', 'uploaded-video', 'video', 'video_file'].includes(value)) return 'Uploaded video';
+  if (['server_webcam', 'webcam'].includes(value)) return 'Webcam';
+  if (['rtsp', 'cctv', 'nvr', 'registered_camera'].includes(value)) return 'CCTV';
+  return String(raw);
+}
+
+/** Use only the alert's explicit branch ID for registry lookups. */
+export function grillGateRegistryLookupPaths(alert) {
+  const branchId = alert?.branchId || alert?.resourceRefs?.branch_id;
+  if (!branchId) return null;
+  const branchPath = `/branches/${encodeURIComponent(branchId)}`;
+  return { branch: branchPath, cameras: alert?.cameraId || alert?.resourceRefs?.camera_id
+    ? `${branchPath}/cameras` : null };
+}
+
+/** Merge registry details only when the returned branch matches the alert's explicit association. */
+export function mergeGrillGateRegistryMetadata(alert, branch, cameras = []) {
+  if (!alert) return alert;
+  const refs = alert.resourceRefs || {};
+  const branchId = alert.branchId || refs.branch_id || null;
+  const branchMatches = Boolean(branchId && String(branch?.id) === String(branchId));
+  const cameraId = alert.cameraId || refs.camera_id || null;
+  const camera = branchMatches && cameraId
+    ? cameras.find((item) => String(item.id) === String(cameraId)) : null;
+  return {
+    ...alert,
+    branchId,
+    branchName: (branchMatches && branch.name) || alert.branchName || refs.branch_name || null,
+    branchCode: (branchMatches && branch.code) || alert.branchCode || refs.branch_code || null,
+    placeName: (branchMatches && branch.city_name) || alert.placeName || refs.place_name || null,
+    regionName: (branchMatches && branch.zone_name) || alert.regionName || refs.region_name || null,
+    branchManager: (branchMatches && branch.manager) || alert.branchManager || refs.branch_manager || null,
+    cameraId,
+    cameraName: (camera && camera.name) || alert.cameraName
+      || (grillAlertSourceType(alert) === 'Uploaded video' && !cameraId ? 'Uploaded video' : null),
+    sourceType: alert.sourceType || alert.domainData?.source_type || camera?.source_type || (alert.videoJobId ? 'UPLOADED_VIDEO' : null),
+  };
 }
 
 // Accept only the source-owned, scoped snapshot route. Never fetch arbitrary hosts.

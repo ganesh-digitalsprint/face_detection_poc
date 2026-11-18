@@ -6,10 +6,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
 from app.db.models import Alert, AlertAudit, IdempotencyRecord, NotificationOutbox
+from app.db.models import BranchNotificationSettings
 from app.main import create_app
 from app.schemas.alert import canonical_severity
 from app.settings import Settings
 from app.services.notification_manager import dispatch_once
+from app.services.email_notifications import dispatch_email_once, render_alert_email
 
 PRODUCER = "Bearer producer-secret"
 OPERATOR = "Bearer operator-secret"
@@ -97,7 +99,24 @@ def test_list_and_summary_filter_by_authorized_branch_before_pagination_and_hide
         assert second_page.json()["items"][0]["source_event_id"] != kor.json()["items"][0]["source_event_id"]
         summary = client.get("/api/v1/alerts/summary", headers=headers, params={"branch_id": "koramangala"})
         assert summary.json()["total"] == 2
-        assert client.get("/api/v1/alerts", headers=headers, params={"branch_id": "old-goa"}).status_code == 403
+        exact_list = client.get("/api/v1/alerts", headers=headers, params={"source_event_id": "kor-1"})
+        exact_summary = client.get("/api/v1/alerts/summary", headers=headers,
+            params={"source_event_id": "kor-1"})
+        assert [item["source_event_id"] for item in exact_list.json()["items"]] == ["kor-1"]
+        assert exact_summary.json()["total"] == 1
+        # Exact source filters remain branch-scoped: an unassigned legacy incident is not exposed.
+        unassigned_list = client.get("/api/v1/alerts", headers=headers, params={"source_event_id": "legacy"})
+        unassigned_summary = client.get("/api/v1/alerts/summary", headers=headers,
+            params={"source_event_id": "legacy"})
+        assert unassigned_list.status_code == unassigned_summary.status_code == 200
+        assert unassigned_list.json()["items"] == [] and unassigned_summary.json()["total"] == 0
+        denied_branch = client.get("/api/v1/alerts", headers=headers, params={"branch_id": "old-goa"})
+        assert denied_branch.status_code == 403
+        assert denied_branch.json()["detail"]["code"] == "BRANCH_FORBIDDEN"
+        denied_branch_summary = client.get("/api/v1/alerts/summary", headers=headers,
+            params={"branch_id": "old-goa"})
+        assert denied_branch_summary.status_code == 403
+        assert denied_branch_summary.json()["detail"]["code"] == "BRANCH_FORBIDDEN"
         assert client.get(f"/api/v1/alerts/{goa['id']}", headers=headers).status_code == 403
         all_authorized = client.get("/api/v1/alerts", headers=headers, params={"limit": 100})
         assert {row["source_event_id"] for row in all_authorized.json()["items"]} == {"kor-1", "kor-2"}
@@ -163,6 +182,13 @@ def test_grill_gate_contract_v1_producer_registration_publishes_one_scoped_logic
         )
         assert listing.status_code == 200
         assert [item["id"] for item in listing.json()["items"]] == [created.json()["id"]]
+        summary = client.get("/api/v1/alerts/summary?use_case=grill_gate&assignment_id=assignment-1&camera_id=cam-1",
+            headers={"Authorization": f"Bearer {grill_operator}"})
+        assert summary.status_code == 200 and summary.json()["total"] == len(listing.json()["items"]) == 1
+        wrong_use_case = client.get("/api/v1/alerts?use_case=vault_monitoring",
+            headers={"Authorization": f"Bearer {grill_operator}"})
+        assert wrong_use_case.status_code == 403
+        assert wrong_use_case.json()["detail"]["code"] == "FORBIDDEN"
 
 
 def test_same_source_with_different_body_conflicts_even_with_new_idempotency_key(configured):
@@ -187,6 +213,11 @@ def test_idempotency_key_payload_conflict_and_authentication_scope(configured):
     assert no_key.status_code == 400
     no_scope = client.get("/api/v1/alerts?use_case=vault_monitoring", headers={"Authorization": OPERATOR})
     assert no_scope.status_code == 403
+    assert no_scope.json()["detail"]["code"] == "FORBIDDEN"
+    no_scope_summary = client.get("/api/v1/alerts/summary?use_case=vault_monitoring",
+        headers={"Authorization": OPERATOR})
+    assert no_scope_summary.status_code == 403
+    assert no_scope_summary.json()["detail"]["code"] == "FORBIDDEN"
 
 
 def test_source_update_requires_monotonic_if_match_and_preserves_lifecycle(configured):
@@ -430,6 +461,68 @@ def test_transient_webhook_failure_retries_and_persists_across_restart(configure
             delivery = db.get(NotificationOutbox, delivery_id)
             assert delivery.status == "DELIVERED"
             assert delivery.attempts == 2
+
+
+def test_automatic_branch_email_uses_saved_recipients_and_records_attempts(tmp_path):
+    import asyncio
+    import sqlite3
+
+    platform = tmp_path / "platform.db"
+    with sqlite3.connect(platform) as registry:
+        registry.execute("CREATE TABLE branches(id TEXT PRIMARY KEY, name TEXT, email TEXT)")
+        registry.execute("INSERT INTO branches VALUES ('branch-a', 'Branch A', 'legacy@example.invalid')")
+    settings = Settings(database_url=f"sqlite:///{(tmp_path / 'automatic.db').as_posix()}",
+        producer_credentials={"producer-secret": {"use_case": "branch_exterior", "producer": "branch-exterior-monitoring"}},
+        operator_credentials={"operator-secret": {"actor_id": "operator-17", "use_cases": ["*"], "branch_ids": ["*"]}},
+        email_notifications_enabled=True, public_app_base_url="https://fedbank.example",
+        platform_database_path=str(platform))
+    app = create_app(settings, start_notification_worker=False, smtp_sender=lambda *_a, **_k: None)
+    with TestClient(app) as client:
+        from migrations.branch_notification_settings_v1 import upgrade as upgrade_settings
+        with app.state.engine.begin() as connection:
+            upgrade_settings(connection)
+        with app.state.session_factory() as db:
+            db.add(BranchNotificationSettings(branch_id="branch-a", email_enabled=True,
+                to_recipients=["one@example.invalid", "two@example.invalid"],
+                severity_filters=["warning"], use_case_filters=["branch_exterior"],
+                include_snapshot=False, include_video_evidence=False, delivery_mode="instant", updated_by="operator-17"))
+            db.commit()
+        event = payload(resource_refs={"branch_id": "branch-a", "branch_name": "Branch A", "camera_name": "Cam 1"})
+        created = create(client, event, "email-1")
+        assert created.status_code == 201
+        replay = create(client, event, "email-1")
+        assert replay.status_code == 200
+        with app.state.session_factory() as db:
+            rows = db.query(NotificationOutbox).filter_by(channel="email").all()
+            assert {row.recipient for row in rows} == {"one@example.invalid", "two@example.invalid"}
+            assert len(rows) == 2
+        called = []
+        def fake_smtp(config, **kwargs):
+            called.append(kwargs)
+            return None
+        assert asyncio.run(dispatch_email_once(app.state.session_factory, settings, sender=fake_smtp)) == 2
+        assert {call["recipients"][0] for call in called} == {"one@example.invalid", "two@example.invalid"}
+        assert all("https://fedbank.example/alerts?alert_id=" in call["html_body"] for call in called)
+        with app.state.session_factory() as db:
+            rows = db.query(NotificationOutbox).filter_by(channel="email").all()
+            assert all(row.status == "ACCEPTED" and row.attempts == 1 and row.last_attempt_at for row in rows)
+        history = client.get("/api/v1/branches/branch-a/notifications/deliveries",
+            headers={"Authorization": OPERATOR})
+        assert history.status_code == 200 and len(history.json()["items"]) == 2
+        assert all(item["status"] == "ACCEPTED" for item in history.json()["items"])
+
+
+def test_alert_email_renderer_escapes_untrusted_content():
+    from datetime import datetime, timezone
+    alert = Alert(id="id-1", use_case="branch_exterior", producer="producer", source_event_id="event",
+        source_event_type="event", source_event_version=1, schema_version=1, category="security",
+        severity="WARNING", source_severity="warning", title="<script>alert(1)</script>", summary="<b>unsafe</b>",
+        status="OPEN", occurred_at=datetime.now(timezone.utc), first_seen_at=datetime.now(timezone.utc),
+        last_seen_at=datetime.now(timezone.utc), received_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+        resource_refs={"branch_id": "b", "branch_name": "<img src=x>"}, domain_data={}, evidence_refs=[], row_version=1)
+    _, _, rendered = render_alert_email(alert, public_base_url="https://fedbank.example", branch_id="b")
+    assert "<script>" not in rendered and "&lt;script&gt;" in rendered
+    assert "<img src=x>" not in rendered
 
 
 @pytest.mark.parametrize('use_case,token', [('grill_gate', 'grill'), ('vault_monitoring', 'vault')])

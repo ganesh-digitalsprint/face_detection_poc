@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import client from '../../api/client.js';
 import { getLiveActiveAlerts, startGrillGateVideoJob, uploadGrillGateVideo } from './api/grillGate.js';
-import { gateUploadBranchId } from './videoJobModel.js';
+import { gateUploadBranchId, gateUploadBranchValidationMessage } from './videoJobModel.js';
 
-test('Gate uploads reuse only the canonical globally selected branch scope', () => {
-  assert.equal(gateUploadBranchId({ type: 'branch', id: 'branch-1', name: 'Koramangala' }), 'branch-1');
-  assert.equal(gateUploadBranchId({ type: 'city', id: 'city-1' }), null);
-  assert.equal(gateUploadBranchId({ type: 'zone', id: 'zone-1' }), null);
+test('Grill Gate uses only the specific shared active branch; All branches requires a new selection', () => {
+  assert.equal(gateUploadBranchId({ type: 'branch', id: 'old-goa', name: 'Old Goa' }), 'old-goa');
+  assert.equal(gateUploadBranchId({ type: 'branch', id: 'koramangala', name: 'Koramangala' }), 'koramangala');
   assert.equal(gateUploadBranchId(null), null);
+  assert.equal(gateUploadBranchId({ type: 'city', id: 'bengaluru' }), null);
+  assert.equal(gateUploadBranchId({ type: 'zone', id: 'south' }), null);
+  assert.match(gateUploadBranchValidationMessage(null), /All branches is selected/);
+  assert.match(gateUploadBranchValidationMessage({ type: 'city', id: 'bengaluru' }), /specific branch/);
+  assert.equal(gateUploadBranchValidationMessage({ type: 'branch', id: 'old-goa' }), '');
 });
 
 test('live alert polling sends an authenticated-client request to the local assignment-scoped API', async () => {
@@ -29,7 +33,7 @@ test('live alert polling sends an authenticated-client request to the local assi
   }
 });
 
-test('uploaded Gate video sends optional branch metadata without a camera assignment', async () => {
+test('uploaded Gate video sends selected branch and camera metadata', async () => {
   const originalAdapter = client.defaults.adapter;
   let request;
   client.defaults.adapter = async (config) => {
@@ -39,17 +43,24 @@ test('uploaded Gate video sends optional branch metadata without a camera assign
   };
   try {
     const file = new File(['video'], 'gate.mp4', { type: 'video/mp4' });
-    await uploadGrillGateVideo(file, null, { branchId: 'branch-1', cameraLabel: 'Upload desk camera' });
-    assert.equal(request.url, '/api/v1/grill-gate/videos');
-    assert.equal(request.data.get('branch_id'), 'branch-1');
-    assert.equal(request.data.get('camera_label'), 'Upload desk camera');
-    assert.equal(request.data.get('template_assignment_id'), null);
+    for (const scope of [
+      { type: 'branch', id: 'old-goa', name: 'Old Goa' },
+      { type: 'branch', id: 'koramangala', name: 'Koramangala' },
+    ]) {
+      const branchId = gateUploadBranchId(scope);
+      await uploadGrillGateVideo(file, null, { branchId, cameraId: 'camera-1', cameraLabel: 'Front gate' });
+      assert.equal(request.url, '/api/v1/grill-gate/videos');
+      assert.equal(request.data.get('branch_id'), branchId);
+      assert.equal(request.data.get('camera_id'), 'camera-1');
+      assert.equal(request.data.get('camera_label'), 'Front gate');
+      assert.equal(request.data.get('template_assignment_id'), null);
+    }
   } finally {
     client.defaults.adapter = originalAdapter;
   }
 });
 
-test('starting Gate video processing sends only the selected canonical branch ID', async () => {
+test('starting Gate processing does not replace immutable upload attribution', async () => {
   const originalAdapter = client.defaults.adapter;
   let request;
   client.defaults.adapter = async (config) => {
@@ -58,9 +69,9 @@ test('starting Gate video processing sends only the selected canonical branch ID
       statusText: 'Accepted', headers: {}, config };
   };
   try {
-    await startGrillGateVideoJob('job-1', gateUploadBranchId({ type: 'branch', id: 'old-goa' }));
+    await startGrillGateVideoJob('job-1');
     assert.equal(request.url, '/api/v1/grill-gate/videos/job-1/start');
-    assert.deepEqual(JSON.parse(request.data), { branch_id: 'old-goa' });
+    assert.equal(request.data, undefined);
   } finally {
     client.defaults.adapter = originalAdapter;
   }

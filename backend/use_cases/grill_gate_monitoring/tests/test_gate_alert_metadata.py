@@ -220,3 +220,68 @@ def test_session_snapshot_persists_on_source_alert_and_common_alert_outbox(tmp_p
                 "camera_id": camera_id}.items():
             assert payload["resource_refs"][key] == value
     engine.dispose()
+
+
+def test_uploaded_job_attribution_reaches_incident_and_durable_publisher_with_snapshot(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from grill_gate_monitoring.services import alert_evidence
+
+    engine, factory = _source_session(tmp_path)
+    snapshot_id = str(uuid4())
+    snapshot_path = tmp_path / "snapshot.jpg"
+    snapshot_path.write_bytes(b"mock snapshot bytes")
+    monkeypatch.setattr(alert_evidence, "get_grill_gate_evidence",
+        lambda: SimpleNamespace(path=lambda _ident: snapshot_path))
+    source_context = {"source_type": "UPLOADED_VIDEO", "video_job_id": str(uuid4()),
+        "camera_id": str(uuid4()), "camera_name": "Front gate", "branch_id": "branch-koramangala",
+        "branch_code": "C99127-01", "branch_name": "Koramangala"}
+    commands = []
+    rules = GrillGateAlertRuleEngine("video-job-camera", "video-job-assignment",
+        lambda value: commands.append(value) or True, source_context=source_context)
+    rules._raise("GATE_OPEN_TOO_LONG", NOW, NOW, "WARNING", "Gate remained open",
+        "Open beyond threshold", condition_data={"configured_threshold_seconds": 3})
+    command = commands[0]
+    # Preserve the rule engine's original source identity and the existing evidence reference.
+    source_id = command["source_event_id"]
+    assert command["payload"]["source_event_id"] == source_id
+    command["payload"]["evidence_refs"] = [{"id": snapshot_id, "storage_id": snapshot_id,
+        "type": "snapshot", "provider": "grill_gate"}]
+    assert command["payload"]["resource_refs"]["branch_id"] == "branch-koramangala"
+    assert command["payload"]["resource_refs"]["camera_id"] == source_context["camera_id"]
+    with factory() as db:
+        row = persist_command(db, command)
+        duplicate = persist_command(db, command)
+        delivery = db.query(VaultAuditEvent).one()
+        public = delivery.details["payload"]
+        assert duplicate.id == row.id
+        assert row.source_event_id == source_id
+        assert row.video_job_id == source_context["video_job_id"]
+        assert row.camera_id == source_context["camera_id"]
+        assert row.resource_refs["branch_id"] == "branch-koramangala"
+        assert row.resource_refs["camera_id"] == source_context["camera_id"]
+        assert public["resource_refs"]["branch_id"] == "branch-koramangala"
+        assert public["resource_refs"]["camera_id"] == source_context["camera_id"]
+        assert public["evidence_refs"] == command["payload"]["evidence_refs"]
+    engine.dispose()
+
+
+def test_uploaded_video_without_registered_camera_does_not_publish_job_id_as_camera(tmp_path):
+    engine, factory = _source_session(tmp_path)
+    job_id = str(uuid4())
+    context = {"source_type": "UPLOADED_VIDEO", "video_job_id": job_id,
+        "branch_id": "branch-1", "branch_name": "Old Goa"}
+    commands = []
+    rules = GrillGateAlertRuleEngine(job_id, job_id,
+        lambda command: commands.append(command) or True, source_context=context)
+    rules._raise("GATE_OPEN_TOO_LONG", NOW, NOW, "WARNING", "Gate remained open",
+                 "Open beyond threshold", condition_data={"configured_threshold_seconds": 3})
+    payload = commands[0]["payload"]
+    assert payload["domain_data"]["branch_id"] == "branch-1"
+    assert payload["domain_data"].get("camera_id") is None
+    assert "camera_id" not in payload["resource_refs"]
+    with factory() as db:
+        row = persist_command(db, commands[0])
+        assert row.video_job_id == job_id
+        assert row.camera_id is None
+        assert row.resource_refs["branch_id"] == "branch-1"
+    engine.dispose()

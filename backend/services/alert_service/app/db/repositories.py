@@ -97,7 +97,8 @@ def _source_count(payload, default=1):
 
 
 def ingest(db: Session, *, use_case: str, producer: str, payload: dict, severity: str,
-           idempotency_key: str, request_id: str, notification_enabled: bool) -> tuple[Alert, bool]:
+           idempotency_key: str, request_id: str, notification_enabled: bool,
+           email_delivery: tuple[str, list[str]] | None = None) -> tuple[Alert, bool]:
     if not is_security_alert(use_case, payload):
         raise Conflict('NOT_SECURITY_ALERT', 'Routine or unclassified events cannot enter Common Alerts')
     canonical = dict(payload)
@@ -177,8 +178,15 @@ def ingest(db: Session, *, use_case: str, producer: str, payload: dict, severity
     audit(db, alert, "ALERT_INGESTED", "producer", f"{use_case}/{producer}", request_id,
           None, alert.status, {"source_event_id": alert.source_event_id, "source_event_version": alert.source_event_version})
     if notification_enabled and use_case == "branch_exterior" and not payload.get('domain_data', {}).get('historical_reconciliation'):
-        db.add(NotificationOutbox(alert_id=alert.id, event_key=f"alert.created:{alert.id}", status="PENDING",
-                                  attempts=0, next_attempt_at=now, created_at=now))
+        db.add(NotificationOutbox(alert_id=alert.id, event_key=f"alert.created:{alert.id}", channel="webhook",
+                                  status="PENDING", attempts=0, next_attempt_at=now, created_at=now))
+    if email_delivery and not payload.get('domain_data', {}).get('historical_reconciliation'):
+        branch_id, recipients = email_delivery
+        for recipient in dict.fromkeys(value.strip().lower() for value in recipients if value.strip()):
+            recipient_hash = hashlib.sha256(f"{alert.id}:{recipient}".encode("utf-8")).hexdigest()[:48]
+            db.add(NotificationOutbox(alert_id=alert.id, event_key=f"email.alert.created:{recipient_hash}",
+                channel="email", branch_id=branch_id, recipient=recipient, status="PENDING",
+                attempts=0, next_attempt_at=now, created_at=now))
     db.add(IdempotencyRecord(use_case=use_case, producer=producer, idempotency_key=idempotency_key,
                              request_hash=request_hash, alert_id=alert.id))
     try:
@@ -440,19 +448,40 @@ def summary(db: Session, *, scopes: list[str], filters: dict) -> dict:
             "by_branch": by_branch}
 
 
-def due_notifications(db: Session, *, now=None, limit=25):
+def due_notifications(db: Session, *, channel="webhook", now=None, limit=25, lease_seconds=90):
+    """Atomically lease due jobs so concurrent workers do not send the same row."""
     now = now or utcnow()
-    return list(db.scalars(select(NotificationOutbox).where(NotificationOutbox.status.in_(("PENDING", "RETRY")),
-        NotificationOutbox.next_attempt_at <= now).order_by(NotificationOutbox.created_at).limit(limit)))
+    candidates = list(db.scalars(select(NotificationOutbox.id).where(
+        NotificationOutbox.channel == channel,
+        NotificationOutbox.status.in_(("PENDING", "RETRY", "SENDING")),
+        NotificationOutbox.next_attempt_at <= now,
+    ).order_by(NotificationOutbox.created_at).limit(limit)))
+    claimed = []
+    for delivery_id in candidates:
+        result = db.execute(update(NotificationOutbox).where(
+            NotificationOutbox.id == delivery_id,
+            NotificationOutbox.channel == channel,
+            NotificationOutbox.status.in_(("PENDING", "RETRY", "SENDING")),
+            NotificationOutbox.next_attempt_at <= now,
+        ).values(status="SENDING", attempts=NotificationOutbox.attempts + 1,
+                 last_attempt_at=now,
+                 next_attempt_at=now + timedelta(seconds=lease_seconds)))
+        if result.rowcount == 1:
+            claimed.append(delivery_id)
+    db.commit()
+    if not claimed:
+        return []
+    return list(db.scalars(select(NotificationOutbox).where(
+        NotificationOutbox.id.in_(claimed)).order_by(NotificationOutbox.created_at)))
 
 
 def mark_delivery(db: Session, row: NotificationOutbox, *, success: bool, error: str | None,
-                  provider_id: str | None, max_attempts: int, retryable: bool = True) -> None:
-    row.attempts += 1
+                  provider_id: str | None, max_attempts: int, retryable: bool = True,
+                  success_status: str = "DELIVERED") -> None:
     row.provider_message_id = provider_id
     row.last_error = error
     if success:
-        row.status = "DELIVERED"
+        row.status = success_status
     elif not retryable or row.attempts >= max_attempts:
         row.status = "DEAD"
     else:

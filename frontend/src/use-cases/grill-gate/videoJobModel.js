@@ -21,8 +21,11 @@ export const VIDEO_JOB_STATUS = {
 };
 export const videoJobStatus = (status) => VIDEO_JOB_STATUS[status] ?? { label: String(status || 'Unknown'), tone: 'idle' };
 
-/** Only a globally selected canonical branch can scope a new upload. City/zone scopes remain unassigned. */
+/** A Grill Gate upload requires a specific branch from the shared active scope. */
 export const gateUploadBranchId = (scope) => scope?.type === 'branch' && scope.id ? scope.id : null;
+export const gateUploadBranchValidationMessage = (scope) => gateUploadBranchId(scope) ? '' : scope
+  ? 'Choose a specific branch in the global Branch Hierarchy selection before uploading; the current scope includes multiple branches.'
+  : 'All branches is selected. Choose a specific branch in the global Branch Hierarchy selection before uploading.';
 
 const ACTIVE = new Set(['QUEUED', 'PROCESSING', 'CANCEL_REQUESTED']);
 const TERMINAL = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);

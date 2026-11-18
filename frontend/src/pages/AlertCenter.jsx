@@ -15,16 +15,11 @@ import useServiceAlerts from '../hooks/useServiceAlerts.js';
 import useAlertEvidence from '../hooks/useAlertEvidence.js';
 import { evidenceFields, matchesEvidence } from '../api/alertEvidence.js';
 import './AlertCenter.css';
-import AlertFilterToolbar from '../components/alerts/AlertFilterToolbar.jsx';
-<<<<<<< HEAD
-import { clearAlertCenterFilters, updateAlertCenterQuery } from './alertCenterFilters.js';
-import { coverageOfAlert } from '../use-cases/face-mask/coverageModel.js';
-=======
-import { availableBranchOptions, branchFilterLabel } from '../components/alerts/AlertFilterToolbar.jsx';
+import AlertFilterToolbar, { availableBranchOptions, branchFilterLabel } from '../components/alerts/AlertFilterToolbar.jsx';
 import { buildAlertSummaryParams, clearAlertCenterFilters, updateAlertCenterQuery } from './alertCenterFilters.js';
 import AlertAnalytics from '../components/alerts/AlertAnalytics.jsx';
 import { platformApi } from '../features/branches/api.js';
->>>>>>> origin/merge/branch/pull
+import { coverageOfAlert } from '../use-cases/face-mask/coverageModel.js';
 
 function SummaryTile({ label, value, critical = false, note = 'History unavailable' }) {
   return <section className={`alert-kpi ${critical ? 'alert-kpi-critical' : ''}`} aria-label={label}>
@@ -201,17 +196,6 @@ export default function AlertCenter() {
       <SummaryTile label="With snapshot (loaded)" value={checkedEvidence.filter((item) => item.snapshotCount > 0).length} note={`${checkedEvidence.length} loaded records checked`} />
       <SummaryTile label="Evidence unavailable (loaded)" value={checkedEvidence.filter((item) => item.evidenceStatus === 'UNAVAILABLE').length} critical note={`${checkedEvidence.length} loaded records checked`} />
     </section>
-<<<<<<< HEAD
-    <AlertFilterToolbar query={query} onChange={setFilter} onClear={clearFilters}
-      typeInput={typeInput} onTypeInput={setTypeInput} />
-    {useCase === 'face_mask' && <label className="inline-flex items-center gap-2 text-sm text-slate-700">Coverage
-      <select aria-label="Filter Face Mask by coverage" className={input} value={coverageState} onChange={(event) => setFilter('coverage_state', event.target.value)}>
-        <option value="">All</option><option value="PARTIALLY_COVERED">Partial</option><option value="FULLY_COVERED">Full</option>
-      </select>
-    </label>}
-    {useCase === 'face_mask' && coverageState && <p className="text-xs text-slate-500">Coverage filtering applies to loaded alerts. Load more to search additional pages.</p>}
-    <div className="center-content min-w-0">
-=======
     <AlertAnalytics summary={feed.summary} rangeLabel={from || to ? 'Selected date range' : 'All dates'}
       loading={feed.summaryLoading} error={feed.summaryError}
       onRetry={feed.refreshSummary} errorMessage={feed.summaryError ? describeServiceError(feed.summaryError).message : ''}
@@ -220,8 +204,13 @@ export default function AlertCenter() {
       <AlertFilterToolbar query={query} onChange={setFilter} onClear={clearFilters}
         typeInput={typeInput} onTypeInput={setTypeInput} branches={branches}
         branchesLoaded={branchesLoaded} branchError={branchError} />
+      {useCase === 'face_mask' && <label className="inline-flex items-center gap-2 text-sm text-slate-700">Coverage
+        <select aria-label="Filter Face Mask by coverage" className={input} value={coverageState} onChange={(event) => setFilter('coverage_state', event.target.value)}>
+          <option value="">All</option><option value="PARTIALLY_COVERED">Partial</option><option value="FULLY_COVERED">Full</option>
+        </select>
+      </label>}
+      {useCase === 'face_mask' && coverageState && <p className="text-xs text-slate-500">Coverage filtering applies to loaded alerts. Load more to search additional pages.</p>}
       <div className="center-content min-w-0">
->>>>>>> origin/merge/branch/pull
       <section className="center-list min-w-0">
         {feed.error && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
           <p>{describeServiceError(feed.error).message}</p>

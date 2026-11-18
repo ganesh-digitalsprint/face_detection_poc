@@ -8,6 +8,11 @@ $script:AlertServiceEnvNames = @(
     'ALERT_NOTIFICATION_WEBHOOK_URL',
     'ALERT_NOTIFICATION_POLL_SECONDS',
     'ALERT_NOTIFICATION_MAX_ATTEMPTS',
+    'ALERT_EMAIL_NOTIFICATIONS_ENABLED',
+    'FEDBANK_PUBLIC_BASE_URL',
+    'BRANCH_EXTERIOR_API_BASE_URL',
+    'VAULT_EVIDENCE_API_URL',
+    'VAULT_EVIDENCE_API_KEY',
     'SMTP_ENABLED',
     'SMTP_HOST',
     'SMTP_PORT',
@@ -69,16 +74,6 @@ function Get-LauncherUrlParts {
         Path = $parsed.AbsolutePath
         UserInfo = $parsed.UserInfo
     }
-}
-
-function Get-LauncherAlertDatabaseUrl {
-    param([Parameter(Mandatory = $true)][string]$VaultDatabaseUrl,
-          [ValidatePattern('^[a-zA-Z][a-zA-Z0-9_]{0,62}$')][string]$DatabaseName = 'alert_service')
-    if ($VaultDatabaseUrl -notmatch '^(postgres(?:ql)?(?:\+psycopg2|\+psycopg)?://.+/)([^/?#]+)([?#].*)?$') {
-        throw 'Vault DATABASE_URL cannot be reused for the Common Alerts PostgreSQL database.'
-    }
-    $prefix = $matches[1] -replace '^postgres:', 'postgresql:' -replace '^postgresql\+psycopg2:', 'postgresql+psycopg:'
-    return $prefix + $DatabaseName + $matches[3]
 }
 
 function Test-LauncherTcpEndpoint {

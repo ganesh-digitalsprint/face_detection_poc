@@ -31,7 +31,10 @@ export function AlertEvidenceDetails({ alert, evidenceIndex, onEvidenceIndexChan
     {mode === 'all' && clips.map((ref) => <video key={ref.id} controls preload="metadata" className="mt-3 max-h-[420px] w-full rounded-lg bg-black" src={ref.url}>Video evidence is unavailable in this browser.</video>)}
     {evidenceIndex == null && snapshots.length > 1 && <div className="flex flex-wrap gap-2">{snapshots.map((ref, i) => <button type="button" key={ref.id || i} onClick={() => setIndex(i)} aria-pressed={index === i} className="rounded border px-3 py-2 text-xs">Snapshot {i + 1}</button>)}</div>}
     {snapshots[index]?.captured_at && <p className="text-xs text-[#55607A]">Snapshot captured at {alertDate(snapshots[index].captured_at)}</p>}
-    {metadata.length > 0 && <dl className="grid grid-cols-2 gap-3 border-t border-[#E3E7F0] pt-3 text-xs sm:grid-cols-3">{metadata.map(([label,value]) => <div key={label}><dt className="text-[#69758F]">{label}</dt><dd className="mt-1 font-bold text-[#0F1B3D]">{String(value)}{['Observed duration','Threshold'].includes(label) ? ' s' : ''}</dd></div>)}</dl>}
+    {metadata.length > 0 && <dl className={`grid grid-cols-2 gap-3 border-t border-[#E3E7F0] pt-3 text-xs ${alert.useCase === 'grill_gate' ? '' : 'sm:grid-cols-3'}`}>{metadata.map(([label,value]) => {
+      const videoTime = label === 'Video time' && Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)} s` : null;
+      return <div key={label}><dt className="text-[#69758F]">{label}</dt><dd className="mt-1 break-words font-bold text-[#0F1B3D]">{videoTime || String(value)}{['Observed duration','Threshold'].includes(label) ? ' s' : ''}</dd></div>;
+    })}</dl>}
   </>;
 }
 

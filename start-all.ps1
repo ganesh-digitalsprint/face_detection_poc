@@ -244,17 +244,39 @@ try {
     $callerAlertEnv = @{}
     foreach ($name in $script:AlertServiceEnvNames) {
         $fromFile = Get-LauncherEnvValue -Values $alertEnvFile -Name $name
-        if (-not [string]::IsNullOrEmpty($fromFile)) { $callerAlertEnv[$name] = $fromFile }
         $processValue = [Environment]::GetEnvironmentVariable($name, 'Process')
+        if ($name -eq 'ALERT_DATABASE_URL') {
+            # The service-specific URL is authoritative; never inherit Vault's DB URL.
+            if (-not [string]::IsNullOrWhiteSpace($fromFile)) { $callerAlertEnv[$name] = $fromFile }
+            continue
+        }
+        if (-not [string]::IsNullOrEmpty($fromFile)) { $callerAlertEnv[$name] = $fromFile }
         if (-not [string]::IsNullOrEmpty($processValue)) { $callerAlertEnv[$name] = $processValue }
     }
-    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $callerAlertEnv -Name 'ALERT_DATABASE_URL'))) {
-        $callerAlertEnv['ALERT_DATABASE_URL'] = Get-LauncherAlertDatabaseUrl -VaultDatabaseUrl $databaseUrl
+    $alertDatabaseUrl = Get-LauncherEnvValue -Values $alertEnvFile -Name 'ALERT_DATABASE_URL'
+    $processAlertDatabaseUrl = [Environment]::GetEnvironmentVariable('ALERT_DATABASE_URL', 'Process')
+    if ([string]::IsNullOrWhiteSpace($alertDatabaseUrl)) {
+        throw 'Set ALERT_DATABASE_URL in backend\services\alert_service\.env. The launcher will not derive Alert Service credentials from Vault.'
     }
+    if (-not [string]::IsNullOrWhiteSpace($processAlertDatabaseUrl) -and
+            -not [string]::Equals($processAlertDatabaseUrl, $alertDatabaseUrl, [StringComparison]::Ordinal)) {
+        Write-Warning 'A process ALERT_DATABASE_URL differs. The Alert Service .env value; using the service-specific .env value.'
+    }
+    $callerAlertEnv['ALERT_DATABASE_URL'] = $alertDatabaseUrl
     $alertDatabase = Get-LauncherUrlParts -Value (Get-LauncherEnvValue -Values $callerAlertEnv -Name 'ALERT_DATABASE_URL') `
         -AllowedSchemes @('postgresql','postgresql+psycopg')
-    if ($null -eq $alertDatabase -or [string]::IsNullOrWhiteSpace($alertDatabase.Path.Trim('/'))) {
-        throw 'ALERT_DATABASE_URL must point to a PostgreSQL database for centralized Common Alerts storage.'
+    if ($null -eq $alertDatabase -or $alertDatabase.Host -notin @('localhost','127.0.0.1') -or
+            $alertDatabase.Port -ne 5432 -or $alertDatabase.Path.Trim('/') -ne 'alert_service') {
+        throw 'The Alert Service .env ALERT_DATABASE_URL must target localhost:5432/alert_service.'
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $callerAlertEnv -Name 'VAULT_EVIDENCE_API_URL'))) {
+        $callerAlertEnv['VAULT_EVIDENCE_API_URL'] = 'http://127.0.0.1:8010'
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-LauncherEnvValue -Values $callerAlertEnv -Name 'VAULT_EVIDENCE_API_KEY'))) {
+        $vaultEvidenceKey = Get-LauncherEnvValue -Values $vaultEnv -Name 'VAULT_ROOM_API_KEY'
+        if (-not [string]::IsNullOrWhiteSpace($vaultEvidenceKey)) {
+            $callerAlertEnv['VAULT_EVIDENCE_API_KEY'] = $vaultEvidenceKey
+        }
     }
     $effectiveVaultEnv = @{}
     foreach ($key in $vaultEnv.Keys) { $effectiveVaultEnv[$key] = $vaultEnv[$key] }

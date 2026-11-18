@@ -15,10 +15,12 @@ import {
 } from '../videoZoneConfigurationSelection.js';
 import { useAuthorizedJpeg } from '../hooks/useSourceData.js';
 import {
-  gateUploadBranchId, jobCanCancel, jobCanStart, jobErrorMessage, jobIsActive, validateVideoFile, videoJobStatus,
+  gateUploadBranchId, gateUploadBranchValidationMessage, jobCanCancel, jobCanStart, jobErrorMessage, jobIsActive,
+  validateVideoFile, videoJobStatus,
 } from '../videoJobModel.js';
 import { CrossingEventsPanel, GateStatePanel, MeshPanel, MonitoringStats, PreviewStage, TimelinePanel } from './MonitoringPanels.jsx';
 import { btnGhost, btnPrimary, Card, ErrorNote, Pill } from './ui.jsx';
+import { platformApi } from '../../../features/branches/api.js';
 import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
 
 const ACCEPT = 'video/mp4,video/x-msvideo,video/avi,.mp4,.avi';
@@ -117,6 +119,7 @@ function JobPreview({ job, onProcess, onCancel, onReprocess, action, zoneConfigu
     job.video_available ? `${job.job_id}:${job.processed_frames}:${job.status}` : null,
   );
   const running = jobIsActive(job);
+  const canProcess = jobCanStart(job) && Boolean(job.branch_id);
   const ready = job.readiness?.ready;
   const finished = ['COMPLETED', 'FAILED', 'CANCELLED'].includes(job.status);
   const [zoneConfigurationId, setZoneConfigurationId] = useState('');
@@ -138,7 +141,7 @@ function JobPreview({ job, onProcess, onCancel, onReprocess, action, zoneConfigu
         message={!job.video_available ? 'The stored video is no longer available.' : image.error || 'Loading frame…'} />
       <p className="mt-2 text-xs text-[#55607A]">Frames shown here come from the server. Detection runs only after Process Video.</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {jobCanStart(job) && (
+        {canProcess && (
           <button type="button" className={btnPrimary} onClick={onProcess} disabled={!ready || Boolean(action)}>{action === 'start' ? 'Starting…' : 'Process Video'}</button>
         )}
         {running && <button type="button" className={btnPrimary} disabled>Processing…</button>}
@@ -167,7 +170,8 @@ function JobPreview({ job, onProcess, onCancel, onReprocess, action, zoneConfigu
             </button>
           </>
         )}
-        {jobCanStart(job) && !ready && <span className="text-xs text-amber-800">Finish the checklist above to enable processing.</span>}
+      {jobCanStart(job) && !job.branch_id && <span className="text-xs text-amber-800">This saved video has no branch attribution. Upload it again and choose a branch before processing.</span>}
+      {canProcess && !ready && <span className="text-xs text-amber-800">Finish the checklist above to enable processing.</span>}
       </div>
     </Card>
   );
@@ -189,7 +193,29 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
   const [zoneConfigurations, setZoneConfigurations] = useState([]);
   const activeScope = useOptionalActiveBranch()?.scope;
   const activeBranchId = gateUploadBranchId(activeScope);
+  const [cameraState, setCameraState] = useState({ branchId: null, cameras: [], loading: false, error: '' });
+  const [cameraId, setCameraId] = useState('');
+  const [selectionError, setSelectionError] = useState('');
   const uploading = upload.phase === 'uploading';
+
+  useEffect(() => {
+    let current = true;
+    const controller = new AbortController();
+    setCameraId('');
+    setSelectionError('');
+    if (!activeBranchId) {
+      setCameraState({ branchId: null, cameras: [], loading: false, error: '' });
+      return () => { current = false; controller.abort(); };
+    }
+    setCameraState({ branchId: activeBranchId, cameras: [], loading: true, error: '' });
+    platformApi(`/branches/${encodeURIComponent(activeBranchId)}/cameras`, { signal: controller.signal })
+      .then((items) => { if (current) setCameraState({ branchId: activeBranchId,
+        cameras: items.filter((camera) => String(camera.use_cases || '').split(',').includes('grill_gate')),
+        loading: false, error: '' }); })
+      .catch((error) => { if (current && !controller.signal.aborted) setCameraState({ branchId: activeBranchId,
+        cameras: [], loading: false, error: error.message }); });
+    return () => { current = false; controller.abort(); };
+  }, [activeBranchId]);
 
   useEffect(() => {
     let current = true;
@@ -202,12 +228,20 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
     const problem = validateVideoFile(file);
     setFileError(problem);
     if (problem) return;
+    if (!activeBranchId) {
+      setSelectionError(gateUploadBranchValidationMessage(activeScope));
+      return;
+    }
     setActionError('');
+    setSelectionError('');
     const assignmentAlerts = assignmentItem?.assignment?.configuration?.grill_gate_alerts;
     const initialConfiguration = assignmentAlerts && Object.keys(assignmentAlerts).length
       ? { alert_configuration: assignmentAlerts } : null;
+    const cameras = cameraState.branchId === activeBranchId ? cameraState.cameras : [];
+    const selectedCamera = cameras.find((camera) => String(camera.id) === String(cameraId));
     const saved = await upload.upload(file, initialConfiguration, `${file.name}:${file.size}:${file.lastModified}`,
-      { branchId: activeBranchId, cameraLabel: file.cameraLabel || null });
+      { branchId: activeBranchId, cameraId: selectedCamera?.id || null,
+        cameraLabel: selectedCamera?.name || file.cameraLabel || null });
     if (!saved) return;
     if (replacing) {
       try {
@@ -270,6 +304,8 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
   };
 
   const failure = job?.status === 'FAILED' ? (jobErrorMessage(job.error_code) || job.error || 'Processing failed.') : '';
+  const branchRequiredMessage = gateUploadBranchValidationMessage(activeScope);
+  const availableCameras = cameraState.branchId === activeBranchId ? cameraState.cameras : [];
   return (
     <div className="space-y-4">
       {uploading && (
@@ -284,9 +320,21 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
       {failure && <ErrorNote>{failure}</ErrorNote>}
       {videoJob.notFound && <ErrorNote>{videoJob.error}</ErrorNote>}
       {videoJob.error && !videoJob.notFound && <p role="status" className="text-xs text-amber-800">Could not refresh this job: {videoJob.error} Showing the last results; retrying.</p>}
+      {activeBranchId && <div className="max-w-md">
+        <label className="block text-xs font-medium text-[#34479B]">Camera (optional)
+          <select aria-label="Grill Gate upload camera" value={cameraId}
+            disabled={cameraState.loading || uploading}
+            onChange={(event) => setCameraId(event.target.value)}
+            className="mt-1 min-h-9 w-full rounded-lg border border-[#D0D7E6] bg-white px-3 text-sm text-[#0F1B3D]">
+            <option value="">No camera selected</option>
+            {availableCameras.map((camera) => <option key={camera.id} value={camera.id}>{camera.code} · {camera.name}</option>)}
+          </select>
+        </label>
+        {cameraState.error && <p role="status" className="mt-1 text-xs text-amber-800">Camera list unavailable; you can still upload without a camera.</p>}
+      </div>}
       {job && (
         <JobPreview job={job} action={action}
-          onProcess={() => run('start', (jobId) => startGrillGateVideoJob(jobId, activeBranchId))}
+          onProcess={() => run('start', startGrillGateVideoJob)}
           onCancel={() => run('cancel', cancelGrillGateVideoJob)}
           onReprocess={reprocess} zoneConfigurations={zoneConfigurations} />
       )}
@@ -297,8 +345,10 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
             <Upload size={24} className="text-[#34479B]" aria-hidden />
             <p className="font-semibold text-[#0F1B3D]">No video uploaded</p>
             <p className="text-xs text-[#55607A]">Upload an MP4 or AVI file. Uploading only saves it; processing starts when you choose Process Video.</p>
-            <FilePicker label="Upload video" className={`${btnPrimary} mt-1`} disabled={uploading} onFile={(file) => send(file, null)} />
-            <StorageVideoPicker onFile={(file) => send(file, null)} disabled={uploading} accept=".mp4,.avi" />
+            {!activeBranchId && <p role="alert" className="text-xs text-amber-800">{branchRequiredMessage}</p>}
+            {selectionError && <p role="alert" className="text-xs text-red-700">{selectionError}</p>}
+            <FilePicker label="Upload video" className={`${btnPrimary} mt-1`} disabled={uploading || !activeBranchId} onFile={(file) => send(file, null)} />
+            <StorageVideoPicker onFile={(file) => send(file, null)} disabled={uploading || !activeBranchId} accept=".mp4,.avi" />
           </div>
         </Card>
       )}
@@ -306,7 +356,7 @@ export default function UploadedVideoSection({ alertJobId, videoJob, jobs, jobsE
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
         <div className="min-w-0 space-y-4">
-          {job && <SavedVideoCard job={job} busy={action === 'delete'} disabled={uploading} onReplace={replace} onDelete={remove} onOpenZones={onOpenZones} />}
+          {job && <SavedVideoCard job={job} busy={action === 'delete'} disabled={uploading || !activeBranchId} onReplace={replace} onDelete={remove} onOpenZones={onOpenZones} />}
           <MonitoringStats monitoring={monitoring} />
           <TimelinePanel monitoring={monitoring} note="Video time, not clock time." />
           <SavedVideoList jobs={jobs} error={jobsError} selectedId={selectedJobId} onSelect={onSelectJob} />

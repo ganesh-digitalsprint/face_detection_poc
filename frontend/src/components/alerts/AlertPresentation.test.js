@@ -18,6 +18,23 @@ test('shared cards and detail render real metadata, source links, and unavailabl
     for (const text of ['Six people observed','People in mesh area','Maximum mesh occupancy','local-42','stable-42','Grill Gate Monitoring']) assert.ok(detail.includes(text),text);
     assert.match(detail,/assignment=gate-1/); assert.match(detail,/source_event_id=stable-42/);
     assert.doesNotMatch(detail,/Before|After|2.4 MB|2560/);
+    const attributed = normalizeGrillGateAlert({id:'gate-branch-1',source_event_id:'gate-source-1',use_case:'grill_gate',
+      source_event_type:'GATE_OPEN_TOO_LONG',title:'Gate remained open',status:'OPEN',severity:'WARNING',
+      occurred_at:'2026-11-18T08:32:45Z',summary:'Gate exceeded open threshold',branch_id:'branch-1',camera_id:'cam-1',
+      branch_name:'old goa',branch_code:'C99127-02',place_name:'goa',region_name:'south west',branch_manager:'Ganesh',
+      camera_name:'Gate camera',source_type:'rtsp',video_job_id:'job-1',
+      domain_data:{gate_state:'FULLY_OPEN',gate_open_duration_seconds:3.136,configured_threshold_seconds:3,video_time_seconds:7.04},
+      evidence_refs:[{id:'snap-1',type:'snapshot',captured_at:'2026-11-18T08:32:48Z',retrieval_path:'/api/v1/grill-gate/alerts/gate-source-1/evidence/snap-1?video_job_id=job-1'}]});
+    const detailActions=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(SourceAlertDetail,{alert:attributed,onClose:()=>{}},
+      createElement('div',null,...['Acknowledge','Resolve','Discard'].map((label)=>createElement('button',{key:label,type:'button'},label))))));
+    for (const text of ['Gate camera','cam-1','CCTV','old goa','C99127-02','goa','south west','Ganesh',
+      'FULLY_OPEN','3.136 s','3 s','7.04 s','Occurred','GATE_OPEN_TOO_LONG','gate-branch-1','gate-source-1',
+      'Snapshot captured at','Acknowledge','Resolve','Discard','Open Alert Center']) assert.ok(detailActions.includes(text),text);
+    const noCamera=normalizeGrillGateAlert({id:'gate-upload',use_case:'grill_gate',video_job_id:'job-2',source_type:'uploaded_video',resource_refs:{video_job_id:'job-2'},domain_data:{}});
+    const noCameraMarkup=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(SourceAlertDetail,{alert:noCamera})));
+    assert.match(noCameraMarkup,/Camera name[\s\S]*?Uploaded video/);
+    assert.match(noCameraMarkup,/Branch[\s\S]*?Not assigned/);
+    assert.doesNotMatch(noCameraMarkup,/Camera ID|Branch code|Branch manager/);
     const { default: LocalAlerts } = await server.ssrLoadModule('/src/use-cases/grill-gate/components/GrillGateAlerts.jsx');
     const localPage=renderToStaticMarkup(createElement(MemoryRouter,{ initialEntries:['/grill-gate?status=HISTORY'] },createElement(LocalAlerts,{assignmentId:'gate-1'})));
     assert.match(localPage,/Alert History/);assert.match(localPage,/Loading alerts/);

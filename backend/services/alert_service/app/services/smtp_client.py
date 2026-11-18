@@ -24,7 +24,8 @@ def validate_address(value: str) -> str:
     return parsed
 
 
-def send_email(settings, *, recipients: list[str], subject: str, body: str, smtp_factory=smtplib.SMTP) -> None:
+def send_email(settings, *, recipients: list[str], subject: str, body: str, html_body: str | None = None,
+               inline_images: list[dict] | None = None, smtp_factory=smtplib.SMTP) -> None:
     if not settings.smtp_enabled:
         raise SmtpDeliveryError("disabled", "Email delivery is disabled")
     if not all((settings.smtp_host, settings.smtp_port, settings.smtp_username,
@@ -43,6 +44,12 @@ def send_email(settings, *, recipients: list[str], subject: str, body: str, smtp
     message["From"] = Address(display_name=settings.smtp_from_name, addr_spec=from_email)
     message["To"] = ", ".join(safe_recipients)
     message.set_content(body)
+    if html_body is not None:
+        message.add_alternative(html_body, subtype="html")
+        html_part = message.get_body(preferencelist=("html",))
+        for item in inline_images or []:
+            html_part.add_related(item["data"], maintype=item["maintype"], subtype=item["subtype"],
+                                  cid=f"<{item['cid']}>", filename=item["filename"], disposition="inline")
 
     try:
         with smtp_factory(settings.smtp_host, settings.smtp_port,

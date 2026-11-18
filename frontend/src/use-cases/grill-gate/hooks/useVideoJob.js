@@ -127,6 +127,7 @@ export function useVideoUpload() {
     try {
       const saved = await uploadGrillGateVideo(file, configurationOrAssignmentId, {
         branchId: sourceMetadata.branchId,
+        cameraId: sourceMetadata.cameraId,
         cameraLabel: sourceMetadata.cameraLabel,
         signal: controller.signal,
         onProgress: (progress) => setState((current) => ({ ...current, progress })),

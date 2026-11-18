@@ -50,7 +50,8 @@ from grill_gate_monitoring.services.assignment_readiness import missing_assignme
 from grill_gate_monitoring.services.diagnostics import log_diagnostic
 import cv2
 import httpx
-from fedbank_core.events.metadata import resolve_branch_metadata, safe_reference
+from fedbank_core.events.metadata import (resolve_branch_camera_metadata, resolve_branch_metadata,
+    safe_reference)
 
 router = APIRouter(prefix="/api/v1/grill-gate", tags=["grill gate camera workers"],
                    dependencies=[Depends(get_operator)])
@@ -87,7 +88,7 @@ JOB_ERROR_MESSAGES = {
 def upload_video(video: UploadFile, db: Db, caller: Caller,
                  template_assignment_id: str | None = Form(default=None),
                  configuration: str | None = Form(default=None),
-                 branch_id: str | None = Form(default=None),
+                 branch_id: str = Form(...), camera_id: str | None = Form(default=None),
                  camera_label: str | None = Form(default=None)):
     """Save an isolated uploaded-video job. Zones and calibration are optional here and can be set later.
 
@@ -129,10 +130,17 @@ def upload_video(video: UploadFile, db: Db, caller: Caller,
         frame = (metadata["width"], metadata["height"])
         snapshot = _config_call(normalize_config, raw_config, frame) if raw_config is not None else {}
         filename = Path(video.filename or "video").name
-        branch = resolve_branch_metadata(branch_id) if branch_id else {}
-        if branch_id and branch is None:
+        branch_id = safe_reference(branch_id)
+        branch = resolve_branch_metadata(branch_id) if branch_id else None
+        if branch is None:
             raise HTTPException(422, "Selected Branch Management branch was not found")
-        source_metadata = {**(branch or {}), "camera_name": safe_reference(camera_label) or "Uploaded video",
+        camera_metadata = {}
+        if camera_id:
+            camera_metadata = resolve_branch_camera_metadata(branch_id, camera_id) or {}
+            if not camera_metadata:
+                raise HTTPException(422, "Selected camera is not registered to this branch for Grill Gate")
+        source_metadata = {**branch, **camera_metadata,
+                           "camera_name": camera_metadata.get("camera_name") or safe_reference(camera_label) or "Uploaded video",
                            "video_filename": filename, "source_type": "UPLOADED_VIDEO"}
         job_id = jobs.save(path, original_filename=filename, config=snapshot,
                            template_assignment_id=template, metadata=metadata,
@@ -202,7 +210,7 @@ def _job_dict(row, *, event_count: int | None = None, alert_count: int | None = 
         "zone_configuration_id": (row.config_snapshot or {}).get("zone_configuration_id"),
         "filename": row.original_filename, "status": row.status,
         **{key: (row.config_snapshot or {}).get("source_metadata", {}).get(key) for key in
-           ("branch_id", "branch_code", "branch_name", "place_name", "region_name", "branch_manager", "camera_name")},
+           ("branch_id", "branch_code", "branch_name", "place_name", "region_name", "branch_manager", "camera_id", "camera_name")},
         "template_assignment_id": row.template_assignment_id, "frame_count": row.frame_count,
         "progress_seconds": row.progress_seconds, "error_code": row.error_code,
         "created_at": row.created_at, "started_at": row.started_at, "completed_at": row.completed_at,
@@ -542,6 +550,10 @@ def measure_video_job_endpoints(job_id: str, payload: MeasureEndpointsRequest, d
 def start_video_job(job_id: str, db: Db, caller: Caller, payload: StartVideoJobRequest | None = None):
     """Begin processing a saved job. Only ready UPLOADED jobs are eligible; finished jobs cannot restart."""
     row = _job_or_404(db, job_id)
+    if row.status == "UPLOADED" and not safe_reference(
+            (row.config_snapshot or {}).get("source_metadata", {}).get("branch_id")):
+        raise HTTPException(409, detail={"code": "BRANCH_ATTRIBUTION_REQUIRED",
+            "message": "This saved video has no branch attribution. Upload it again and choose a branch before processing."})
     if row.status == "UPLOADED":
         checklist = readiness(row)
         if not checklist["ready"]:

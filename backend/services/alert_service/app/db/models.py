@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -93,4 +93,25 @@ class NotificationOutbox(Base):
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     last_error: Mapped[str | None] = mapped_column(String(100))
     provider_message_id: Mapped[str | None] = mapped_column(String(200))
+    channel: Mapped[str] = mapped_column(String(16), nullable=False, default="webhook", server_default=text("'webhook'"))
+    branch_id: Mapped[str | None] = mapped_column(String(128), index=False)
+    recipient: Mapped[str | None] = mapped_column(String(320))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class BranchNotificationSettings(Base):
+    __tablename__ = "branch_notification_settings"
+    __table_args__ = (CheckConstraint("delivery_mode = 'instant'", name="ck_branch_notification_delivery_mode"),)
+
+    branch_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    email_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    to_recipients: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    severity_filters: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    use_case_filters: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    include_snapshot: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    include_video_evidence: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    delivery_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="instant")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(128), nullable=False)

@@ -299,7 +299,8 @@ class GrillGateAlertRuleEngine:
                                             "last_completed_crossing_at": (_iso(self._last_completed_crossing_at)
                                                                             if self._last_completed_crossing_at else None),
                                             "last_crossing_direction": self._last_crossing_direction,
-                                            "camera_id": self.camera_id,
+                                            "camera_id": (self._source_context.get("camera_id")
+                                                if uploaded_video else self.camera_id),
                                             "assignment_id": self.assignment_id})
         if (self._state == "PARTIALLY_OPEN" and self._config.partially_open_enabled
                 and self._config.max_partially_open_seconds is not None):
@@ -348,7 +349,10 @@ class GrillGateAlertRuleEngine:
                      if cycle_id else self._pending_source_ids.setdefault(alert_type,
                          str(uuid5(NAMESPACE_URL, f"grill-gate:{self.assignment_id}:{self.camera_id}:{alert_type}:{_iso(since)}"))))
         event = _ActiveCondition(source_id, alert_type, since)
-        resource_refs = ({"video_job_id": self._source_context["video_job_id"]}
+        resource_refs = ({"video_job_id": self._source_context["video_job_id"],
+                          **{key: self._source_context[key] for key in
+                             ("camera_id", "branch_id", "branch_code", "branch_name", "camera_name")
+                             if self._source_context.get(key)}}
                          if self._source_context.get("source_type") == "UPLOADED_VIDEO"
                          else {"camera_id": self.camera_id, "assignment_id": self.assignment_id})
         if self._source_context.get("template_assignment_id"):

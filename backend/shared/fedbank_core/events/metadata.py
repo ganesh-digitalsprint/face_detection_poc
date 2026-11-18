@@ -39,6 +39,29 @@ def resolve_branch_metadata(branch_id):
         return None
 
 
+def resolve_branch_camera_metadata(branch_id, camera_id, *, use_case="grill_gate"):
+    """Resolve a camera only when the platform registry links it to this branch/use case."""
+    branch_id, camera_id = safe_reference(branch_id), safe_reference(camera_id)
+    if not branch_id or not camera_id:
+        return None
+    path = Path(os.environ.get("FEDBANK_PLATFORM_DB_PATH") or
+        repo_root() / "backend/services/platform_data/platform.db")
+    if not path.is_file():
+        return None
+    try:
+        with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=.1) as db:
+            row = db.execute(
+                "SELECT c.id,c.name FROM cameras c JOIN camera_use_cases u ON u.camera_id=c.id "
+                "WHERE c.id=? AND c.branch_id=? AND u.use_case=?",
+                (camera_id, branch_id, use_case),
+            ).fetchone()
+        if row is None:
+            return None
+        return {"camera_id": row[0], "camera_name": safe_reference(row[1])}
+    except (sqlite3.Error, OSError):
+        return None
+
+
 def enrich_resource_refs(use_case, refs):
     """Keep source camera IDs. Legacy links identify a branch, not a replacement camera.
 

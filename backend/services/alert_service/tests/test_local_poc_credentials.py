@@ -125,10 +125,9 @@ def test_start_all_reports_missing_face_mask_token_without_printing_credentials(
     assert 'Face Mask Common Alerts publisher disabled: dedicated producer token not configured.' in source
 
 
-def test_common_alert_database_url_reuses_server_credentials_but_not_vault_database():
-    script = ("$ErrorActionPreference='Stop'; . '" + str(ROOT / 'scripts/launcher-common.ps1') +
-        "'; Get-LauncherAlertDatabaseUrl 'postgresql+psycopg2://user:encoded%2Fpassword@localhost:5432/face_recognition_db?sslmode=require'")
-    result = subprocess.run(['powershell','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',script],
-                            capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == (
-        'postgresql+psycopg://user:encoded%2Fpassword@localhost:5432/alert_service?sslmode=require')
+def test_alert_service_database_url_is_service_specific_and_never_derived_from_vault():
+    source = (ROOT / 'start-all.ps1').read_text(encoding='utf-8')
+    assert 'Get-LauncherAlertDatabaseUrl' not in source
+    assert "Set ALERT_DATABASE_URL in backend\\services\\alert_service\\.env" in source
+    assert "The Alert Service .env value; using the service-specific .env value." in source
+    assert "$alertDatabaseUrl = Get-LauncherEnvValue -Values $alertEnvFile -Name 'ALERT_DATABASE_URL'" in source

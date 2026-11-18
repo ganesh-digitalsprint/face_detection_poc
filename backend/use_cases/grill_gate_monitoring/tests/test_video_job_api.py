@@ -78,6 +78,19 @@ def named_config(name="Test Gate", **overrides):
 def harness(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "VAULT_ROOM_API_KEY", "test-operator-key")
     monkeypatch.setattr(settings, "GRILL_GATE_VIDEO_UPLOAD_DIR", tmp_path)
+    platform = tmp_path / "platform-default.db"
+    monkeypatch.setenv("FEDBANK_PLATFORM_DB_PATH", str(platform))
+    with sqlite3.connect(platform) as platform_db:
+        platform_db.executescript("""
+            CREATE TABLE zones(id TEXT PRIMARY KEY,name TEXT);
+            CREATE TABLE cities(id TEXT PRIMARY KEY,zone_id TEXT,name TEXT);
+            CREATE TABLE branches(id TEXT PRIMARY KEY,city_id TEXT,code TEXT,name TEXT,manager TEXT);
+            CREATE TABLE cameras(id TEXT PRIMARY KEY,branch_id TEXT,name TEXT);
+            CREATE TABLE camera_use_cases(camera_id TEXT,use_case TEXT);
+            INSERT INTO zones VALUES ('test-zone','South');
+            INSERT INTO cities VALUES ('test-city','test-zone','Bengaluru');
+            INSERT INTO branches VALUES ('test-branch','test-city','TEST-01','Test Branch','Test Manager');
+        """)
     engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[model.__table__ for model in (
         GrillGateEvent, GrillGateAlert, GrillGateVideoJob, GrillGateZoneConfiguration, RegistryLocation, RegistryCamera, CameraSource,
@@ -106,6 +119,7 @@ def harness(monkeypatch, tmp_path):
 
 
 def upload(h, payload=b"video-bytes", **data):
+    data.setdefault("branch_id", "test-branch")
     return h.client.post(BASE, headers=HEADERS, files={"video": ("gate.mp4", payload, "video/mp4")}, data=data)
 
 
@@ -144,7 +158,7 @@ def test_upload_without_config_saves_job_and_does_not_start(harness):
     assert job["status"] == "UPLOADED" and job["started_at"] is None
     assert (job["width"], job["height"], job["total_frames"], job["duration_seconds"]) == (WIDTH, HEIGHT, 30, 3.0)
     assert job["readiness"]["video_saved"] is True and job["readiness"]["ready"] is False
-    assert job["branch_id"] is None and job["camera_name"] == "Uploaded video"
+    assert job["branch_id"] == "test-branch" and job["camera_name"] == "Uploaded video"
 
 
 def test_upload_snapshots_selected_existing_branch_without_creating_camera(harness, monkeypatch):
@@ -155,6 +169,8 @@ def test_upload_snapshots_selected_existing_branch_without_creating_camera(harne
             CREATE TABLE zones(id TEXT PRIMARY KEY,name TEXT);
             CREATE TABLE cities(id TEXT PRIMARY KEY,zone_id TEXT,name TEXT);
             CREATE TABLE branches(id TEXT PRIMARY KEY,city_id TEXT,code TEXT,name TEXT,manager TEXT);
+            CREATE TABLE cameras(id TEXT PRIMARY KEY,branch_id TEXT,name TEXT);
+            CREATE TABLE camera_use_cases(camera_id TEXT,use_case TEXT);
         """)
         db.execute("INSERT INTO zones VALUES (?,?)", ("zone-1", "South"))
         db.execute("INSERT INTO cities VALUES (?,?,?)", ("city-1", "zone-1", "Bengaluru"))
@@ -164,17 +180,27 @@ def test_upload_snapshots_selected_existing_branch_without_creating_camera(harne
         db.execute("INSERT INTO cities VALUES (?,?,?)", ("city-2", "zone-2", "Goa"))
         db.execute("INSERT INTO branches VALUES (?,?,?,?,?)",
                    ("branch-2", "city-2", "C99127-02", "Old Goa", "Second Manager"))
-    response = upload(harness, branch_id="branch-1", camera_label="Upload desk camera")
+    with sqlite3.connect(platform) as db:
+        db.execute("INSERT INTO cameras VALUES (?,?,?)", ("camera-1", "branch-1", "Front gate"))
+        db.execute("INSERT INTO camera_use_cases VALUES (?,?)", ("camera-1", "grill_gate"))
+    response = upload(harness, branch_id="branch-1", camera_id="camera-1", camera_label="Upload desk camera")
     assert response.status_code == 201
     job = harness.client.get(f"{BASE}/{response.json()['job_id']}", headers=HEADERS).json()
     assert {key: job[key] for key in ("branch_id", "branch_code", "branch_name", "place_name", "region_name",
-            "branch_manager", "camera_name")} == {
+            "branch_manager", "camera_id", "camera_name")} == {
         "branch_id": "branch-1", "branch_code": "C99127-01", "branch_name": "Koramangala", "place_name": "Bengaluru",
         "region_name": "South", "branch_manager": "Existing Manager",
-        "camera_name": "Upload desk camera"}
+        "camera_id": "camera-1", "camera_name": "Front gate"}
     with video_jobs_module.SessionLocal() as db:
         row = db.get(GrillGateVideoJob, response.json()["job_id"])
         assert row.config_snapshot["source_metadata"]["video_filename"] == "gate.mp4"
+        assert row.config_snapshot["source_metadata"]["branch_id"] == "branch-1"
+        assert row.config_snapshot["source_metadata"]["camera_id"] == "camera-1"
+        received = {}
+        class Processor:
+            def update_alert_source_context(self, **context): received.update(context)
+        video_jobs_module.configure_alert_source_context(Processor(), row.config_snapshot["source_metadata"])
+        assert received["branch_id"] == "branch-1" and received["camera_id"] == "camera-1"
         assert db.query(RegistryCamera).count() == 0
         assert db.query(CameraUseCaseAssignment).count() == 0
     second = upload(harness, branch_id="branch-2")
@@ -185,13 +211,38 @@ def test_upload_snapshots_selected_existing_branch_without_creating_camera(harne
     assert second_job["branch_id"] == "branch-2" and second_job["branch_name"] == "Old Goa"
 
 
-def test_upload_rejects_unknown_selected_branch_but_branch_remains_optional(harness, monkeypatch):
+def test_upload_requires_branch_and_rejects_unknown_selected_branch(harness, monkeypatch):
     monkeypatch.setenv("FEDBANK_PLATFORM_DB_PATH", str(harness.dir / "missing-platform.db"))
     assert upload(harness, branch_id="unknown").status_code == 422
-    response = upload(harness)
-    assert response.status_code == 201
-    job = harness.client.get(f"{BASE}/{response.json()['job_id']}", headers=HEADERS).json()
-    assert job["branch_id"] is None and job["branch_name"] is None
+    response = harness.client.post(BASE, headers=HEADERS,
+        files={"video": ("gate.mp4", b"video-bytes", "video/mp4")})
+    assert response.status_code == 422
+
+
+def test_upload_rejects_camera_not_linked_to_selected_branch_or_use_case(harness):
+    platform = harness.dir / "platform-default.db"
+    with sqlite3.connect(platform) as db:
+        db.execute("INSERT INTO cameras VALUES (?,?,?)", ("camera-other", "test-branch", "Other camera"))
+        db.execute("INSERT INTO camera_use_cases VALUES (?,?)", ("camera-other", "branch_exterior"))
+        db.execute("INSERT INTO branches VALUES (?,?,?,?,?)",
+                   ("other-branch", "test-city", "TEST-02", "Other Branch", "Test Manager"))
+        db.execute("INSERT INTO cameras VALUES (?,?,?)", ("camera-mismatch", "other-branch", "Other gate"))
+        db.execute("INSERT INTO camera_use_cases VALUES (?,?)", ("camera-mismatch", "grill_gate"))
+    assert upload(harness, camera_id="camera-other").status_code == 422
+    assert upload(harness, branch_id="test-branch", camera_id="camera-mismatch").status_code == 422
+
+
+def test_preexisting_unattributed_upload_cannot_start(harness):
+    job_id = ready_job(harness)
+    with video_jobs_module.SessionLocal() as db:
+        row = db.get(GrillGateVideoJob, job_id)
+        row.config_snapshot = {**row.config_snapshot, "source_metadata": {
+            key: value for key, value in row.config_snapshot["source_metadata"].items() if key != "branch_id"}}
+        db.commit()
+    response = harness.client.post(f"{BASE}/{job_id}/start", headers=HEADERS)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "BRANCH_ATTRIBUTION_REQUIRED"
+    assert harness.runs == []
 
 
 def test_upload_saves_assignment_alert_rules_into_the_job_snapshot_and_job_status(harness):
@@ -251,7 +302,7 @@ def test_start_runs_once_and_duplicate_requests_are_rejected(harness):
     assert harness.runs == [job_id]
 
 
-def test_start_does_not_assign_selected_branch_to_unassociated_upload(harness, monkeypatch):
+def test_start_preserves_upload_branch_snapshot(harness, monkeypatch):
     platform = harness.dir / "platform-start.db"
     monkeypatch.setenv("FEDBANK_PLATFORM_DB_PATH", str(platform))
     with sqlite3.connect(platform) as db:
@@ -260,22 +311,23 @@ def test_start_does_not_assign_selected_branch_to_unassociated_upload(harness, m
             CREATE TABLE cities(id TEXT PRIMARY KEY,zone_id TEXT,name TEXT);
             CREATE TABLE branches(id TEXT PRIMARY KEY,city_id TEXT,code TEXT,name TEXT,manager TEXT);
         """)
-        db.execute("INSERT INTO zones VALUES (?,?)", ("zone-1", "South"))
+        db.execute("INSERT INTO zones VALUES (?,?)", ("zone-1", "South West"))
         db.execute("INSERT INTO cities VALUES (?,?,?)", ("city-1", "zone-1", "Goa"))
         db.execute("INSERT INTO branches VALUES (?,?,?,?,?)",
                     ("old-goa", "city-1", "C99127-02", "Old Goa", "Old Goa Manager"))
-    job_id = ready_job(harness)
+    job_id = upload(harness, branch_id="old-goa").json()["job_id"]
+    assert harness.client.put(f"{BASE}/{job_id}/config", headers=HEADERS, json=config()).status_code == 200
     response = harness.client.post(f"{BASE}/{job_id}/start", headers=HEADERS,
                                    json={"branch_id": "old-goa"})
     assert response.status_code == 202 and response.json()["status"] == "QUEUED"
     job = harness.client.get(f"{BASE}/{job_id}", headers=HEADERS).json()
     assert {key: job[key] for key in ("branch_id", "branch_code", "branch_name", "place_name",
             "region_name", "branch_manager", "camera_name")} == {
-        "branch_id": None, "branch_code": None, "branch_name": None, "place_name": None,
-        "region_name": None, "branch_manager": None, "camera_name": "Uploaded video"}
+        "branch_id": "old-goa", "branch_code": "C99127-02", "branch_name": "Old Goa", "place_name": "Goa",
+        "region_name": "South West", "branch_manager": "Old Goa Manager", "camera_name": "Uploaded video"}
     with video_jobs_module.SessionLocal() as db:
         saved = db.get(GrillGateVideoJob, job_id)
-        assert "branch_id" not in saved.config_snapshot["source_metadata"]
+        assert saved.config_snapshot["source_metadata"]["branch_id"] == "old-goa"
     join_all(harness)
 
 
@@ -459,6 +511,8 @@ def test_reprocess_can_select_another_saved_configuration_and_preserves_run_snap
                                 json=named_config("Three Zone", crossing_strategy="three_zone",
                                     zones=[gate_zone(), crossing_zones()[0], crossing_zones()[2]])).json()
     source_id = ready_job(harness)
+    with video_jobs_module.SessionLocal() as db:
+        source_metadata = dict(db.get(GrillGateVideoJob, source_id).config_snapshot["source_metadata"])
     set_job(source_id, status="COMPLETED", frame_count=30, progress_seconds=3.0,
             completed_at=datetime.now(timezone.utc))
     response = harness.client.post(f"{BASE}/{source_id}/reprocess", headers=HEADERS,
@@ -471,6 +525,7 @@ def test_reprocess_can_select_another_saved_configuration_and_preserves_run_snap
         assert run.config_snapshot["crossing_strategy"] == "three_zone"
         assert run.config_snapshot["zone_configuration_id"] == saved["id"]
         assert run.config_snapshot["video"] == db.get(GrillGateVideoJob, source_id).config_snapshot["video"]
+        assert run.config_snapshot["source_metadata"] == source_metadata
 
 
 @pytest.mark.parametrize("status", ["FAILED", "CANCELLED"])

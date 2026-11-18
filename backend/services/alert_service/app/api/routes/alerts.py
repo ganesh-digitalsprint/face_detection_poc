@@ -2,22 +2,26 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.db.models import Alert, AlertAudit, NotificationOutbox
+from app.db.models import Alert, AlertAudit, BranchNotificationSettings, NotificationOutbox
 from app.db.repositories import (Conflict, alert_dict, audit_for, ingest, list_alerts,
                                  resolve_source, summary, transition, update_source)
 from app.deps import (OperatorIdentity, ProducerIdentity, get_db, get_operator,
                       get_producer, require_branch, require_scope)
 from app.schemas.alert import (AlertStatus, CanonicalSeverity, LifecycleAction, ProducerAlert,
                                SourceResolution, canonical_severity)
+from app.services.branch_directory import branch_exists
 
 router = APIRouter(prefix="/api/v1", tags=["alerts"])
+logger = logging.getLogger(__name__)
 
 
 def _request_id(request: Request) -> str:
@@ -94,9 +98,28 @@ def create_alert(payload: ProducerAlert, response: Response, request: Request,
         encoded = json.dumps(payload.model_dump(mode="json"), separators=(",", ":"), ensure_ascii=False)
         if len(encoded.encode("utf-8")) > 32768:
             raise HTTPException(413, detail={"code": "PAYLOAD_TOO_LARGE", "message": "Alert payload exceeds 32768 bytes"})
+        email_delivery = None
+        config = request.app.state.settings
+        refs = data.get("resource_refs") or {}
+        branch_id = refs.get("branch_id")
+        if (config.email_notifications_enabled and branch_id and config.public_app_base_url
+                and branch_exists(config.platform_database_path, str(branch_id))):
+            try:
+                saved = db.get(BranchNotificationSettings, str(branch_id))
+                if (saved and saved.email_enabled and saved.delivery_mode == "instant"
+                        and severity.lower() in (saved.severity_filters or [])
+                        and producer.use_case.lower() in (saved.use_case_filters or [])):
+                    recipients = list(dict.fromkeys(
+                        str(value).strip().lower() for value in (saved.to_recipients or []) if str(value).strip()))
+                    if recipients:
+                        email_delivery = (str(branch_id), recipients)
+            except SQLAlchemyError as exc:
+                db.rollback()
+                logger.warning("Alert email settings unavailable (%s); alert ingestion continues", type(exc).__name__)
         alert, created = ingest(db, use_case=producer.use_case, producer=producer.producer,
             payload=data, severity=severity, idempotency_key=idempotency_key,
-            request_id=_request_id(request), notification_enabled=bool(request.app.state.settings.notification_webhook_url))
+            request_id=_request_id(request), notification_enabled=bool(config.notification_webhook_url),
+            email_delivery=email_delivery)
     except ValueError as exc:
         raise HTTPException(422, detail={"code": "INVALID_SEVERITY", "message": str(exc)}) from exc
     except Conflict as exc:

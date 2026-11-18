@@ -21,6 +21,13 @@ from grill_gate_monitoring.services.diagnostics import log_diagnostic
 
 logger = logging.getLogger(__name__)
 
+
+def configure_alert_source_context(processor, source_metadata: dict | None) -> None:
+    """Pass the immutable upload-time attribution snapshot into the alert processor."""
+    configure = getattr(processor, "update_alert_source_context", None)
+    if callable(configure):
+        configure(**(source_metadata or {}))
+
 ACTIVE_STATUSES = ("QUEUED", "PROCESSING", "CANCEL_REQUESTED")
 EVENT_FLUSH_TIMEOUT_SECONDS = 120.0
 # A job reports every gate transition in its results; a live session only keeps the detector's default.
@@ -204,6 +211,11 @@ class GrillGateVideoJobs:
                 snapshot = dict(config_snapshot or source.config_snapshot or {})
                 snapshot.pop("final_status", None)
                 snapshot["video"] = (asset.config_snapshot or {}).get("video", {})
+                # A saved zone configuration supplies detector settings, not source identity.
+                # Keep branch/camera attribution from the original uploaded asset on every run.
+                snapshot["source_metadata"] = dict(
+                    (asset.config_snapshot or {}).get("source_metadata")
+                    or (source.config_snapshot or {}).get("source_metadata") or {})
                 run = GrillGateVideoJob(
                     original_filename=asset.original_filename,
                     storage_path=asset.storage_path,
@@ -368,8 +380,7 @@ class GrillGateVideoJobs:
             with self._lock:
                 self._sources[job_id] = source
             processor = self.processor_factory(job_id, template_id)
-            if callable(configure_source := getattr(processor, "update_alert_source_context", None)):
-                configure_source(**(raw_config.get("source_metadata") or {}))
+            configure_alert_source_context(processor, raw_config.get("source_metadata"))
             detector = GrillGateStateDetector(job_id, job_id, source, lambda: cfg,
                 max_fps=1_000_000, config_reload_seconds=3600,
                 frame_processor=processor,
