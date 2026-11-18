@@ -25,6 +25,7 @@ class RunReport:
     seconds: float = 0.0
     entries: list = field(default_factory=list)       # (track_id, outcome)
     events: list = field(default_factory=list)        # event ids (one per opened event)
+    event_details: list = field(default_factory=list)  # exact candidate frames for offline verification
     tracks_seen: set = field(default_factory=set)
     states: dict = field(default_factory=dict)
     observations: list = field(default_factory=list)  # lightweight copies, used for the threshold sweep
@@ -40,7 +41,8 @@ def _light(obs: TrackObservation) -> TrackObservation:
                             in_roi=obs.in_roi, entering=obs.entering, roi_id=obs.roi_id, roi_name=obs.roi_name,
                             head_box=obs.head_box, quality_passed=obs.quality_passed, quality_reason=obs.quality_reason,
                             quality_tier=obs.quality_tier, analysis_ran=obs.analysis_ran, direction=obs.direction,
-                            visibility=obs.visibility, display=obs.display, display_score=obs.display_score)
+                            visibility=obs.visibility, visibility_fresh=obs.visibility_fresh,
+                            display=obs.display, display_score=obs.display_score)
 
 
 def run_video(video: str, cfg: FaceMaskConfig, models: Models, rois: list[RoiSpec], *, out: str | None = None,
@@ -99,7 +101,7 @@ def run_video(video: str, cfg: FaceMaskConfig, models: Models, rois: list[RoiSpe
     if writer is not None:
         writer.release()
     report.seconds = time.perf_counter() - started
-    report.entries, report.events = sink.entries, sink.events
+    report.entries, report.events, report.event_details = sink.entries, sink.events, sink.event_details
     return report
 
 

@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, coveringLabel, fmApiUrl, fmtTime } from '../api/index.js';
 import Modal from '../../branch-exterior/components/Modal.jsx';
-import { PageState } from './ui.jsx';
+import { Badge, PageState } from './ui.jsx';
 import usePolling from '../hooks/usePolling.js';
 import { faceMaskAlertCenterLocation, faceMaskIncidentLocation } from './faceMaskAlertNavigation.js';
+import { coverageLabel, coverageSeverity, coverageTitle } from '../coverageModel.js';
 
 const NEXT = { OPEN: ['UNDER_REVIEW'], UNDER_REVIEW: ['CONFIRMED', 'FALSE_POSITIVE'], CONFIRMED: ['CLOSED'], FALSE_POSITIVE: ['CLOSED'], CLOSED: [] };
 const ACTION_LABEL = { UNDER_REVIEW: 'Mark under review', CONFIRMED: 'Confirm', FALSE_POSITIVE: 'False positive', CLOSED: 'Close' };
@@ -51,9 +52,10 @@ export default function FaceMaskEventModal({ eventId, cameras = [], severity, in
   const evidence = detail.data?.evidence;
   const cameraName = event?.camera_name || cameras.find((camera) => camera.id === event?.camera_id)?.name || event?.camera_id;
   const snapshotUrl = evidence?.snapshot_url ? fmApiUrl(evidence.snapshot_url.replace(/^\/api/, '')) : '';
+  const cropUrl = evidence?.crop_url ? fmApiUrl(evidence.crop_url.replace(/^\/api/, '')) : '';
   const clipUrl = evidence?.clip_url ? fmApiUrl(evidence.clip_url.replace(/^\/api/, '')) : '';
   const reviewStatus = sourceStatus(event?.status);
-  const displaySeverity = severity || event?.severity;
+  const displaySeverity = coverageSeverity(event, severity);
   const incidentLocation = faceMaskIncidentLocation(incidentId);
   const displayIncidentStatus = incidentLocation ? incidentStatus : null;
   const fields = event ? [
@@ -61,12 +63,14 @@ export default function FaceMaskEventModal({ eventId, cameras = [], severity, in
     ['Branch', event.branch_name], ['Branch code', event.branch_code],
     ['Place', event.place_name], ['Region', event.region_name],
     ['Branch manager', event.branch_manager], ['Covering type', coveringLabel(event.covering_type)],
-    ['Alert type', 'FACE_CONCEALMENT'], ['Severity', displaySeverity],
+    ['Alert type', 'FACE_CONCEALMENT'], ['Coverage', coverageLabel(event.coverage_state)], ['Severity', displaySeverity],
     ['Confidence / score', `${(event.score * 100).toFixed(1)}% / ${event.score.toFixed(2)}`], ['Track ID', event.track_id],
     ['Detection time', fmtTime(event.first_seen)], ['Trigger', null],
     ['Source event ID', event.id], ['Incident ID', incidentLocation ? incidentId : 'Not yet available in Alert Center'],
     ['Incident status', displayIncidentStatus], ['Review status', reviewStatus],
     ['Detection zone', evidence?.roi_name], ['Frames evaluated', event.frame_count],
+    ['Evidence frame', evidence?.frame_id], ['Video time (seconds)', evidence?.video_timestamp_seconds],
+    ['Box match IoU', evidence?.verification_iou],
   ] : [];
 
   return <Modal title={`Concealment event ${eventId.slice(0, 8)}`} onClose={onClose} maxWidth="min(90vw, 1120px)"
@@ -84,8 +88,8 @@ export default function FaceMaskEventModal({ eventId, cameras = [], severity, in
     <PageState loading={detail.loading} error={detail.error} data={detail.data} onRetry={detail.reload}>
       {event && <>
         <div className="bx-detail-heading">
-          <div><h2>Masked person detected</h2><p>{cameraName || missing} · {fmtTime(event.first_seen)}</p></div>
-          <span className="bx-tag">Incident: {displayIncidentStatus || '—'}</span>
+          <div><h2>{coverageTitle(event.coverage_state)}</h2><p>{cameraName || missing} · {fmtTime(event.first_seen)}</p></div>
+          <div className="bx-row bx-gap-8"><span className="bx-tag">{coverageLabel(event.coverage_state)}</span><Badge kind="sev" value={(displaySeverity || 'info').toLowerCase()} text={displaySeverity || '—'} /><span className="bx-tag">Incident: {displayIncidentStatus || '—'}</span></div>
         </div>
         <section className="bx-detail-evidence" aria-label="Alert evidence">
           <div className="bx-detail-tabs"><span className="bx-tag">Snapshot</span>
@@ -97,8 +101,14 @@ export default function FaceMaskEventModal({ eventId, cameras = [], severity, in
               ? <img src={snapshotUrl} alt="Captured concealment event snapshot" onError={() => setSnapshotFailed(true)} />
               : <p role="status">{snapshotFailed ? 'Snapshot is unavailable.' : 'No snapshot is available for this event.'}</p>}
           </div>
+          {cropUrl && <div className="bx-detail-media" style={{ marginTop: 12, maxWidth: 400 }}>
+            <img src={cropUrl} alt="Head and shoulders crop from the evidence frame" />
+          </div>}
+          {evidence?.verification === 'unverified' && <div className="bx-hint" role="alert">
+            Evidence unverified: the saved box did not match a fresh person detection. Review this snapshot carefully.
+          </div>}
           <div className="bx-row bx-gap-8 bx-wrap bx-detail-downloads">
-            {clipUrl && <a className="bx-btn" href={clipUrl} download={`face-mask-${event.id}.mp4`}>Download clip</a>}
+            {clipUrl && <a className="bx-btn" href={clipUrl} download={`face-mask-${event.id}.${evidence?.clip_format || 'mp4'}`}>Download clip</a>}
           </div>
           {clipUrl ? <video controls preload="metadata" className="mt-3 max-h-[420px] w-full rounded-lg bg-black" src={clipUrl}>
             Video evidence is unavailable in this browser.

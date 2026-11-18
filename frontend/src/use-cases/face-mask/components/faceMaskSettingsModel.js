@@ -18,22 +18,36 @@ export const SPECIFIC_FIELDS = [
   ['max_brightness', 'Maximum brightness', 'Over-exposed heads are skipped (0-255). Above the minimum.', { min: 0, max: 255, step: 1 }],
   ['max_yaw_degrees', 'Maximum head turn (degrees)', 'A head turned away more than this is not judged: wait, never alert.', { min: 1, max: 180, step: 1 }],
 ];
+// New controls are shown only when /settings includes them, so older services remain editable.
+export const COVERAGE_FIELDS = [
+  ['visible_min_score', 'Visible minimum score', 'Minimum evidence score for a clearly visible face.', { min: 0, max: 1, step: 0.01 }],
+  ['partial_min_score', 'Partial minimum score', 'Minimum evidence score for partial coverage.', { min: 0, max: 1, step: 0.01 }],
+  ['full_min_score', 'Full minimum score', 'Minimum concealment score for a fully covered face.', { min: 0, max: 1, step: 0.01 }],
+  ['parts_visible_for_partial', 'Visible parts for partial coverage', 'Number of visible face parts needed to classify partial coverage.', { min: 1, max: 3, step: 1 }],
+  ['coverage_hysteresis_frames', 'Coverage stability (frames)', 'Frames required before switching coverage state.', { min: 1, max: 8, step: 1 }],
+  ['min_box_iou', 'Evidence box overlap threshold', 'Minimum person box overlap when verifying evidence.', { min: 0, max: 1, step: 0.01 }],
+];
 export const CHANNELS = [['alert_dashboard', 'Dashboard'], ['alert_sms', 'SMS'], ['alert_email', 'Email'], ['alert_app', 'App notification']];
 export const NUMERIC = [...COMMON_FIELDS, ...SPECIFIC_FIELDS];
 
 /** Pure: field-level problems for the current form values. Exported for unit tests. */
 export function settingsErrors(v) {
   const errors = {};
-  NUMERIC.forEach(([key, , , lim]) => {
+  [...NUMERIC, ...COVERAGE_FIELDS.filter(([key]) => Object.hasOwn(v, key))].forEach(([key, , , lim]) => {
     const n = Number(v[key]);
     if (v[key] === '' || v[key] == null || Number.isNaN(n)) errors[key] = 'Enter a number.';
-    else if (n < lim.min || n > lim.max) errors[key] = `Must be between ${lim.min} and ${lim.max}.`;
+    else if (!Number.isFinite(n) || n < lim.min || n > lim.max) errors[key] = `Must be between ${lim.min} and ${lim.max}.`;
+    else if (lim.step === 1 && !Number.isInteger(n)) errors[key] = 'Enter a whole number.';
   });
   if (!errors.frames_to_confirm && !errors.confirm_window && Number(v.frames_to_confirm) > Number(v.confirm_window)) {
     errors.frames_to_confirm = 'Cannot be larger than the confirmation window.';
   }
   if (!errors.min_brightness && !errors.max_brightness && Number(v.min_brightness) >= Number(v.max_brightness)) {
     errors.min_brightness = 'Must be below the maximum brightness.';
+  }
+  if (Object.hasOwn(v, 'partial_min_score') && Object.hasOwn(v, 'full_min_score') &&
+      !errors.partial_min_score && !errors.full_min_score && Number(v.partial_min_score) >= Number(v.full_min_score)) {
+    errors.partial_min_score = 'Must be below the full coverage threshold.';
   }
   return errors;
 }

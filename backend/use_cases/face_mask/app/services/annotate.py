@@ -11,12 +11,32 @@ from app.services.observation import TrackObservation
 COLORS = {
     "VISIBLE": (60, 200, 60),
     "CONCEALED": (40, 40, 230),
+    "PARTIALLY_COVERED": (0, 145, 255),
+    "FULLY_COVERED": (40, 40, 230),
     "UNABLE": (150, 150, 150),
-    "EVALUATING": (0, 190, 255),
-    "LOW_RES": (0, 180, 255),
-    "TOO_SMALL": (130, 130, 130),
+    "EVALUATING": (160, 135, 115),
+    "LOW_RES": (160, 135, 115),
+    "TOO_SMALL": (160, 135, 115),
 }
 _ROI_COLOR = (255, 200, 0)
+
+
+def _dashed_rectangle(image: np.ndarray, box: tuple[int, int, int, int], color: tuple[int, int, int],
+                      thickness: int, dash: int = 8, gap: int = 5) -> None:
+    """Keep unassessed detections visually distinct from confirmed concealment."""
+    x1, y1, x2, y2 = box
+    for start, end in [((x1, y1), (x2, y1)), ((x2, y1), (x2, y2)),
+                       ((x2, y2), (x1, y2)), ((x1, y2), (x1, y1))]:
+        length = max(abs(end[0] - start[0]), abs(end[1] - start[1]))
+        if not length:
+            continue
+        for offset in range(0, length, dash + gap):
+            finish = min(offset + dash, length)
+            a = (round(start[0] + (end[0] - start[0]) * offset / length),
+                 round(start[1] + (end[1] - start[1]) * offset / length))
+            b = (round(start[0] + (end[0] - start[0]) * finish / length),
+                 round(start[1] + (end[1] - start[1]) * finish / length))
+            cv2.line(image, a, b, color, thickness, cv2.LINE_AA)
 
 
 def draw_roi(image: np.ndarray, roi: RoiSpec) -> None:
@@ -41,13 +61,19 @@ def annotate(frame: np.ndarray, observations: list[TrackObservation], rois: list
     for roi in rois:
         draw_roi(image, roi)
     for obs in observations:
-        color = COLORS.get(obs.display, COLORS["EVALUATING"])
+        visual_state = obs.visibility.coverage_state if obs.visibility and obs.display == "CONCEALED" else obs.display
+        color = COLORS.get(visual_state, COLORS["EVALUATING"])
         x1, y1, x2, y2 = (int(v) for v in obs.box)
         thick = max(1, round((4 if obs.display == "CONCEALED" else 1) * scale))
-        cv2.rectangle(image, (x1, y1), (x2, y2), color, thick)
-        state_label = {"CONCEALED": "FACE COVERED", "VISIBLE": "face visible", "LOW_RES": "analysing / low-res",
+        unassessed = visual_state in {"UNABLE", "EVALUATING", "LOW_RES", "TOO_SMALL"}
+        if unassessed:
+            _dashed_rectangle(image, (x1, y1, x2, y2), color, thick)
+        else:
+            cv2.rectangle(image, (x1, y1), (x2, y2), color, thick)
+        state_label = {"CONCEALED": "FACE COVERED", "PARTIALLY_COVERED": "PARTIALLY COVERED",
+                       "FULLY_COVERED": "FACE COVERED", "VISIBLE": "face visible", "LOW_RES": "analysing / low-res",
                        "TOO_SMALL": "too far to assess", "EVALUATING": "analysing", "UNABLE": "unable to assess"}
-        label = f"#{obs.track_id} {state_label.get(obs.display, obs.display)}"
+        label = f"#{obs.track_id} {state_label.get(visual_state, visual_state)}"
         if obs.visibility is not None:
             if obs.visibility.covering_type:
                 label += f": {obs.visibility.covering_type}"
@@ -64,7 +90,10 @@ def annotate(frame: np.ndarray, observations: list[TrackObservation], rois: list
                     (255, 255, 255) if obs.display == "CONCEALED" else color, thick, cv2.LINE_AA)
         if obs.head_box is not None:
             hx1, hy1, hx2, hy2 = (int(v) for v in obs.head_box)
-            cv2.rectangle(image, (hx1, hy1), (hx2, hy2), color, thick)
+            if unassessed:
+                _dashed_rectangle(image, (hx1, hy1, hx2, hy2), color, thick)
+            else:
+                cv2.rectangle(image, (hx1, hy1), (hx2, hy2), color, thick)
         fx, fy = (int(v) for v in obs.foot)
         cv2.circle(image, (fx, fy), 4, color, -1)
     return image

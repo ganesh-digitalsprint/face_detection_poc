@@ -53,6 +53,7 @@ class ProcessRequest(BaseModel):
     loop_video: bool = False
     roi: ProcessRoi | None = None
     branch_id: str | None = Field(default=None, max_length=128)
+    use_saved_roi: bool | None = None  # None keeps the original saved-ROI behavior for existing clients
 
 
 def _display_path(path: Path) -> str:
@@ -138,5 +139,5 @@ async def process_video(data: ProcessRequest, session: AsyncSession = Depends(ge
     if data.roi is not None:
         await EntryRoiRepository(session).create(EntryRoiCreate(camera_id=camera.id, **data.roi.model_dump()))
         await reload_camera_rois(session, runtime, camera.id)
-    runtime.start_camera(camera, fresh=True)
+    runtime.start_camera(camera, fresh=True, use_saved_roi=data.use_saved_roi is not False)
     return _view(camera, runtime)

@@ -34,6 +34,7 @@ class PrintSink:
     verbose: bool = True
     entries: list = field(default_factory=list)
     events: list = field(default_factory=list)
+    event_details: list[NewEvent] = field(default_factory=list)
 
     def log_entry(self, camera_id, roi_id, track_id, outcome, score, frames_evaluated, ts) -> None:
         self.entries.append((track_id, outcome))
@@ -43,6 +44,7 @@ class PrintSink:
     def open_event(self, event: NewEvent) -> str:
         event_id = f"cli-{len(self.events) + 1}"
         self.events.append(event_id)
+        self.event_details.append(event)
         if self.verbose:
             print(f"  EVENT  {event_id}: track #{event.track_id} CONCEALED ({event.covering_type or 'unknown'}, "
                   f"score {event.score:.2f}) at t={event.ts:.1f}s")

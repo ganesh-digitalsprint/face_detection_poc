@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/index.js';
 import usePolling from '../hooks/usePolling.js';
-import { CHANNELS, COMMON_FIELDS, NUMERIC, SPECIFIC_FIELDS, settingsErrors } from './faceMaskSettingsModel.js';
+import { CHANNELS, COMMON_FIELDS, COVERAGE_FIELDS, NUMERIC, SPECIFIC_FIELDS, settingsErrors } from './faceMaskSettingsModel.js';
 import { PageState } from './ui.jsx';
 
 function NumberField({ field, values, errors, onChange }) {
@@ -25,7 +25,9 @@ export default function FaceMaskSettingsTab() {
 
   const load = (s) => setValues({
     ...Object.fromEntries(NUMERIC.map(([k]) => [k, String(s[k])])),
+    ...Object.fromEntries(COVERAGE_FIELDS.filter(([k]) => s[k] != null).map(([k]) => [k, String(s[k])])),
     analyzer: s.analyzer, head_down_policy: s.head_down_policy,
+    ...(s.alert_on_partial != null ? { alert_on_partial: Boolean(s.alert_on_partial) } : {}),
     ...Object.fromEntries(CHANNELS.map(([k]) => [k, Boolean(s[k])])),
   });
   useEffect(() => { if (server.data) load(server.data); }, [server.data]);
@@ -39,7 +41,9 @@ export default function FaceMaskSettingsTab() {
     try {
       const body = {
         ...Object.fromEntries(NUMERIC.map(([k]) => [k, Number(values[k])])),
+        ...Object.fromEntries(COVERAGE_FIELDS.filter(([k]) => Object.hasOwn(values, k)).map(([k]) => [k, Number(values[k])])),
         analyzer: values.analyzer, head_down_policy: values.head_down_policy,
+        ...(Object.hasOwn(values, 'alert_on_partial') ? { alert_on_partial: values.alert_on_partial } : {}),
         ...Object.fromEntries(CHANNELS.map(([k]) => [k, values[k]])),
       };
       load(await api.put('/settings', body));
@@ -93,7 +97,9 @@ export default function FaceMaskSettingsTab() {
                 <span className="bx-hint">A head turned away (body not facing the camera) is never an alert with either option.</span>
               </label>
               {SPECIFIC_FIELDS.map((f) => <NumberField key={f[0]} field={f} values={values} errors={errors} onChange={setValue} />)}
+              {COVERAGE_FIELDS.filter(([k]) => Object.hasOwn(values, k)).map((f) => <NumberField key={f[0]} field={f} values={values} errors={errors} onChange={setValue} />)}
             </div>
+            {Object.hasOwn(values, 'alert_on_partial') && <label className="bx-row bx-gap-8"><input type="checkbox" checked={values.alert_on_partial} onChange={(e) => setValue('alert_on_partial', e.target.checked)} /> Alert on partial coverage</label>}
             <p className="bx-hint" role="note">
               <b>Unable to assess:</b> when a head is too small, blurry, too dark or too bright, or turned away, Face Mask waits for a better frame.
               If none comes it records "unable to assess" and never raises a concealment alert. These thresholds only decide when a frame is good enough to judge.

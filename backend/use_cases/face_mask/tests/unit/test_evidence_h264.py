@@ -3,6 +3,7 @@ import shutil
 import subprocess
 
 import numpy as np
+import cv2
 import pytest
 
 from app.core.config import EvidenceConfig
@@ -22,4 +23,20 @@ def test_browser_playable_person_specific_clip(tmp_path):
     assert video["codec_name"] == "h264"
     assert video["pix_fmt"] == "yuv420p"
     assert 2 <= float(info["format"]["duration"]) <= 3
+    recorder.shutdown()
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg unavailable")
+def test_partial_clip_highlight_is_orange(tmp_path):
+    recorder = EvidenceRecorder(EvidenceConfig(clip_pre_seconds=1, clip_post_seconds=2, snapshot_quality=85),
+                                snapshot_dir=tmp_path / "screenshots", clip_dir=tmp_path / "clips")
+    frame = np.full((120, 160, 3), 100, dtype=np.uint8)
+    frames = [(i / 5, frame.copy(), (10, 10, 60, 110)) for i in range(15)]
+    path = recorder._encode("partial", frames, 5, "PARTIALLY_COVERED")
+    capture = cv2.VideoCapture(str(path))
+    ok, rendered = capture.read()
+    capture.release()
+    assert ok
+    blue, green, red = (int(channel) for channel in rendered[10, 30])
+    assert red > 180 and green > 80 and blue < 90
     recorder.shutdown()

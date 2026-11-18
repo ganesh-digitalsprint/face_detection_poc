@@ -17,7 +17,7 @@ test('Face Mask event details reuse the accessible wide Branch Exterior modal', 
 test('concealment cards open the stable source event and show an evidence placeholder when missing', async () => {
   const cardSource = await readFile(new URL('./FaceMaskConcealmentCard.jsx', import.meta.url), 'utf8');
   assert.match(cardSource, /onClick=\{\(\) => onSelect\(event\.id\)\}/);
-  assert.match(cardSource, /Masked person detected/);
+  assert.match(cardSource, /coverageTitle\(event\.coverage_state\)/);
   assert.match(cardSource, /Snapshot unavailable/);
   assert.match(cardSource, /onError=\{\(\) => setImageFailed\(true\)\}/);
 });

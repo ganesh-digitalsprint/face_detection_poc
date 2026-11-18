@@ -4,6 +4,7 @@ import { AlertEvidenceDetails, AlertSnapshot } from './AlertPresentation.jsx';
 import LifecycleConfirmation from './LifecycleConfirmation.jsx';
 import { alertDetailLocationFields, availableActions, snapshotRefs, useCaseLabel } from '../../api/alertServiceModel.js';
 import '../../pages/CommonAlertDetail.css';
+import { coverageLabel } from '../../use-cases/face-mask/coverageModel.js';
 
 const missing = '—';
 const formatTime = (value) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : missing;
@@ -39,6 +40,7 @@ export default function CommonAlertDetail({ alert, audit, actionsEnabled, pendin
     ['Detected time', formatTime(alert.occurredAt)],
     ['Confidence', confidence],
     ['Covering type', alert.useCase === 'face_mask' ? domain.covering_type : null],
+    ['Coverage', alert.useCase === 'face_mask' ? coverageLabel(domain.coverage_state) : null],
     ['Track ID', trackId],
     ['Video time', Number.isFinite(videoTime) ? `${videoTime.toFixed(1)} s` : null],
     ['Trigger', Number.isFinite(duration) ? `Open ${duration} s${Number.isFinite(threshold) ? ` / threshold ${threshold} s` : ''}` : alert.summary],

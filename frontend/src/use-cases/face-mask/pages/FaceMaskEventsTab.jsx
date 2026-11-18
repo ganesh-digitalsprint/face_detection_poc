@@ -4,8 +4,9 @@ import { toggleTheme, useBxTheme } from '../../branch-exterior/theme.js';
 import { api, coveringLabel, fmtTime, qs } from '../api/index.js';
 import FaceMaskEventModal from '../components/FaceMaskEventModal.jsx';
 import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
-import { EventStatusBadge, PageState, PrivacyNote } from '../components/ui.jsx';
+import { Badge, EventStatusBadge, PageState, PrivacyNote } from '../components/ui.jsx';
 import usePolling from '../hooks/usePolling.js';
+import { coverageLabel, coverageSeverity } from '../coverageModel.js';
 import '../../branch-exterior/branchExterior.css';
 
 const PAGE_SIZE = 15;
@@ -15,7 +16,7 @@ const COVERINGS = [
   ['full_face_covering', 'Full face covering'], ['surgical_mask', 'Surgical mask'], ['scarf', 'Scarf'],
   ['cap_concealing', 'Cap'], ['helmet', 'Helmet'], ['other_mask', 'Other'],
 ];
-const EMPTY = { from: '', to: '', camera_id: '', covering_type: '' };
+const EMPTY = { from: '', to: '', camera_id: '', covering_type: '', coverage_state: '' };
 const toIso = (local) => (local ? new Date(local).toISOString() : '');
 
 /** Alerts > Face Mask events: summary cards, filters, list and the review/evidence panel on the right. */
@@ -31,7 +32,7 @@ export default function FaceMaskEventsTab() {
   const set = (k) => (ev) => { setFilters((f) => ({ ...f, [k]: ev.target.value })); setPage(0); };
 
   const cams = usePolling(() => api.get('/cameras'), 15000);
-  const base = { date_from: toIso(filters.from), date_to: toIso(filters.to), camera_id: filters.camera_id, covering_type: filters.covering_type };
+  const base = { date_from: toIso(filters.from), date_to: toIso(filters.to), camera_id: filters.camera_id, covering_type: filters.covering_type, coverage_state: filters.coverage_state };
   const list = usePolling(() => api.get(`/events${qs({
     ...base, statuses: VIEWS[view], sort, limit: PAGE_SIZE, offset: page * PAGE_SIZE })}`), 5000, [filters, view, sort, page]);
   const cards = usePolling(async () => {
@@ -87,6 +88,11 @@ export default function FaceMaskEventsTab() {
               {COVERINGS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </label>
+          <label className="bx-field">Coverage
+            <select className="bx-input" value={filters.coverage_state} onChange={set('coverage_state')}>
+              <option value="">All</option><option value="PARTIALLY_COVERED">Partial</option><option value="FULLY_COVERED">Full</option>
+            </select>
+          </label>
           <label className="bx-field">Sort
             <select className="bx-input" value={sort} onChange={(e) => { setSort(e.target.value); setPage(0); }}>
               <option value="desc">Newest first</option><option value="asc">Oldest first</option>
@@ -102,14 +108,14 @@ export default function FaceMaskEventsTab() {
             isEmpty={(d) => d.total === 0} emptyIcon="🛡" emptyText="No Face Mask events match these filters.">
             <div className="bx-scroll-x">
               <table className="bx-table">
-                <thead><tr><th>Time</th><th>Camera</th><th>Track</th><th>Covering</th><th>Score</th><th>Status</th></tr></thead>
+                <thead><tr><th>Time</th><th>Camera</th><th>Track</th><th>Covering</th><th>Coverage</th><th>Severity</th><th>Score</th><th>Status</th></tr></thead>
                 <tbody>
                   {(list.data?.items || []).map((e) => (
                     <tr key={e.id} className="clickable" tabIndex={0} aria-selected={e.id === selected}
                       style={e.id === selected ? { outline: '2px solid #3c5ba4' } : undefined}
                       onClick={() => select(e.id)} onKeyDown={(k) => { if (k.key === 'Enter') select(e.id); }}>
                       <td>{fmtTime(e.first_seen)}</td><td>{nameOf(e.camera_id)}</td><td>#{e.track_id}</td>
-                      <td>{coveringLabel(e.covering_type)}</td><td>{e.score.toFixed(2)}</td><td><EventStatusBadge status={e.status} /></td>
+                      <td>{coveringLabel(e.covering_type)}</td><td>{coverageLabel(e.coverage_state)}</td><td><Badge kind="sev" value={(coverageSeverity(e, incidentStates.bySource[e.id]?.severity) || 'info').toLowerCase()} text={coverageSeverity(e, incidentStates.bySource[e.id]?.severity) || '—'} /></td><td>{Number(e.score || 0).toFixed(2)}</td><td><EventStatusBadge status={e.status} /></td>
                     </tr>
                   ))}
                 </tbody>

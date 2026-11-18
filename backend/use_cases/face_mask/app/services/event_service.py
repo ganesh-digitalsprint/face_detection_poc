@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Protocol
 
@@ -22,8 +22,8 @@ import numpy as np
 
 from app.core.config import AnalysisConfig, ConfirmationConfig, CooldownConfig
 from app.ml.types import VisibilityResult
-from app.services.observation import TrackObservation
-from app.utils.geometry import Box, Point, distance
+from app.services.observation import EvidenceCandidate, TrackObservation
+from app.utils.geometry import Box, Point, distance, iou
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,27 @@ class NewEvent:
     best_crop: np.ndarray | None
     person_box: Box | None = None
     direction: str = "unknown"
+    frame_id: int = 0
+    candidates: tuple[EvidenceCandidate, ...] = field(default=(), repr=False, compare=False)
+    verification_iou: float = 0.0
+    verified: bool = False
+    coverage_state: str = "FULLY_COVERED"
+    snapshot_video_ts: float | None = None
+
+
+def verify_evidence_candidate(event: NewEvent, detector, min_iou: float) -> NewEvent:
+    """Select only a frame whose *measured* person box the detector can reproduce."""
+    highest_iou = 0.0
+    for candidate in event.candidates:
+        matches = detector.detect(candidate.frame)
+        agreement = max((iou(candidate.person_box, item.box) for item in matches), default=0.0)
+        highest_iou = max(highest_iou, agreement)
+        if agreement >= min_iou:
+            return replace(event, best_frame=candidate.frame, person_box=candidate.person_box,
+                           head_box=candidate.head_box, frame_id=candidate.frame_id,
+                           snapshot_video_ts=candidate.timestamp,
+                           verification_iou=agreement, verified=True)
+    return replace(event, verification_iou=highest_iou, verified=False)
 
 
 class EventSink(Protocol):
@@ -76,6 +97,7 @@ class _Track:
     roi_id: str | None = None
     roi_name: str = ""
     last_in_roi: bool = False
+    coverage_state: str = ""
 
 
 @dataclass
@@ -102,6 +124,10 @@ class EventService:
 
     def process(self, obs: TrackObservation) -> TrackState:
         track = self._tracks.setdefault((obs.camera_id, obs.track_id), _Track(window=deque(maxlen=self._conf.confirm_window)))
+        # The live overlay may repeat the last assessment between expensive model runs.
+        # Only independently assessed frames can advance the N-of-M decision window.
+        if not obs.visibility_fresh:
+            obs = replace(obs, visibility=None)
 
         if self._analysis is not None:
             return self._process_zone_alert(track, obs)
@@ -137,8 +163,15 @@ class EventService:
             if obs.visibility.state == "CONCEALED":
                 track.best_score = max(track.best_score, obs.visibility.score)
                 track.covering_type = obs.visibility.covering_type or track.covering_type
+                if obs.visibility.coverage_state == "FULLY_COVERED" or not track.coverage_state:
+                    track.coverage_state = obs.visibility.coverage_state or "FULLY_COVERED"
         concealed = sum(result.state == "CONCEALED" for result in track.window)
-        can_alert = obs.in_roi or self._analysis.alert_outside_roi
+        # An earlier valid person outside a saved ROI cannot validate a later
+        # tracker box on the doorway. The evidence must belong to that ROI too.
+        restricted = obs.frame_id > 0 and obs.roi_id != "__default_full_frame__" and not self._analysis.alert_outside_roi
+        zone_evidence = not restricted or any(candidate.in_roi and candidate.verified
+                                              for candidate in obs.evidence_candidates)
+        can_alert = ((obs.in_roi and obs.zone_verified and zone_evidence) or self._analysis.alert_outside_roi)
         direction_ok = self._analysis.direction_mode != "strict" or obs.entering
         if can_alert and direction_ok and concealed >= self._conf.frames_to_confirm:
             self._open(track, obs)
@@ -163,6 +196,13 @@ class EventService:
         if result.state == "CONCEALED":
             track.best_score = max(track.best_score, result.score)
             track.covering_type = result.covering_type or track.covering_type
+            new_coverage = result.coverage_state or "FULLY_COVERED"
+            if new_coverage == "FULLY_COVERED" and track.coverage_state == "PARTIALLY_COVERED" and track.event_id:
+                upgrade = getattr(self._sink, "upgrade_event", None)
+                if upgrade is not None:
+                    upgrade(track.event_id, "FULLY_COVERED", track.best_score, track.covering_type, obs)
+            if new_coverage == "FULLY_COVERED" or not track.coverage_state:
+                track.coverage_state = new_coverage
 
         if track.state == TrackState.CONCEALMENT_EVENT_OPEN:
             assert track.event_id is not None
@@ -188,11 +228,24 @@ class EventService:
             self._sink.update_event(merged.event_id, obs.ts, track.evaluated, track.best_score, track.covering_type)
             logger.info("Track %s merged into event %s (cooldown)", obs.track_id, merged.event_id)
         else:
+            restricted = obs.frame_id > 0 and obs.roi_id != "__default_full_frame__" and not (
+                self._analysis and self._analysis.alert_outside_roi)
+            choices = (tuple(item for item in obs.evidence_candidates if item.in_roi and item.verified)
+                       if restricted else obs.evidence_candidates)
+            candidate = choices[0] if choices else None
             track.event_id = self._sink.open_event(NewEvent(
                 camera_id=obs.camera_id, roi_id=track.roi_id, roi_name=track.roi_name, track_id=obs.track_id,
                 ts=obs.ts, score=track.best_score, covering_type=track.covering_type,
-                frames_evaluated=track.evaluated, head_box=obs.head_box, best_frame=obs.best_frame,
-                best_crop=obs.best_crop, person_box=obs.box, direction=obs.direction,
+                frames_evaluated=track.evaluated,
+                head_box=candidate.head_box if candidate else obs.head_box,
+                best_frame=candidate.frame if candidate else (obs.best_frame if obs.frame_id == 0 else None),
+                best_crop=obs.best_crop,
+                # Synthetic observations (frame_id=0) have no image provenance.
+                # Live observations must never pair an older image with today's box.
+                person_box=candidate.person_box if candidate else (obs.box if obs.frame_id == 0 else None),
+                direction=obs.direction, frame_id=candidate.frame_id if candidate else obs.frame_id,
+                candidates=choices, coverage_state=track.coverage_state or "FULLY_COVERED",
+                snapshot_video_ts=candidate.timestamp if candidate else obs.ts,
             ))
             self._recent.setdefault(obs.camera_id, []).append(
                 _RecentEvent(obs.ts, obs.foot, track.event_id, (obs.camera_id, obs.track_id)))

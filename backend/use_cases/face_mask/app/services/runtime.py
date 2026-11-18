@@ -35,8 +35,9 @@ from app.services.alert_client import AlertClient, AlertEvent
 from app.services.annotate import annotate
 from app.services.detection_pipeline import DetectionPipeline
 from app.services.entry_service import RoiSpec
-from app.services.event_service import EventService, NewEvent
+from app.services.event_service import EventService, NewEvent, verify_evidence_candidate
 from app.services.evidence_service import EvidenceRecorder
+from app.services.observation import TrackObservation
 from app.services.frame_bus import CameraStatus, FrameBus
 from app.services.sources import FILE_TYPES, open_capture
 
@@ -64,23 +65,39 @@ class RuntimeSink:
         self._rt.writer.submit(job)
 
     def open_event(self, event: NewEvent) -> str:
+        # Re-run the existing detector on the exact candidate frame before annotating it.
+        # This is deliberately in the camera worker, not an evidence-pool thread: the
+        # MediaPipe IMAGE detector is shared with the pipeline and is not thread-safe.
+        if event.candidates:
+            try:
+                event = verify_evidence_candidate(event, self._rt.models().person,
+                                                  self._rt.cfg.evidence.min_box_iou)
+            except Exception as exc:
+                logger.warning("Evidence verification failed for track %s: %s", event.track_id, exc)
+        if not event.verified:
+            logger.warning("Evidence for track %s is unverified (best IoU %.2f; candidate frames %s)",
+                           event.track_id, event.verification_iou,
+                           [(item.frame_id, tuple(round(v) for v in item.person_box)) for item in event.candidates])
         event_id = uuid.uuid4().hex
         now = datetime.now(timezone.utc)
 
         async def create(session) -> None:
             await EventRepository(session).create(event_id, event.camera_id, event.roi_id, event.track_id,
-                                                  event.score, event.covering_type, event.frames_evaluated, now)
+                                                  event.score, event.covering_type, event.frames_evaluated, now,
+                                                  coverage_state=event.coverage_state)
 
         self._rt.writer.submit(create)
         self._rt.event_opened(event.camera_id)
 
         # Pre-roll must be taken at confirmation time (cheap list copy); encoding happens on the pool.
-        self._rt.evidence.start_clip(event.camera_id, event_id, event.ts, self._clip_done, event.track_id)
+        self._rt.evidence.start_clip(event.camera_id, event_id, event.ts, self._clip_done, event.track_id,
+                                     event.coverage_state)
         self._rt.evidence_submit(self._store_snapshot, event_id, event, now)
 
         async def send_alert(session) -> None:
             # Runs after `create` (the writer is strictly ordered). Never raises into the pipeline.
-            if self._rt.cfg.alerts.channels.dashboard and self._rt.alerts.enabled:
+            if (self._rt.cfg.alerts.channels.dashboard and self._rt.alerts.enabled and
+                    (event.coverage_state != "PARTIALLY_COVERED" or self._rt.cfg.alerts.alert_on_partial)):
                 await EventRepository(session).update_fields(event_id, alert_id=f"face-mask-event:{event_id}")
 
         self._rt.writer.submit(send_alert)
@@ -99,21 +116,64 @@ class RuntimeSink:
 
         self._rt.writer.submit(job)
 
-    # -- evidence (pool thread) --------------------------------------------------------------------------
-    def _store_snapshot(self, event_id: str, event: NewEvent, now: datetime) -> None:
+    def upgrade_event(self, event_id: str, coverage_state: str, best_score: float,
+                      covering_type: str, observation: TrackObservation) -> None:
+        async def job(session) -> None:
+            await EventRepository(session).update_fields(event_id, coverage_state=coverage_state,
+                                                         score=best_score, covering_type=covering_type)
+        self._rt.writer.submit(job)
+        self._rt.evidence.upgrade_pending_clip(event_id, coverage_state)
+
+        # Keep the original partial evidence intact. A verified full-coverage frame gets
+        # a new versioned file and becomes the current snapshot only after it is saved.
+        candidates = tuple(candidate for candidate in observation.evidence_candidates
+                           if candidate.coverage_state == coverage_state)
+        if not candidates:
+            logger.warning("No full-coverage evidence candidate for upgraded event %s", event_id)
+            return
+        candidate = candidates[0]
+        upgraded = NewEvent(camera_id=observation.camera_id, roi_id=observation.roi_id,
+                            roi_name=observation.roi_name, track_id=observation.track_id,
+                            ts=observation.ts, score=best_score, covering_type=covering_type,
+                            frames_evaluated=0, head_box=candidate.head_box, best_frame=candidate.frame,
+                            best_crop=None, person_box=candidate.person_box, direction=observation.direction,
+                            frame_id=candidate.frame_id, candidates=candidates, coverage_state=coverage_state,
+                            snapshot_video_ts=candidate.timestamp)
         try:
-            path = self._rt.evidence.save_snapshot(event_id, event.best_frame, event.head_box, now.timestamp(),
+            upgraded = verify_evidence_candidate(upgraded, self._rt.models().person,
+                                                  self._rt.cfg.evidence.min_box_iou)
+        except Exception as exc:
+            logger.warning("Full-coverage evidence verification failed for %s: %s", event_id, exc)
+        if not upgraded.verified:
+            logger.warning("Full-coverage evidence for %s is unverified (IoU %.2f)",
+                           event_id, upgraded.verification_iou)
+        self._rt.evidence_submit(self._store_snapshot, event_id, upgraded, datetime.now(timezone.utc),
+                                 f"{event_id}-full-{uuid.uuid4().hex}")
+
+    # -- evidence (pool thread) --------------------------------------------------------------------------
+    def _store_snapshot(self, event_id: str, event: NewEvent, now: datetime,
+                        snapshot_key: str | None = None) -> None:
+        try:
+            path = self._rt.evidence.save_snapshot(snapshot_key or event_id, event.best_frame, event.head_box, now.timestamp(),
                                                    f"{event.camera_id} track {event.track_id}", event.person_box,
                                                    {"camera_id": event.camera_id, "zone_name": event.roi_name,
                                                     "track_id": event.track_id, "timestamp": now.isoformat(),
                                                     "score": event.score, "covering_type": event.covering_type,
-                                                    "direction": event.direction})
+                                                    "coverage_state": event.coverage_state,
+                                                    "direction": event.direction, "frame_id": event.frame_id,
+                                                    "video_timestamp_seconds": event.snapshot_video_ts,
+                                                    "person_box": event.person_box, "head_box": event.head_box,
+                                                    "verification": "verified" if event.verified else "unverified",
+                                                    "verification_iou": event.verification_iou})
         except Exception as exc:
             logger.warning("Snapshot for event %s failed: %s", event_id, exc)
             return
 
         async def job(session) -> None:
-            await EventRepository(session).update_fields(event_id, snapshot_path=path)
+            repository = EventRepository(session)
+            current = await repository.get(event_id)
+            if current and current.coverage_state == event.coverage_state:
+                await repository.update_fields(event_id, snapshot_path=path)
 
         self._rt.writer.submit(job)
 
@@ -233,6 +293,10 @@ class CameraSession(threading.Thread):
             if is_file:
                 ok, frame = cap.read()
                 if ok:
+                    # The decoded image is the frame *before* the following grabs.
+                    # Keep its timestamp paired with that image for tracking, ROI
+                    # decisions, evidence and clip overlays.
+                    frame_ts = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
                     for _ in range(step - 1):    # skip frames to hold processing_fps
                         if not cap.grab():
                             break
@@ -264,7 +328,7 @@ class CameraSession(threading.Thread):
             last_good = time.monotonic()
             next_due = last_good + interval
             frames_read = int(cap.get(cv2.CAP_PROP_POS_FRAMES)) if is_file else frames_read + 1
-            ts = (cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0) if is_file else time.time()
+            ts = frame_ts if is_file else time.time()
             last_ts = ts
             frame = self._resize(frame, cfg.stream.frame_width)
 
@@ -346,6 +410,7 @@ class Runtime:
         self.sink = RuntimeSink(self)
         self.camera_names: dict[str, str] = {}
         self._rois: dict[str, list[RoiSpec]] = {}
+        self._ignore_saved_rois: set[str] = set()
         self._sessions: dict[str, CameraSession] = {}
         self._lock = threading.Lock()
         self._models = None
@@ -399,7 +464,9 @@ class Runtime:
         from app.db.repositories.sql_repo import EntryRoiRepository, CameraRepository
         async with init_db.session_scope() as session:
             event = await EventRepository(session).get(event_id)
-            if event is None or not self.cfg.alerts.channels.dashboard:
+            if event is None or not self.cfg.alerts.channels.dashboard or (
+                event.coverage_state == "PARTIALLY_COVERED" and not self.cfg.alerts.alert_on_partial
+            ):
                 return None
             roi = await EntryRoiRepository(session).get(event.roi_id) if event.roi_id else None
             camera = await CameraRepository(session).get(event.camera_id)
@@ -407,7 +474,9 @@ class Runtime:
             camera_name=event.camera_name or (camera.name if camera else self.camera_names.get(event.camera_id, "")), roi_name=roi.name if roi else "",
             track_id=event.track_id, score=event.score, covering_type=event.covering_type,
             occurred_at=event.first_seen, last_seen_at=event.last_seen,
-            frames_evaluated=event.frame_count, status=event.status, severity=self.cfg.alerts.severity,
+            frames_evaluated=event.frame_count, status=event.status,
+            severity="medium" if event.coverage_state == "PARTIALLY_COVERED" else self.cfg.alerts.severity,
+            coverage_state=event.coverage_state,
             roi_id=event.roi_id, branch_id=event.branch_id, branch_code=event.branch_code,
             branch_name=event.branch_name, place_name=event.place_name, region_name=event.region_name,
             branch_manager=event.branch_manager))
@@ -450,7 +519,7 @@ class Runtime:
         return self._rois.get(camera_id, [])
 
     def effective_rois_for(self, camera_id: str) -> list[RoiSpec]:
-        saved = self.rois_for(camera_id)
+        saved = self.rois_for(camera_id) if camera_id not in self._ignore_saved_rois else []
         if saved:
             return saved
         return [RoiSpec(id="__default_full_frame__", name="Full frame (no saved entry zone)",
@@ -459,12 +528,21 @@ class Runtime:
     def has_saved_rois(self, camera_id: str) -> bool:
         return bool(self._rois.get(camera_id, []))
 
+    def set_use_saved_roi(self, camera_id: str, enabled: bool) -> None:
+        if enabled:
+            self._ignore_saved_rois.discard(camera_id)
+        else:
+            self._ignore_saved_rois.add(camera_id)
+
     # -- sessions --------------------------------------------------------------------------------------
-    def start_camera(self, camera: Camera, fresh: bool = False) -> CameraStatus:
+    def start_camera(self, camera: Camera, fresh: bool = False,
+                     use_saved_roi: bool | None = None) -> CameraStatus:
         self.camera_names[camera.id] = camera.name
         if fresh:
             self.stop_camera(camera.id)
             self.clear_position(camera.id)
+        if use_saved_roi is not None:
+            self.set_use_saved_roi(camera.id, use_saved_roi)
         with self._lock:
             existing = self._sessions.get(camera.id)
             if existing is not None and existing.is_alive():

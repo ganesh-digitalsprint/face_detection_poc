@@ -37,6 +37,7 @@ class VisibilityResult:
     state: State
     covering_type: str = ""
     parts: dict[str, float] = field(default_factory=dict)   # eyes / nose / mouth / chin visibility 0..1
+    coverage_state: str = ""  # VISIBLE | PARTIALLY_COVERED | FULLY_COVERED; empty for legacy results
 
     @property
     def visibility(self) -> float:

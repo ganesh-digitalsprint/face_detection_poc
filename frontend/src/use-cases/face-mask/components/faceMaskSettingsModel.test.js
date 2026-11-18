@@ -24,3 +24,9 @@ test('cross-field rules: N <= M and min brightness < max brightness', () => {
   assert.ok(settingsErrors({ ...valid(), frames_to_confirm: '9' }).frames_to_confirm);
   assert.ok(settingsErrors({ ...valid(), min_brightness: '230' }).min_brightness);
 });
+
+test('new coverage settings validate only when the service provides them', () => {
+  assert.deepEqual(settingsErrors(valid()), {});
+  assert.match(settingsErrors({ ...valid(), partial_min_score: '1.5' }).partial_min_score, /between 0 and 1/);
+  assert.match(settingsErrors({ ...valid(), coverage_hysteresis_frames: '2.5' }).coverage_hysteresis_frames, /whole number/);
+});

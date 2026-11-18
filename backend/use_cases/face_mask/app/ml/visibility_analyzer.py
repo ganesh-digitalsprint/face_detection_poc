@@ -34,7 +34,31 @@ _PART_WEIGHTS = {"nose": 0.25, "mouth": 0.15, "chin": 0.2}
 _LOWER_FACE_WEIGHT = 0.4   # whole lower face; the weights sum to 1.0
 CLASSIFIER_CLASSES = ("visible", "sunglasses_only", "surgical_mask", "scarf", "cap_concealing", "helmet",
                       "other_mask", "unable")
+EXTENDED_CLASSIFIER_CLASSES = CLASSIFIER_CLASSES + ("mask_below_nose", "mask_under_chin",
+                                                   "half_face_covered", "hand_over_part_of_face")
 _NOT_CONCEALING = {"visible", "sunglasses_only"}
+_PARTIAL_CLASSES = {"mask_below_nose", "mask_under_chin", "half_face_covered", "hand_over_part_of_face"}
+
+
+def classify_coverage(score: float, parts: dict[str, float], covering_type: str,
+                      cfg: VisibilityConfig) -> VisibilityResult:
+    """Map measured visibility to an alertable state without changing the detector."""
+    if covering_type == "sunglasses":
+        return VisibilityResult(score, "VISIBLE", covering_type, parts, "VISIBLE")
+    if covering_type in {"full_face_covering", "helmet", "head_covering"}:
+        return VisibilityResult(score, "CONCEALED", covering_type, parts, "FULLY_COVERED")
+    if covering_type in _PARTIAL_CLASSES:
+        return VisibilityResult(score, "CONCEALED", covering_type, parts, "PARTIALLY_COVERED")
+    key_parts = [parts[p] for p in ("nose", "mouth", "chin") if p in parts]
+    visible = sum(value >= cfg.visible_min_score for value in key_parts)
+    hidden = sum(value < cfg.visible_min_score for value in key_parts)
+    if score >= cfg.full_min_score and (not key_parts or hidden == len(key_parts)):
+        return VisibilityResult(score, "CONCEALED", covering_type, parts, "FULLY_COVERED")
+    if score >= cfg.partial_min_score and hidden and visible >= cfg.parts_visible_for_partial:
+        return VisibilityResult(score, "CONCEALED", covering_type, parts, "PARTIALLY_COVERED")
+    if score >= cfg.partial_min_score and not key_parts:
+        return VisibilityResult(score, "CONCEALED", covering_type, parts, "PARTIALLY_COVERED")
+    return VisibilityResult(score, "VISIBLE", covering_type, parts, "VISIBLE")
 
 
 class VisibilityAnalyzer(Protocol):
@@ -146,9 +170,8 @@ class HeuristicVisibilityAnalyzer:
         visibility = (sum(_PART_WEIGHTS[p] * parts[p] for p in _PART_WEIGHTS)
                       + _LOWER_FACE_WEIGHT * lower_visibility)
         score = float(np.clip(1.0 - visibility, 0.0, 1.0))
-        if score >= self._cfg.threshold:
-            return VisibilityResult(score, "CONCEALED", "lower_face_covering", parts)
-        return VisibilityResult(score, "VISIBLE", "sunglasses" if dark_eyes else "", parts)
+        return classify_coverage(score, parts, "sunglasses" if dark_eyes and score < self._cfg.partial_min_score
+                                 else "lower_face_covering", self._cfg)
 
     # -- no face found: use body pose to separate "turned away / head down" from "covered" ----------------
     def _analyze_without_face(self, crop: np.ndarray, kps: Keypoints | None) -> VisibilityResult:
@@ -156,13 +179,13 @@ class HeuristicVisibilityAnalyzer:
         facing_camera = "nose" in face_pts and ("left_eye" in face_pts or "right_eye" in face_pts)
         if facing_camera:
             # Pose sees the nose and eyes pointing at the camera but the face detector sees no face: covered.
-            return VisibilityResult(0.8, "CONCEALED", "full_face_covering", {})
+            return classify_coverage(0.8, {}, "full_face_covering", self._cfg)
         if not _frontal_body(kps):
             return VisibilityResult(0.0, "UNABLE", "", {})   # turned away / no usable view: never an alert
         # Body faces the camera, head down or hidden, no face found.
         if self._cfg.head_down_policy == "concealed_if_frontal_body_and_no_skin":
             if _generic_skin_ratio(crop) < self._cfg.no_skin_ratio:
-                return VisibilityResult(0.7, "CONCEALED", "head_covering", {})
+                return classify_coverage(0.7, {}, "head_covering", self._cfg)
         return VisibilityResult(0.0, "UNABLE", "", {})
 
 
@@ -184,14 +207,17 @@ class ClassifierVisibilityAnalyzer:
         tensor = ((rgb - self._MEAN) / self._STD).transpose(2, 0, 1)[None]
         logits = self._session.run(None, {self._input: tensor})[0][0]
         exp = np.exp(logits - logits.max())
-        probs = dict(zip(CLASSIFIER_CLASSES, (exp / exp.sum()).tolist()))
+        classes = EXTENDED_CLASSIFIER_CLASSES if len(logits) == len(EXTENDED_CLASSIFIER_CLASSES) else CLASSIFIER_CLASSES
+        if len(logits) != len(classes):
+            return VisibilityResult(0.0, "UNABLE", "", {})
+        probs = dict(zip(classes, (exp / exp.sum()).tolist()))
         if probs["unable"] >= max(probs.values()):
             return VisibilityResult(0.0, "UNABLE", "", {})
         concealing = {c: p for c, p in probs.items() if c not in _NOT_CONCEALING and c != "unable"}
         score = float(sum(concealing.values()))
-        if score >= self._cfg.threshold:
-            return VisibilityResult(score, "CONCEALED", max(concealing, key=concealing.get), {})
-        return VisibilityResult(score, "VISIBLE", "sunglasses" if probs["sunglasses_only"] > 0.5 else "", {})
+        if score >= self._cfg.partial_min_score:
+            return classify_coverage(score, {}, max(concealing, key=concealing.get), self._cfg)
+        return VisibilityResult(score, "VISIBLE", "sunglasses" if probs["sunglasses_only"] > 0.5 else "", {}, "VISIBLE")
 
 
 def build_analyzer(cfg: VisibilityConfig, face_detector: FaceDetector | None, classifier_path: Path) -> VisibilityAnalyzer:

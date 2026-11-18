@@ -144,8 +144,15 @@ class EntryLogRepository:
         open_reviews = (await self._s.execute(
             select(func.count()).select_from(ConcealmentEventORM)
             .where(ConcealmentEventORM.status.in_(("OPEN", "UNDER_REVIEW"))))).scalar_one()
+        partial_stmt = select(func.count()).select_from(ConcealmentEventORM).where(
+            ConcealmentEventORM.coverage_state == "PARTIALLY_COVERED")
+        if since:
+            partial_stmt = partial_stmt.where(ConcealmentEventORM.first_seen >= _naive_utc(since))
+        if until:
+            partial_stmt = partial_stmt.where(ConcealmentEventORM.first_seen <= _naive_utc(until))
+        partial_events = (await self._s.execute(partial_stmt)).scalar_one()
         return StatsSummary(entries=len(rows), visible=counts["VISIBLE"], concealed=counts["CONCEALED"],
-                            unable_to_assess=counts["UNABLE_TO_ASSESS"], open_reviews=open_reviews,
+                            partial_events=partial_events, unable_to_assess=counts["UNABLE_TO_ASSESS"], open_reviews=open_reviews,
                             by_camera=by_camera, by_hour=by_hour)
 
 
@@ -154,10 +161,12 @@ class EventRepository:
         self._s = session
 
     async def create(self, event_id: str, camera_id: str, roi_id: str | None, track_id: int, score: float,
-                     covering_type: str, frame_count: int, first_seen: datetime) -> ConcealmentEvent:
+                     covering_type: str, frame_count: int, first_seen: datetime,
+                     coverage_state: str | None = None) -> ConcealmentEvent:
         camera = await self._s.get(CameraORM, camera_id)
         row = ConcealmentEventORM(id=event_id, camera_id=camera_id, roi_id=roi_id, track_id=track_id, score=score,
-                                  covering_type=covering_type, frame_count=frame_count, first_seen=first_seen,
+                                  covering_type=covering_type, coverage_state=coverage_state,
+                                  frame_count=frame_count, first_seen=first_seen,
                                   last_seen=first_seen, evidence_id=event_id,
                                   camera_name=camera.name if camera else None,
                                   **({key: getattr(camera, key) for key in ("branch_id", "branch_code", "branch_name",
@@ -170,7 +179,8 @@ class EventRepository:
         row = await self._s.get(ConcealmentEventORM, event_id)
         return ConcealmentEvent.model_validate(row) if row else None
 
-    def _filtered(self, stmt, date_from, date_to, camera_id, status, covering_type, statuses=None):
+    def _filtered(self, stmt, date_from, date_to, camera_id, status, covering_type, statuses=None,
+                  coverage_state=None):
         if date_from:
             stmt = stmt.where(ConcealmentEventORM.first_seen >= _naive_utc(date_from))
         if date_to:
@@ -183,15 +193,18 @@ class EventRepository:
             stmt = stmt.where(ConcealmentEventORM.status.in_(tuple(statuses)))
         if covering_type:
             stmt = stmt.where(ConcealmentEventORM.covering_type == covering_type)
+        if coverage_state:
+            stmt = stmt.where(ConcealmentEventORM.coverage_state == coverage_state)
         return stmt
 
     async def list(self, *, date_from=None, date_to=None, camera_id=None, status=None, covering_type=None,
-                   statuses=None, ascending: bool = False,
+                   statuses=None, coverage_state=None, ascending: bool = False,
                    limit: int = 50, offset: int = 0) -> tuple[list[ConcealmentEvent], int]:
-        base = self._filtered(select(ConcealmentEventORM), date_from, date_to, camera_id, status, covering_type, statuses)
+        base = self._filtered(select(ConcealmentEventORM), date_from, date_to, camera_id, status,
+                              covering_type, statuses, coverage_state)
         total = (await self._s.execute(
             self._filtered(select(func.count()).select_from(ConcealmentEventORM), date_from, date_to, camera_id,
-                           status, covering_type, statuses))).scalar_one()
+                           status, covering_type, statuses, coverage_state))).scalar_one()
         order = ConcealmentEventORM.first_seen.asc() if ascending else ConcealmentEventORM.first_seen.desc()
         tie = ConcealmentEventORM.id.asc() if ascending else ConcealmentEventORM.id.desc()
         rows = (await self._s.execute(base.order_by(order, tie).limit(limit).offset(offset))).scalars().all()

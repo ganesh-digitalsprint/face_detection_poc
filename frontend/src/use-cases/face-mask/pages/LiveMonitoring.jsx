@@ -16,14 +16,6 @@ import { PlaybackBadge, PlaybackProgress, StartStopControls } from '../../../com
 import { playbackPlaceholder, playbackStatus } from '../../../components/video/playbackState.js';
 import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
 
-const DEFAULT_ROI = {
-  name: 'Full frame default',
-  polygon: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }],
-  inward_vector: { x: 0, y: -1 },
-};
-
-// A sensible default entrance for a quick video test: the lower part of the frame, people walking "up" into the building.
-// Real cameras get their own Entry ROI on the common Regions & Zones page.
 const STAGE = { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', textAlign: 'center', padding: 16 };
 const LIVE_STATES = ['ONLINE', 'PROCESSING', 'RECONNECTING', 'DONE', 'STOPPED', 'STOPPING'];
 const browseFaceMaskVideos = () => api.get('/uploads/browse');
@@ -39,7 +31,7 @@ export default function LiveMonitoring() {
   const [nonce, setNonce] = useState(0);
   const [imgFailed, setImgFailed] = useState(false);
   const [debugOverlay, setDebugOverlay] = useState(false);
-  const [useDefaultRoi, setUseDefaultRoi] = useState(false);
+  const [useSavedRoi, setUseSavedRoi] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [starting, setStarting] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState('');
@@ -112,12 +104,12 @@ export default function LiveMonitoring() {
             select(source.cameraId); await cams.reload();
           } else {
             const created = await api.post('/videos/process', { path: source.processPath,
-              name: source.name.replace(/\.[^.]+$/, ''), roi: useDefaultRoi ? DEFAULT_ROI : null, branch_id: branchId });
+              name: source.name.replace(/\.[^.]+$/, ''), use_saved_roi: useSavedRoi, branch_id: branchId });
             select(created.id); await cams.reload();
           }
         }}>
         <label className="bx-row bx-gap-8" style={{ fontSize: 13, marginTop: 12 }}>
-          <input type="checkbox" checked={useDefaultRoi} onChange={(e) => setUseDefaultRoi(e.target.checked)} />
+          <input type="checkbox" checked={useSavedRoi} onChange={(e) => setUseSavedRoi(e.target.checked)} />
           Restrict evaluation to a saved entry area. If unchecked, Face Mask evaluates and plots the whole video frame; configure a reusable zone on <Link to="/regions?use_case=face_mask">Regions &amp; Zones</Link>.
         </label>
       </SourcePicker>}

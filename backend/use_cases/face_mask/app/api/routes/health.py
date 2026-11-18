@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.db import init_db
 from app.ml.models import model_status
 from app.services.runtime import Runtime
+from app.services.evidence_service import encoder_status
 
 router = APIRouter(tags=["health"])
 
@@ -32,4 +33,5 @@ async def health(runtime: Runtime = Depends(get_runtime)) -> dict:
         "models": {**models, "loaded": loaded, "analyzer_active": runtime._models.analyzer.name if loaded else None},  # noqa: SLF001
         "alerts": {"enabled": runtime.alerts.enabled, "pending": runtime.alerts.pending_count(),
                    "failed": runtime.alerts.failed_count()},
+        "evidence_encoder": {key: value for key, value in encoder_status().items() if key != "executable"},
     }

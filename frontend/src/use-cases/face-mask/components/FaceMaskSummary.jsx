@@ -4,6 +4,7 @@ import { faceMaskEventLink } from '../../../layouts/routes.js';
 import { api, coveringLabel, fmApiUrl, qs } from '../api/index.js';
 import usePolling from '../hooks/usePolling.js';
 import { ServiceDown } from './ui.jsx';
+import { coverageLabel } from '../coverageModel.js';
 
 /**
  * Security Brief section for the Face Mask use case, driven by the brief's filter bar.
@@ -26,6 +27,7 @@ export default function FaceMaskBriefSection({ filters }) {
     events.items.forEach((e) => { perCamera[e.camera_id] = (perCamera[e.camera_id] || 0) + 1; });
     return {
       stats, entriesApply, total: events.total,
+      partial: events.total <= events.items.length ? events.items.filter((e) => e.coverage_state === 'PARTIALLY_COVERED').length : null,
       confirmed: events.items.filter((e) => e.status === 'CONFIRMED').length,
       falsePositive: events.items.filter((e) => e.status === 'FALSE_POSITIVE').length,
       topCameras: Object.entries(perCamera).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, n]) => ({ name: names[id] || id.slice(0, 8), n })),
@@ -41,7 +43,7 @@ export default function FaceMaskBriefSection({ filters }) {
       {data && (
         <>
           <div className="bx-kpis">
-            {[['Entries evaluated', data.entriesApply ? data.stats.entries : 'n/a'], ['Concealed events', data.total, data.total > 0], ['Confirmed', data.confirmed],
+            {[['Entries evaluated', data.entriesApply ? data.stats.entries : 'n/a'], ['Concealed events', data.total, data.total > 0], ['Partial', data.partial ?? '—'], ['Confirmed', data.confirmed],
               ['False positives', data.falsePositive], ['Unable to assess', data.entriesApply ? data.stats.unable_to_assess : 'n/a'], ['Open reviews', data.stats.open_reviews]]
               .map(([l, v, hot]) => <div key={l}><div className="v" style={hot ? { color: '#dc2626' } : undefined}>{v}</div><div className="l">{l}</div></div>)}
           </div>
@@ -62,7 +64,7 @@ export default function FaceMaskBriefSection({ filters }) {
                       <img src={fmApiUrl(`/events/${e.id}/evidence/snapshot`)} alt={`${coveringLabel(e.covering_type)} event, track ${e.track_id}`}
                         style={{ width: '100%', borderRadius: 6, background: '#000' }} />
                     </Link>
-                    <figcaption className="bx-muted" style={{ fontSize: 11 }}>{coveringLabel(e.covering_type)} · {new Date(e.first_seen).toLocaleString()}</figcaption>
+                    <figcaption className="bx-muted" style={{ fontSize: 11 }}>{coveringLabel(e.covering_type)} · {coverageLabel(e.coverage_state)} · {new Date(e.first_seen).toLocaleString()}</figcaption>
                   </figure>
                 ))}
               </div>

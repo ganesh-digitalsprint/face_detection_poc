@@ -17,6 +17,7 @@ import { evidenceFields, matchesEvidence } from '../api/alertEvidence.js';
 import './AlertCenter.css';
 import AlertFilterToolbar from '../components/alerts/AlertFilterToolbar.jsx';
 import { clearAlertCenterFilters, updateAlertCenterQuery } from './alertCenterFilters.js';
+import { coverageOfAlert } from '../use-cases/face-mask/coverageModel.js';
 
 function SummaryTile({ label, value, critical = false }) {
   return <section className={`vault-card min-h-24 p-4 ${critical ? 'border-red-200' : ''}`} aria-label={label}>
@@ -31,6 +32,7 @@ export default function AlertCenter() {
   const [query, setQuery] = useSearchParams();
   const status = query.get('status') || '';
   const useCase = query.get('use_case') || '';
+  const coverageState = query.get('coverage_state') || '';
   const severity = query.get('severity') || '';
   const sourceType = query.get('type') || '';
   const from = query.get('from') || '';
@@ -72,7 +74,8 @@ export default function AlertCenter() {
   const evidenceRecords = useMemo(() => detailRecord && detailRecord.id === selectedId && !feed.items.some((row) => row.id === selectedId)
     ? [...feed.items, detailRecord] : feed.items, [feed.items, detailRecord, selectedId]);
   const evidenceItems=useAlertEvidence(evidenceRecords);
-  const visibleItems = evidenceItems.filter((item) => feed.items.some((row) => row.id === item.id) && matchesEvidence(item,evidence));
+  const visibleItems = evidenceItems.filter((item) => feed.items.some((row) => row.id === item.id) && matchesEvidence(item,evidence)
+    && (!coverageState || (item.useCase === 'face_mask' && coverageOfAlert(item) === coverageState)));
   const selected = evidenceItems.find((item) => item.id === selectedId || (selectedId === null && sourceEventId && item.sourceEventId === sourceEventId)) || null;
   const [sourceDetail, setSourceDetail] = useState(null);
   const [sourceError, setSourceError] = useState('');
@@ -91,7 +94,9 @@ export default function AlertCenter() {
 
 
   const setFilter = (key, value) => {
-    setQuery(updateAlertCenterQuery(query, key, value));
+    const next = updateAlertCenterQuery(query, key, value);
+    if (key === 'use_case' && value !== 'face_mask') next.delete('coverage_state');
+    setQuery(next);
   };
   useEffect(() => setTypeInput(sourceType), [sourceType]);
   useEffect(() => {
@@ -134,10 +139,11 @@ export default function AlertCenter() {
     } finally { setPending(false); }
   }, [feed]);
 
-  const noFilters = !group && !branchId && !cameraId && !evidence && !sourceEventId && !status && !useCase && !severity && !sourceType && !from && !to;
+  const noFilters = !group && !branchId && !cameraId && !evidence && !sourceEventId && !status && !useCase && !severity && !sourceType && !coverageState && !from && !to;
   const clearFilters = () => {
     const next = clearAlertCenterFilters(query);
     setTypeInput('');
+    next.delete('coverage_state');
     setQuery(next);
   };
   const bySeverity = feed.summary?.by_severity;
@@ -169,6 +175,12 @@ export default function AlertCenter() {
     </section>
     <AlertFilterToolbar query={query} onChange={setFilter} onClear={clearFilters}
       typeInput={typeInput} onTypeInput={setTypeInput} />
+    {useCase === 'face_mask' && <label className="inline-flex items-center gap-2 text-sm text-slate-700">Coverage
+      <select aria-label="Filter Face Mask by coverage" className={input} value={coverageState} onChange={(event) => setFilter('coverage_state', event.target.value)}>
+        <option value="">All</option><option value="PARTIALLY_COVERED">Partial</option><option value="FULLY_COVERED">Full</option>
+      </select>
+    </label>}
+    {useCase === 'face_mask' && coverageState && <p className="text-xs text-slate-500">Coverage filtering applies to loaded alerts. Load more to search additional pages.</p>}
     <div className="center-content min-w-0">
       <section className="center-list min-w-0">
         {feed.error && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">

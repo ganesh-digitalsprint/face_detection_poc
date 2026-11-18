@@ -57,6 +57,7 @@ _ADDED_COLUMNS = (
     ("fm_concealment_event", "region_name", "VARCHAR(200)"),
     ("fm_concealment_event", "branch_manager", "VARCHAR(200)"),
     ("fm_concealment_event", "camera_name", "VARCHAR(120)"),
+    ("fm_concealment_event", "coverage_state", "VARCHAR(24)"),
     ("fm_concealment_event", "review_version", "INTEGER NOT NULL DEFAULT 1"),
 )
 

@@ -31,6 +31,7 @@ class ConcealmentEvent(BaseModel):
     status: EventStatus
     score: float
     covering_type: str
+    coverage_state: str | None = None
     track_id: int
     camera_id: str
     roi_id: str | None
@@ -75,6 +76,15 @@ class EvidenceDetails(BaseModel):
     timestamp: UtcDatetime
     score: float
     covering_type: str
+    coverage_state: str | None = None
+    crop_url: str | None = None
+    clip_format: str | None = None
+    verification: str | None = None
+    verification_iou: float | None = None
+    frame_id: int | None = None
+    video_timestamp_seconds: float | None = None
+    person_box: tuple[float, float, float, float] | None = None
+    head_box: tuple[float, float, float, float] | None = None
     frames_evaluated: int
     snapshot_url: str | None
     clip_url: str | None

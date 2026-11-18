@@ -48,6 +48,7 @@ class AlertEvent:
     frames_evaluated: int
     status: str = "OPEN"
     severity: str = "high"
+    coverage_state: str | None = None
     roi_id: str | None = None
     branch_id: str | None = None
     branch_code: str | None = None
@@ -80,7 +81,9 @@ def build_payload(event: AlertEvent) -> dict:
     entry = _safe_reference(event.roi_name, 128)
     where = f"{camera_name or event.camera_id}" + (f" / {entry}" if entry else "")
     occurred = _utc(event.occurred_at)
-    title = f"Face concealment at {where}"
+    title = (f"Partially covered face detected at {where}" if event.coverage_state == "PARTIALLY_COVERED"
+             else f"Masked person detected at {where}" if event.coverage_state == "FULLY_COVERED"
+             else f"Face concealment at {where}")
     summary = (f"Face concealment detected at {where} on {_timestamp(occurred)} "
                f"(covering: {event.covering_type or 'unknown'}, score {event.score:.2f}). "
                f"Review at /face-mask/events/{event.id}")
@@ -113,6 +116,7 @@ def build_payload(event: AlertEvent) -> dict:
             "schema_version": "face-mask-event/1",
             "confidence": float(event.score),
             "covering_type": event.covering_type,
+            "coverage_state": event.coverage_state,
             "track_id": int(event.track_id),
             "frames_evaluated": int(event.frames_evaluated),
             "event_path": f"/face-mask/events/{event.id}",

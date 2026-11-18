@@ -78,12 +78,23 @@ class ModelsConfig(_Section):
 class VisibilityConfig(_Section):
     analyzer: Literal["heuristic", "classifier"] = "heuristic"
     threshold: float = Field(ge=0.0, le=1.0)
+    visible_min_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    partial_min_score: float = Field(default=0.35, ge=0.0, le=1.0)
+    full_min_score: float = Field(default=0.78, ge=0.0, le=1.0)
+    parts_visible_for_partial: int = Field(default=1, ge=1, le=3)
+    coverage_hysteresis_frames: int = Field(default=2, ge=1, le=8)
     head_down_policy: Literal["unable", "concealed_if_frontal_body_and_no_skin"]
     min_face_score: float = Field(ge=0.0, le=1.0)       # YuNet confidence needed to trust a detected face
     skin_chroma_k: float = Field(gt=0.0)                # skin tolerance = k x spread of the reference skin patches
     no_skin_ratio: float = Field(ge=0.0, le=1.0)        # head crop with less skin than this counts as "no skin"
     min_skin_cr: float = Field(ge=100.0, le=160.0)      # skin is reddish: pixels with Cr below this (white/grey/blue) are not skin
     skin_luma_tolerance: float = Field(gt=0.0, le=255.0)  # max brightness difference (Y) from the face's own skin
+
+    @model_validator(mode="after")
+    def _coverage_threshold_order(self) -> "VisibilityConfig":
+        if self.partial_min_score >= self.full_min_score:
+            raise ValueError("visibility.partial_min_score must be below full_min_score")
+        return self
 
 
 class ConfirmationConfig(_Section):
@@ -138,6 +149,7 @@ class EvidenceConfig(_Section):
     clip_pre_seconds: float = Field(ge=0.0)
     clip_post_seconds: float = Field(ge=0.0)
     snapshot_quality: int = Field(ge=1, le=100)
+    min_box_iou: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class CooldownConfig(_Section):
@@ -154,6 +166,7 @@ class AlertChannelsConfig(_Section):
 
 class AlertsConfig(_Section):
     severity: Literal["low", "medium", "high", "critical"] = "high"
+    alert_on_partial: bool = True
     channels: AlertChannelsConfig
 
 

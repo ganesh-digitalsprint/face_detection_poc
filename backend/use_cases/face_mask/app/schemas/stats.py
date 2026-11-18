@@ -7,6 +7,7 @@ class StatsSummary(BaseModel):
     entries: int = 0
     visible: int = 0
     concealed: int = 0
+    partial_events: int = 0
     unable_to_assess: int = 0
     open_reviews: int = 0
     by_camera: dict[str, int] = {}

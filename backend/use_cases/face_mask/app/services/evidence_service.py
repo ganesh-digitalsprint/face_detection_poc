@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -20,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from functools import lru_cache
 
 import cv2
 import numpy as np
@@ -31,6 +33,36 @@ logger = logging.getLogger(__name__)
 
 # Fail explicitly if H.264 is unavailable; an mp4v file with an .mp4 suffix is not a browser-playable substitute.
 _BUFFER_JPEG_QUALITY = 70
+
+
+@lru_cache(maxsize=1)
+def encoder_status() -> dict[str, str]:
+    """Find an encoder even when a service was launched with a minimal PATH."""
+    candidates = [shutil.which("ffmpeg")]
+    try:
+        import imageio_ffmpeg
+        candidates.append(imageio_ffmpeg.get_ffmpeg_exe())
+    except (ImportError, RuntimeError):
+        pass
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidates.extend(str(p) for p in (Path(local) / "Microsoft" / "WinGet" / "Packages").glob(
+            "Gyan.FFmpeg_*/**/bin/ffmpeg.exe"))
+    for executable in dict.fromkeys(str(p) for p in candidates if p):
+        try:
+            result = subprocess.run([executable, "-hide_banner", "-encoders"],
+                                    capture_output=True, text=True, timeout=10, check=False)
+            encoders = result.stdout
+            if result.returncode == 0:
+                if " libx264 " in encoders:
+                    return {"status": "ok", "codec": "libx264", "executable": executable}
+                if " libvpx-vp9 " in encoders:
+                    return {"status": "fallback", "codec": "libvpx-vp9", "executable": executable}
+                if " libvpx " in encoders:
+                    return {"status": "fallback", "codec": "libvpx", "executable": executable}
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return {"status": "unavailable", "codec": "", "executable": ""}
 
 
 def relative_to_storage(path: Path) -> str:
@@ -66,6 +98,7 @@ class _PendingClip:
     end_ts: float
     frames: list[tuple[float, bytes, dict[int, tuple[float, float, float, float]]]]
     on_done: Callable[[str, str, str, str], None]   # (event_id, status, relative_path, error)
+    coverage_state: str = "FULLY_COVERED"
 
 
 @dataclass
@@ -104,12 +137,22 @@ class EvidenceRecorder:
                 self._pool.submit(self._write_clip, clip)
 
     def start_clip(self, camera_id: str, event_id: str, ts: float,
-                   on_done: Callable[[str, str, str, str], None], track_id: int = -1) -> None:
+                   on_done: Callable[[str, str, str, str], None], track_id: int = -1,
+                   coverage_state: str = "FULLY_COVERED") -> None:
         """Take the pre-roll now and keep collecting until `clip_post_seconds` after `ts`."""
         with self._lock:
             buffer = self._buffers.setdefault(camera_id, RollingFrameBuffer(self.cfg.clip_pre_seconds))
-            clip = _PendingClip(event_id, track_id, ts + self.cfg.clip_post_seconds, buffer.snapshot(), on_done)
+            clip = _PendingClip(event_id, track_id, ts + self.cfg.clip_post_seconds, buffer.snapshot(),
+                                on_done, coverage_state)
             self._pending.setdefault(camera_id, []).append(clip)
+
+    def upgrade_pending_clip(self, event_id: str, coverage_state: str) -> None:
+        """Use the final severity if a clip is still collecting; never rewrite finished clips."""
+        with self._lock:
+            for clips in self._pending.values():
+                for clip in clips:
+                    if clip.event_id == event_id:
+                        clip.coverage_state = coverage_state
 
     def flush(self, camera_id: str) -> None:
         """Write any open clips with what has been collected (stream stopped / video ended)."""
@@ -125,12 +168,13 @@ class EvidenceRecorder:
         if frame is None:
             raise ValueError("no frame available for the snapshot")
         image = frame.copy()
+        box_color = (0, 150, 255) if details and details.get("coverage_state") == "PARTIALLY_COVERED" else (0, 0, 230)
         if person_box is not None:
             bx1, by1, bx2, by2 = (int(round(v)) for v in person_box)
-            cv2.rectangle(image, (bx1, by1), (bx2, by2), (0, 0, 230), 4)
+            cv2.rectangle(image, (bx1, by1), (bx2, by2), box_color, 4)
         if head_box is not None:
             x1, y1, x2, y2 = (int(round(v)) for v in head_box)
-            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 230), 2)
+            cv2.rectangle(image, (x1, y1), (x2, y2), box_color, 2)
         stamp = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         cv2.putText(image, f"{stamp}  {label}", (8, image.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                     (255, 255, 255), 1, cv2.LINE_AA)
@@ -142,8 +186,17 @@ class EvidenceRecorder:
             bx1, by1, bx2, by2 = (int(round(v)) for v in person_box)
             bx1, by1, bx2, by2 = max(0, bx1), max(0, by1), min(frame.shape[1], bx2), min(frame.shape[0], by2)
             if bx2 > bx1 and by2 > by1:
-                cv2.imwrite(str(self.snapshot_dir / f"{event_id}_person.jpg"), frame[by1:by2, bx1:bx2],
-                            [cv2.IMWRITE_JPEG_QUALITY, self.cfg.snapshot_quality])
+                # Reviewer crop: head and shoulders from the same verified source frame.
+                shoulder_bottom = min(by2, by1 + max(1, int((by2 - by1) * 0.55)))
+                crop = frame[by1:shoulder_bottom, bx1:bx2]
+                if crop.size:
+                    factor = max(1.0, 320.0 / max(crop.shape[1], 1))
+                    if factor > 1.0:
+                        crop = cv2.resize(crop, None, fx=factor, fy=factor, interpolation=cv2.INTER_CUBIC)
+                    crop_path = self.snapshot_dir / f"{event_id}_person.jpg"
+                    if cv2.imwrite(str(crop_path), crop,
+                                   [cv2.IMWRITE_JPEG_QUALITY, self.cfg.snapshot_quality]) and details is not None:
+                        details["person_crop_path"] = relative_to_storage(crop_path)
         if details is not None:
             (self.snapshot_dir / f"{event_id}.json").write_text(json.dumps(details, indent=2), encoding="utf-8")
         return relative_to_storage(path)
@@ -159,35 +212,42 @@ class EvidenceRecorder:
             span = frames[-1][0] - frames[0][0]
             duration = min(span, max(0.1, self.cfg.clip_pre_seconds + self.cfg.clip_post_seconds - 0.05))
             fps = max(2.0, min(15.0, len(frames) / duration)) if duration > 0 else 5.0
-            path = self._encode(clip.event_id, frames, fps)
+            path = self._encode(clip.event_id, frames, fps, clip.coverage_state)
             clip.on_done(clip.event_id, "ready", relative_to_storage(path), "")
         except Exception as exc:
             logger.warning("Clip for event %s failed: %s", clip.event_id, exc)
             clip.on_done(clip.event_id, "failed", "", str(exc)[:290])
 
-    def _encode(self, event_id: str, frames: list[tuple[float, np.ndarray, tuple[float, float, float, float] | None]], fps: float) -> Path:
+    def _encode(self, event_id: str, frames: list[tuple[float, np.ndarray, tuple[float, float, float, float] | None]],
+                fps: float, coverage_state: str = "FULLY_COVERED") -> Path:
         self.clip_dir.mkdir(parents=True, exist_ok=True)
         height, width = frames[0][1].shape[:2]
-        ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            raise RuntimeError("ffmpeg with libx264 is required for browser-playable evidence clips")
-        path = self.clip_dir / f"{event_id}.mp4"
-        command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pixel_format", "bgr24",
+        encoder = encoder_status()
+        if encoder["status"] == "unavailable":
+            raise RuntimeError("No browser-playable evidence encoder was found (H.264 or WebM)")
+        codec = encoder["codec"]
+        path = self.clip_dir / f"{event_id}.{'mp4' if codec == 'libx264' else 'webm'}"
+        command = [encoder["executable"], "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pixel_format", "bgr24",
                    "-video_size", f"{width}x{height}", "-framerate", f"{fps:.6f}", "-i", "pipe:0", "-an",
-                   "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                   "-y", str(path)]
+                   "-c:v", codec]
+        if codec == "libx264":
+            command += ["-preset", "veryfast", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+        else:
+            command += ["-pix_fmt", "yuv420p"]
+        command += ["-y", str(path)]
         payload = bytearray()
         for _, img, box in frames:
             image = img if img.shape[:2] == (height, width) else cv2.resize(img, (width, height))
             image = image.copy()
             if box is not None:
                 x1, y1, x2, y2 = (int(round(value)) for value in box)
-                cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 230), 4)
+                color = (0, 150, 255) if coverage_state == "PARTIALLY_COVERED" else (0, 0, 230)
+                cv2.rectangle(image, (x1, y1), (x2, y2), color, 4)
             payload.extend(image.tobytes())
         result = subprocess.run(command, input=payload, capture_output=True, check=False)
         if result.returncode or not path.is_file() or path.stat().st_size == 0:
             path.unlink(missing_ok=True)
-            raise RuntimeError(f"H.264 encoding failed: {result.stderr.decode('utf-8', errors='replace')[:200]}")
+            raise RuntimeError(f"Evidence encoding failed: {result.stderr.decode('utf-8', errors='replace')[:200]}")
         return path
 
     def shutdown(self) -> None:

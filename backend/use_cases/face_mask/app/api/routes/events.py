@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Literal, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -73,6 +74,8 @@ def _storage_file(relative: str):
 async def list_events(
     date_from: datetime | None = None, date_to: datetime | None = None, camera_id: str | None = None,
     status: EventStatus | None = None, covering_type: str | None = None,
+    coverage: Literal["partial", "full"] | None = None,
+    coverage_state: Literal["PARTIALLY_COVERED", "FULLY_COVERED"] | None = None,
     statuses: str | None = Query(default=None, description="Comma-separated statuses (e.g. OPEN,UNDER_REVIEW)"),
     sort: Literal["asc", "desc"] = "desc",
     outcome: str | None = Query(default=None, description="Events are always CONCEALED; use /api/entries for other outcomes"),
@@ -84,15 +87,19 @@ async def list_events(
         return EventPage(items=[], total=0, limit=limit, offset=offset)
     items, total = await EventRepository(session).list(
         date_from=date_from, date_to=date_to, camera_id=camera_id, status=status, covering_type=covering_type,
-        statuses=parse_statuses(statuses), ascending=sort == "asc", limit=limit, offset=offset)
+        statuses=parse_statuses(statuses), coverage_state=coverage_state or ("PARTIALLY_COVERED" if coverage == "partial"
+            else "FULLY_COVERED" if coverage == "full" else None),
+        ascending=sort == "asc", limit=limit, offset=offset)
     severity = runtime.cfg.alerts.severity.upper()
-    return EventPage(items=[item.model_copy(update={"severity": severity}) for item in items], total=total, limit=limit, offset=offset)
+    return EventPage(items=[item.model_copy(update={"severity": "MEDIUM" if item.coverage_state == "PARTIALLY_COVERED"
+                                                    else severity}) for item in items], total=total, limit=limit, offset=offset)
 
 
 @router.get("/{event_id}", response_model=ConcealmentEvent)
 async def get_event(event_id: str, session: AsyncSession = Depends(get_session), runtime: Runtime = Depends(get_runtime)):
     event = await _event(session, event_id)
-    return event.model_copy(update={"severity": runtime.cfg.alerts.severity.upper()})
+    return event.model_copy(update={"severity": "MEDIUM" if event.coverage_state == "PARTIALLY_COVERED"
+                                                else runtime.cfg.alerts.severity.upper()})
 
 
 @router.get("/{event_id}/actions", response_model=list[ReviewAction])
@@ -121,11 +128,25 @@ async def evidence_details(event_id: str, session: AsyncSession = Depends(get_se
     camera = await CameraRepository(session).get(event.camera_id)
     roi = await EntryRoiRepository(session).get(event.roi_id) if event.roi_id else None
     from fedbank_core.events.evidence import media_path
+    details = {}
+    if event.snapshot_path:
+        try:
+            image = _storage_file(event.snapshot_path)
+            details = json.loads(image.with_suffix(".json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, NotFoundError):
+            pass
+    crop_path = details.get("person_crop_path")
     return EvidenceDetails(
         event_id=event.id, camera_id=event.camera_id,
         camera_name=camera.name if camera else runtime.camera_names.get(event.camera_id, ""),
         roi_name=roi.name if roi else "", track_id=event.track_id, timestamp=event.first_seen, score=event.score,
-        covering_type=event.covering_type, frames_evaluated=event.frame_count,
+        covering_type=event.covering_type, coverage_state=event.coverage_state,
+        crop_url=f"/api/events/{event.id}/evidence/crop" if crop_path and media_path(crop_path, "face_mask") else None,
+        clip_format="webm" if event.clip_path.lower().endswith(".webm") else "mp4",
+        verification=details.get("verification"), verification_iou=details.get("verification_iou"),
+        frame_id=details.get("frame_id"), video_timestamp_seconds=details.get("video_timestamp_seconds"),
+        person_box=details.get("person_box"), head_box=details.get("head_box"),
+        frames_evaluated=event.frame_count,
         snapshot_url=f"/api/events/{event.id}/evidence/snapshot" if media_path(event.snapshot_path, 'face_mask') else None,
         clip_url=f"/api/events/{event.id}/evidence/clip" if event.clip_status == "ready" and media_path(event.clip_path, 'face_mask') else None,
         clip_status=event.clip_status, clip_error=event.clip_error)
@@ -136,6 +157,16 @@ async def evidence_snapshot(event_id: str, session: AsyncSession = Depends(get_s
     event = await _event(session, event_id)
     path = _storage_file(event.snapshot_path)
     return FileResponse(path, media_type=_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"))
+
+
+@router.get("/{event_id}/evidence/crop")
+async def evidence_crop(event_id: str, session: AsyncSession = Depends(get_session)):
+    event = await _event(session, event_id)
+    snapshot = _storage_file(event.snapshot_path)
+    crop = snapshot.with_name(f"{snapshot.stem}_person.jpg")
+    if not crop.is_file():
+        raise NotFoundError("No person crop for this event")
+    return FileResponse(crop, media_type="image/jpeg")
 
 
 @router.get("/{event_id}/evidence/clip")

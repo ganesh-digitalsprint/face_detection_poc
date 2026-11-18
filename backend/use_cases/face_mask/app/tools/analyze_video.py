@@ -17,6 +17,7 @@ from app.core.config import load_face_mask_config
 from app.ml.models import load_models
 from app.tools._common import describe, parse_roi
 from app.tools.runner import run_video
+from app.services.event_service import verify_evidence_candidate
 
 
 def main() -> int:
@@ -26,10 +27,14 @@ def main() -> int:
     parser.add_argument("--roi", help="normalised polygon x1,y1,x2,y2,... (at least 3 points)")
     parser.add_argument("--inward", help="entering direction dx,dy (default 0,-1)")
     parser.add_argument("--max-frames", type=int, default=0, help="stop after N processed frames (0 = whole video)")
+    parser.add_argument("--frame-width", type=int, help="diagnostic override for processing width (does not edit settings)")
+    parser.add_argument("--verify-events", action="store_true", help="re-detect each event's exact evidence frame")
     parser.add_argument("--debug-jsonl", help="write one structured observation per tracked person per processed frame")
     args = parser.parse_args()
 
     cfg = load_face_mask_config()
+    if args.frame_width:
+        cfg = cfg.model_copy(update={"stream": cfg.stream.model_copy(update={"frame_width": args.frame_width})})
     rois = parse_roi(args.roi, args.inward)
     print(f"{args.video} | {describe(cfg)}")
     print(f"ROI: {'none (whole-frame analysis, no saved entry zone)' if not rois else rois[0].polygon} inward={rois[0].inward if rois else '-'}")
@@ -57,6 +62,13 @@ def main() -> int:
     print(f"processed {report.frames} frames in {report.seconds:.1f}s = {report.fps:.1f} fps on this CPU")
     print(f"tracks seen: {len(report.tracks_seen)} | observation states: {report.states}")
     print(f"entries logged: {report.entries} | events: {len(report.events)}")
+    if args.verify_events:
+        for event in report.event_details:
+            checked = verify_evidence_candidate(event, models.person, cfg.evidence.min_box_iou)
+            video_ts = f"{checked.snapshot_video_ts:.3f}s" if checked.snapshot_video_ts is not None else "unknown"
+            print(f"evidence track #{event.track_id}: frame={checked.frame_id} "
+                  f"video_ts={video_ts} verified={checked.verified} "
+                  f"IoU={checked.verification_iou:.3f} box={checked.person_box}")
     print(f"annotated video: {args.out}")
     return 0
 

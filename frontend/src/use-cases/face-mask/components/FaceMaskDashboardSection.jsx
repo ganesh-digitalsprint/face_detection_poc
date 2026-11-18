@@ -4,7 +4,8 @@ import { toggleTheme, useBxTheme } from '../../branch-exterior/theme.js';
 import { faceMaskEventLink } from '../../../layouts/routes.js';
 import { api, coveringLabel, fmtTime } from '../api/index.js';
 import usePolling from '../hooks/usePolling.js';
-import { EventStatusBadge, PageState, StreamBadge } from './ui.jsx';
+import { Badge, EventStatusBadge, PageState, StreamBadge } from './ui.jsx';
+import { coverageLabel, coverageSeverity, partialCount } from '../coverageModel.js';
 import '../../branch-exterior/branchExterior.css';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
@@ -22,6 +23,7 @@ export default function FaceMaskDashboardSection() {
   const s = stats.data;
   const tiles = s ? [
     ['Entries today', s.entries], ['Visible', s.visible], ['Concealed', s.concealed, s.concealed > 0],
+    ['Partial', partialCount(s) ?? '—'],
     ['Unable to assess', s.unable_to_assess], ['Open reviews', s.open_reviews, s.open_reviews > 0],
   ] : [];
 
@@ -70,12 +72,12 @@ export default function FaceMaskDashboardSection() {
         <PageState loading={events.loading} error={events.error} data={events.data} onRetry={events.reload}
           isEmpty={(d) => d.items.length === 0} emptyIcon="🛡" emptyText="No concealment events yet.">
           <table className="bx-table">
-            <thead><tr><th>Time</th><th>Track</th><th>Covering</th><th>Score</th><th>Status</th></tr></thead>
+            <thead><tr><th>Time</th><th>Track</th><th>Covering</th><th>Coverage</th><th>Severity</th><th>Score</th><th>Status</th></tr></thead>
             <tbody>
               {(events.data?.items || []).map((e) => (
                 <tr key={e.id}>
                   <td><Link to={faceMaskEventLink(e.id)}>{fmtTime(e.first_seen)}</Link></td><td>#{e.track_id}</td>
-                  <td>{coveringLabel(e.covering_type)}</td><td>{e.score.toFixed(2)}</td><td><EventStatusBadge status={e.status} /></td>
+                  <td>{coveringLabel(e.covering_type)}</td><td>{coverageLabel(e.coverage_state)}</td><td><Badge kind="sev" value={(coverageSeverity(e) || 'info').toLowerCase()} text={coverageSeverity(e) || '—'} /></td><td>{Number(e.score || 0).toFixed(2)}</td><td><EventStatusBadge status={e.status} /></td>
                 </tr>
               ))}
             </tbody>

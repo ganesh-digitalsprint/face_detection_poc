@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, BX_BASE, bxUrl } from '../api/index.js';
+import { api as faceMaskApi } from '../../face-mask/api/index.js';
 
 const PAGE_BUILD = 10;
 const Code = ({ children }) => <code>{children}</code>;
@@ -14,6 +15,21 @@ export default function SystemCheckPage() {
       const out = [];
       const add = (kind, title, detail) => out.push({ kind, title, detail });
       const done = () => alive && setRows([...out]);
+      // This is the common System Check page: Face Mask diagnostics must remain
+      // visible even when Branch Exterior is offline.
+      try {
+        const faceMask = await faceMaskApi.get('/health');
+        const encoder = faceMask.evidence_encoder;
+        if (encoder?.status === 'ok') {
+          add('ok', `Face Mask evidence encoder: ${encoder.codec} OK`, 'Browser-playable evidence clips are available.');
+        } else if (encoder?.status === 'fallback') {
+          add('warn', `Face Mask evidence encoder: ${encoder.codec} fallback`, 'Clips use browser-playable WebM because H.264 is unavailable.');
+        } else {
+          add('bad', 'Face Mask evidence encoder unavailable', 'Snapshots are kept, but evidence clips cannot be encoded.');
+        }
+      } catch (e) {
+        add('warn', 'Face Mask evidence encoder not checked', e.message);
+      }
       let h = null;
       try { h = await api.get('/health'); } catch (e) {
         add('bad', 'Server not reachable', <>Is it running? Start it with <Code>python -m uvicorn app.main:app --port 8011</Code> in backend/use_cases/branch_exterior. ({e.message})</>);

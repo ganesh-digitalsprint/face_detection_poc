@@ -83,6 +83,7 @@ class ConcealmentEventORM(Base):
     status: Mapped[str] = mapped_column(String(20), default="OPEN")
     score: Mapped[float] = mapped_column(Float, default=0.0)
     covering_type: Mapped[str] = mapped_column(String(32), default="")
+    coverage_state: Mapped[str | None] = mapped_column(String(24), nullable=True)
     track_id: Mapped[int] = mapped_column(Integer)
     camera_id: Mapped[str] = mapped_column(String(32))
     roi_id: Mapped[str | None] = mapped_column(String(32), nullable=True)

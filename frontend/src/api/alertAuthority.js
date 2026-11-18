@@ -16,7 +16,7 @@ const faceView = (alert,row) => {
     cameraName:row.camera_name || alert.cameraName,branchName:row.branch_name || alert.branchName,
     branchCode:row.branch_code || alert.branchCode,placeName:row.place_name || alert.placeName,
     regionName:row.region_name || alert.regionName,branchManager:row.branch_manager || alert.branchManager,
-    domainData:{...alert.domainData,confidence:row.score,covering_type:row.covering_type,track_id:row.track_id}};
+    domainData:{...alert.domainData,confidence:row.score,covering_type:row.covering_type,track_id:row.track_id,coverage_state:row.coverage_state ?? alert.domainData?.coverage_state}};
 };
 const sourceView = (alert, row) => {
   if (!row?.id || !Number.isInteger(row.row_version) || row.row_version < 1 || !['OPEN','ACKNOWLEDGED','RESOLVED','DISMISSED'].includes(row.status) ||
