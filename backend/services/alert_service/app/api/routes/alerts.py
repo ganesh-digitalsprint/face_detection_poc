@@ -13,7 +13,7 @@ from app.db.models import Alert, AlertAudit, NotificationOutbox
 from app.db.repositories import (Conflict, alert_dict, audit_for, ingest, list_alerts,
                                  resolve_source, summary, transition, update_source)
 from app.deps import (OperatorIdentity, ProducerIdentity, get_db, get_operator,
-                      get_producer, require_scope)
+                      get_producer, require_branch, require_scope)
 from app.schemas.alert import (AlertStatus, CanonicalSeverity, LifecycleAction, ProducerAlert,
                                SourceResolution, canonical_severity)
 
@@ -55,7 +55,17 @@ def _scoped_alert(db: Session, alert_id: str, operator: OperatorIdentity) -> Ale
     if alert is None:
         raise HTTPException(404, detail={"code": "ALERT_NOT_FOUND", "message": "Alert not found"})
     require_scope(operator, alert.use_case)
+    branch_id = (alert.resource_refs or {}).get("branch_id")
+    if branch_id:
+        require_branch(operator, branch_id)
     return alert
+
+
+def _authorized_branch_filter(operator: OperatorIdentity, branch_id: str | None):
+    if branch_id:
+        require_branch(operator, branch_id)
+        return None
+    return None if "*" in operator.branch_ids else list(operator.branch_ids)
 
 
 @router.get("/producer")
@@ -154,6 +164,7 @@ def get_alerts(use_case: str | None = None, producer: str | None = None, status:
     if from_at and to_at and from_at > to_at:
         raise HTTPException(422, detail={"code": "INVALID_TIME_RANGE", "message": "from must be before to"})
     filters = locals().copy()
+    filters["authorized_branch_ids"] = _authorized_branch_filter(operator, branch_id)
     rows = list_alerts(db, scopes=list(operator.use_cases), filters=filters, sort=sort, limit=limit, cursor=_cursor_decode(cursor))
     has_more = len(rows) > limit
     rows = rows[:limit]
@@ -184,7 +195,8 @@ def get_summary(use_case: str | None = None, producer: str | None = None, status
         "source_event_id": source_event_id, "category": category, "assignment_id": assignment_id,
         "camera_id": camera_id, "branch_id": branch_id, "video_job_id": video_job_id,
         "session_ref": session_ref, "source_id": source_id, "registry_camera_id": registry_camera_id,
-        "source_event_subtype": source_event_subtype, "from_at": from_at, "to_at": to_at})
+        "source_event_subtype": source_event_subtype, "from_at": from_at, "to_at": to_at,
+        "authorized_branch_ids": _authorized_branch_filter(operator, branch_id)})
 
 
 @router.get("/alerts/meta")

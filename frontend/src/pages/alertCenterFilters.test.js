@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clearAlertCenterFilters, updateAlertCenterQuery } from './alertCenterFilters.js';
+import { buildAlertSummaryParams, clearAlertCenterFilters, updateAlertCenterQuery } from './alertCenterFilters.js';
 
 test('branch filtering stores the canonical branch UUID and preserves unrelated deep-link filters', () => {
   const next = updateAlertCenterQuery('?alert_id=alert-1&use_case=branch_exterior&severity=HIGH', 'branch_id', 'branch-uuid-old-goa');
@@ -20,6 +20,15 @@ test('clearing the branch filter preserves alert deep links and does not restore
   assert.equal(allBranches.has('branch_id'), false);
   assert.equal(allBranches.get('alert_id'), 'alert-1');
   assert.equal(allBranches.get('use_case'), 'branch_exterior');
+});
+
+test('the shared branch selection scopes analytics and summaries by the canonical branch ID', () => {
+  const branchId = 'branch-uuid-koramangala';
+  const selected = updateAlertCenterQuery('?branch_id=branch-uuid-old-goa&severity=WARNING', 'branch_id', branchId);
+  const filters = { branch_id: selected.get('branch_id'), severity: selected.get('severity') };
+  assert.deepEqual(buildAlertSummaryParams(filters, selected.get('branch_id')), filters);
+  assert.deepEqual(buildAlertSummaryParams({ branch_id: 'stale-branch', severity: 'WARNING' }, branchId),
+    { severity: 'WARNING', branch_id: branchId });
 });
 
 test('changing Alert Center filters keeps the filter state independent and preserves unrelated parameters', () => {

@@ -12,6 +12,7 @@ test('monitoring panels handle missing snapshots and the uploaded video forwards
   try {
     const { GateStatePanel, MonitoringStats, MeshPanel } = await server.ssrLoadModule('/src/use-cases/grill-gate/components/MonitoringPanels.jsx');
     const { default: UploadedVideoSection } = await server.ssrLoadModule('/src/use-cases/grill-gate/components/UploadedVideoSection.jsx');
+    const { default: LiveCameraSection } = await server.ssrLoadModule('/src/use-cases/grill-gate/components/LiveCameraSection.jsx');
     const { EMPTY_MONITORING } = await server.ssrLoadModule('/src/use-cases/grill-gate/grillGateModel.js');
     const store=configureStore({ reducer:{ gateMonitoring:()=>({ sessionId:'video:job-1',gateState:'FULLY_OPEN',direction:null,alertRequests:{},sessions:{} }) } });
     const render=(component,props)=>renderToStaticMarkup(createElement(Provider,{store,stabilityCheck:'never'},createElement(MemoryRouter,null,createElement(component,props))));
@@ -36,6 +37,14 @@ test('monitoring panels handle missing snapshots and the uploaded video forwards
     assert.match(meshTimer,/00:05 \/ 00:15/);
     const meshInactive=render(MeshPanel,{monitoring:{meshPeopleCount:0,meshGatheringSeconds:0,meshGatheringThresholdSeconds:15,meshEvents:[]}});
     assert.match(meshInactive,/00:00 \/ 00:15/);
+    const liveMesh=render(LiveCameraSection,{
+      items:[], item:null, worker:null, connection:{key:'available',label:'Not connected',tone:'idle'},
+      statusError:null, busy:null, actionError:'', onConnect:()=>{}, onDisconnect:()=>{}, onSelect:()=>{},
+      onRegistryChanged:()=>{}, monitoring:{...EMPTY_MONITORING,meshPeopleCount:3,meshGatheringSeconds:8,
+        meshGatheringThresholdSeconds:10,meshEvents:[]}, live:{error:'',fps:null},
+    });
+    assert.match(liveMesh,/Mesh Area Monitoring/);
+    assert.match(liveMesh,/00:08 \/ 00:10/);
     for (const gateState of ['PARTIALLY_OPEN','CLOSED']) {
       const stopped=render(OpenWithoutCrossingCard,{gateState,monitoring:{source:'video',gateSessionId:'video:job-1',cycleStartedAt:null,openWithoutCrossingSeconds:null,openWithoutCrossingThresholdSeconds:3,finalTimer:false}});
       assert.match(stopped,/>00:00<\/p>/);

@@ -1,0 +1,38 @@
+.alert-analytics-grid { display: grid; grid-template-columns: repeat(20, minmax(0, 1fr)); gap: 14px; }
+.alert-analytics-card { min-width: 0; height: 238px; padding: 14px 16px; border: 1px solid #e3e7f3; border-radius: 16px; background: #fff; box-shadow: 0 5px 15px #1824480b; }
+.alert-analytics-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 7px; }
+.alert-analytics-card header h3 { margin: 0; color: #19264a; font-size: 12px; font-weight: 750; }
+.alert-analytics-card header > span { color: #7a86a8; font-size: 9px; white-space: nowrap; }
+.alert-analytics-trend { grid-column: span 13; height: 286px; }
+.alert-analytics-severity { grid-column: span 7; height: 286px; }
+.alert-analytics-source, .alert-analytics-heatmap { grid-column: span 10; }
+.alert-analytics-chart { width: 100%; height: 198px; }
+.alert-analytics-trend .alert-analytics-chart { height: 244px; }
+.alert-analytics-source .alert-analytics-chart { height: 194px; }
+.alert-analytics-empty { display: grid; height: calc(100% - 28px); min-height: 170px; place-items: center; color: #8a95b0; font-size: 11px; }
+.alert-analytics-donut { display: flex; align-items: center; gap: 10px; height: 234px; }
+.alert-analytics-pie { position: relative; flex: 0 0 48%; height: 190px; min-width: 126px; }
+.alert-analytics-donut-total { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.alert-analytics-donut-total strong { color: #172548; font-size: 22px; line-height: 1; }
+.alert-analytics-donut-total span { margin-top: 4px; color: #8490b1; font-size: 9px; }
+.alert-analytics-legend { display: grid; flex: 1; gap: 2px; }
+.alert-analytics-legend button { display: grid; grid-template-columns: 7px minmax(0, 1fr) auto 28px; align-items: center; gap: 6px; padding: 6px 4px; border: 1px solid transparent; border-radius: 7px; color: #28365b; text-align: left; font-size: 10px; }
+.alert-analytics-legend button:hover { border-color: #cdd2ff; background: #f3f4ff; }
+.alert-analytics-legend i { width: 7px; height: 7px; border-radius: 2px; }
+.alert-analytics-legend b { font-size: 10px; }
+.alert-analytics-legend small { color: #7e89a9; text-align: right; }
+.alert-analytics-tooltip { padding: 8px 10px; border: 1px solid #e2e6f2; border-radius: 8px; background: #fff; box-shadow: 0 5px 16px #16234a1a; font-size: 10px; }
+.alert-analytics-tooltip strong { display: block; margin-bottom: 3px; color: #27365d; }
+.alert-analytics-tooltip p { margin: 2px 0; }
+.alert-analytics-state { padding: 14px; border: 1px solid #e3e7f4; border-radius: 12px; background: #fff; color: #7a86a8; font-size: 12px; }
+.alert-analytics-error { color: #b42318; }
+.alert-analytics-error button { margin-left: 10px; color: #34479b; font-weight: 700; text-decoration: underline; }
+.alert-heatmap-neutral { position: relative; padding-top: 14px; }
+.alert-heatmap-hours { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); margin: 0 2px 4px 35px; color: #8993ad; font-size: 7px; text-align: center; }
+.alert-heatmap-grid { display: grid; gap: 3px; }
+.alert-heatmap-row { display: grid; grid-template-columns: 31px minmax(0, 1fr); align-items: center; gap: 4px; color: #77839f; font-size: 8px; }
+.alert-heatmap-row > div { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; }
+.alert-heatmap-row i { display: block; aspect-ratio: 1; max-height: 18px; border-radius: 2px; background: #eef0f6; }
+.alert-heatmap-neutral p { position: absolute; inset: 29px 8px 5px 35px; display: grid; place-items: center; border-radius: 7px; background: #ffffffbd; color: #7d88a5; font-size: 11px; font-weight: 600; }
+@media (max-width: 1050px) { .alert-analytics-trend, .alert-analytics-severity, .alert-analytics-source, .alert-analytics-heatmap { grid-column: span 20; } }
+@media (max-width: 620px) { .alert-analytics-card, .alert-analytics-trend, .alert-analytics-severity, .alert-analytics-source, .alert-analytics-heatmap { grid-column: span 20; height: 245px; padding: 13px; } .alert-analytics-trend { height: 270px; } .alert-analytics-trend .alert-analytics-chart { height: 226px; } .alert-analytics-donut { height: 200px; } .alert-analytics-pie { flex-basis: 43%; min-width: 115px; height: 175px; } .alert-heatmap-row > div { gap: 2px; } }

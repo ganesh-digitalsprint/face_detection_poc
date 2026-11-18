@@ -9,7 +9,7 @@ import {
 import { mergeAssignmentConfiguration, workerIsActive } from '../grillGateModel.js';
 import { useAuthorizedJpeg } from '../hooks/useSourceData.js';
 import { cameraCode, connectionReferenceError } from '../liveMonitoringModel.js';
-import { CrossingEventsPanel, GateStatePanel, MonitoringStats, PreviewStage, TimelinePanel } from './MonitoringPanels.jsx';
+import { CrossingEventsPanel, GateStatePanel, MeshPanel, MonitoringStats, PreviewStage, TimelinePanel } from './MonitoringPanels.jsx';
 import { btnGhost, btnPrimary, Card, ErrorNote, Pill } from './ui.jsx';
 
 const field = 'mt-1 min-h-10 w-full rounded-md border border-[#D0D7E6] bg-white px-3 text-sm text-[#1C2B4D] outline-none focus:border-[#34479B] focus:ring-2 focus:ring-[#34479B]/20 disabled:bg-[#F4F6FB] disabled:text-[#69758F]';
@@ -195,6 +195,7 @@ export default function LiveCameraSection({ items, item, worker, connection, sta
         <div className="min-w-0 space-y-4">
           <GrillGateAlerts assignmentId={item?.assignment?.id} compact />
           <CrossingEventsPanel monitoring={monitoring} />
+          <MeshPanel monitoring={monitoring} />
           <GateStatePanel monitoring={monitoring} note={gateNote} />
         </div>
       </div>

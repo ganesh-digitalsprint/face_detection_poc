@@ -1,0 +1,13 @@
+.branch-hierarchy-page { color: #172342; }
+.branch-hierarchy-card { border-color: #e1e5ef; border-radius: 18px; box-shadow: 0 3px 9px #1a2a520b; }
+.branch-hierarchy-summary { min-height: 74px; padding: 18px 20px; }
+.branch-hierarchy-columns > section { min-height: 292px; }
+.branch-hierarchy-page h1, .branch-hierarchy-page h2 { letter-spacing: -.012em; }
+.branch-hierarchy-page [aria-selected="true"] { border-color: #9aa7ff; background: #f0f2ff; }
+.branch-hierarchy-primary { background: #3545ad; }
+.branch-hierarchy-primary:hover { background: #2d3a99; }
+
+@media (max-width: 767px) {
+  .branch-hierarchy-summary { align-items: flex-start; }
+  .branch-hierarchy-columns > section { min-height: auto; }
+}

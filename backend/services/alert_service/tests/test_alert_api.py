@@ -20,7 +20,7 @@ def configured(tmp_path):
     settings = Settings(
         database_url=f"sqlite:///{(tmp_path / 'alerts.db').as_posix()}",
         producer_credentials={"producer-secret": {"use_case": "branch_exterior", "producer": "branch-exterior-monitoring"}},
-        operator_credentials={"operator-secret": {"actor_id": "operator-17", "use_cases": ["branch_exterior"]}},
+        operator_credentials={"operator-secret": {"actor_id": "operator-17", "use_cases": ["branch_exterior"], "branch_ids": ["*"]}},
         notification_webhook_url="http://mock.invalid/notifications",
     )
     app = create_app(settings, start_notification_worker=False)
@@ -71,6 +71,39 @@ def test_branch_severity_ingestion_and_exact_replay_create_one_audit_and_outbox(
         assert db.query(NotificationOutbox).count() == 1
 
 
+def test_list_and_summary_filter_by_authorized_branch_before_pagination_and_hide_unattributed_alerts(tmp_path):
+    settings = Settings(
+        database_url=f"sqlite:///{(tmp_path / 'branch-scope.db').as_posix()}",
+        producer_credentials={"producer-secret": {"use_case": "branch_exterior", "producer": "branch-exterior-monitoring"}},
+        operator_credentials={"operator-secret": {"actor_id": "op", "use_cases": ["branch_exterior"],
+            "branch_ids": ["koramangala"]}},
+    )
+    app = create_app(settings, start_notification_worker=False)
+    with TestClient(app) as client:
+        create(client, payload(source_event_id="kor-1", resource_refs={"branch_id": "koramangala"}), "kor-1")
+        create(client, payload(source_event_id="kor-2", resource_refs={"branch_id": "koramangala"}), "kor-2")
+        goa = create(client, payload(source_event_id="goa-1", resource_refs={"branch_id": "old-goa"}), "goa-1").json()
+        create(client, payload(source_event_id="legacy", resource_refs={"camera_id": "camera-legacy"}), "legacy")
+        headers = {"Authorization": OPERATOR}
+        kor = client.get("/api/v1/alerts", headers=headers, params={"branch_id": "koramangala", "limit": 1})
+        assert kor.status_code == 200
+        assert len(kor.json()["items"]) == 1
+        assert kor.json()["items"][0]["source_event_id"] in {"kor-1", "kor-2"}
+        assert kor.json()["has_more"] is True
+        second_page = client.get("/api/v1/alerts", headers=headers, params={"branch_id": "koramangala", "limit": 1,
+            "cursor": kor.json()["next_cursor"]})
+        assert len(second_page.json()["items"]) == 1
+        assert second_page.json()["items"][0]["source_event_id"] in {"kor-1", "kor-2"}
+        assert second_page.json()["items"][0]["source_event_id"] != kor.json()["items"][0]["source_event_id"]
+        summary = client.get("/api/v1/alerts/summary", headers=headers, params={"branch_id": "koramangala"})
+        assert summary.json()["total"] == 2
+        assert client.get("/api/v1/alerts", headers=headers, params={"branch_id": "old-goa"}).status_code == 403
+        assert client.get(f"/api/v1/alerts/{goa['id']}", headers=headers).status_code == 403
+        all_authorized = client.get("/api/v1/alerts", headers=headers, params={"limit": 100})
+        assert {row["source_event_id"] for row in all_authorized.json()["items"]} == {"kor-1", "kor-2"}
+        assert client.get("/api/v1/alerts/summary", headers=headers).json()["total"] == 2
+
+
 def test_medium_fallen_snapshot_is_persisted_and_serialized_once(configured):
     client, app = configured
     body = payload(source_event_id='fallen-source-1', source_event_type='anomaly', severity='medium',
@@ -104,7 +137,7 @@ def test_grill_gate_contract_v1_producer_registration_publishes_one_scoped_logic
     settings = Settings(
         database_url=f"sqlite:///{(tmp_path / 'grill-alerts.db').as_posix()}",
         producer_credentials={grill_producer: {"use_case": "grill_gate", "producer": "grill-gate-monitoring"}},
-        operator_credentials={grill_operator: {"actor_id": "gate-operator", "use_cases": ["grill_gate"]}},
+        operator_credentials={grill_operator: {"actor_id": "gate-operator", "use_cases": ["grill_gate"], "branch_ids": ["*"]}},
         notification_webhook_url="",
     )
     app = create_app(settings, start_notification_worker=False)
@@ -404,7 +437,7 @@ def test_source_owns_lifecycle_and_can_publish_evidence_without_operator_dual_wr
     config = Settings(database_url=f"sqlite:///{(tmp_path / 'source-owned.db').as_posix()}",
         producer_credentials={"grill": {"use_case": "grill_gate", "producer": "grill-gate-monitoring"},
                               "vault": {"use_case": "vault_monitoring", "producer": "vault-monitoring"}},
-        operator_credentials={"operator": {"actor_id": "browser-operator", "use_cases": ["*"]}})
+        operator_credentials={"operator": {"actor_id": "browser-operator", "use_cases": ["*"], "branch_ids": ["*"]}})
     app = create_app(config, start_notification_worker=False)
     with TestClient(app) as client:
         producer = {"Authorization": f"Bearer {token}"}

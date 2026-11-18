@@ -29,6 +29,24 @@ export const getServiceAlert = (id, signal) =>
 export const getServiceAudit = (id, signal) =>
   client.get(`${root}/alerts/${enc(id)}/audit`, { signal }).then((r) => r.data);
 
+/** Loads persisted settings for a branch. */
+export const getBranchNotificationSettings = (branchId, signal) =>
+  client.get(`${root}/branches/${enc(branchId)}/notifications/settings`, { signal }).then((r) => r.data);
+
+/** Saves persisted settings for a branch. */
+export const saveBranchNotificationSettings = (branchId, settings) =>
+  client.put(`${root}/branches/${enc(branchId)}/notifications/settings`, settings).then((r) => r.data);
+
+/** Sends an explicitly requested SMTP test to the branch's saved To recipients. */
+export const sendBranchTestEmail = (branchId) =>
+  client.post(`${root}/branches/${enc(branchId)}/notifications/email/test`, undefined, { timeout: 30000 })
+    .then((r) => r.data);
+
+/** Recent email attempts for a branch, newest first. */
+export const getBranchNotificationDeliveries = (branchId, signal) =>
+  client.get(`${root}/branches/${enc(branchId)}/notifications/deliveries`, { params: { limit: 20 }, signal })
+    .then((r) => r.data.items || []);
+
 /** Move an alert to ACKNOWLEDGED, RESOLVED or DISMISSED. Returns the updated normalized alert. */
 export const transitionServiceAlert = (id, target, body) => {
   const rule = LIFECYCLE[target];

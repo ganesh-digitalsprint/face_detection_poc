@@ -14,19 +14,24 @@ const isCanceled = (error) => error?.code === 'ERR_CANCELED' || error?.name === 
  * - Polling pauses while the tab is hidden. If extra pages were loaded, the loaded rows are never silently
  *   replaced: the hook flags `stale` instead so the user can reload.
  */
-export default function useServiceAlerts({ params, status, pollMs, api = defaultApi, enabled = true }) {
+export default function useServiceAlerts({ params, summaryParams = params, status, pollMs, api = defaultApi, enabled = true }) {
   const [items, setItems] = useState([]);
   const [nextCursor, setNextCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [summary, setSummary] = useState(null);
+  const [summaryLoadedKey, setSummaryLoadedKey] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryError, setSummaryError] = useState(null);
+  const [separateListTotal, setSeparateListTotal] = useState(null);
   const [stale, setStale] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
 
   const paramsRef = useRef(params);
   paramsRef.current = params;
+  const summaryParamsRef = useRef(summaryParams);
+  summaryParamsRef.current = summaryParams;
   const cursorRef = useRef(null);
   const pagesRef = useRef(1);
   const sequence = useRef(0);
@@ -34,24 +39,51 @@ export default function useServiceAlerts({ params, status, pollMs, api = default
   const controller = useRef(null);
   const inFlight = useRef(false);
   const summaryController = useRef(null);
+  const summarySequence = useRef(0);
+  const listTotalController = useRef(null);
+  const listTotalSequence = useRef(0);
   const paramsKey = JSON.stringify(params);
   const keyRef = useRef(paramsKey);
   keyRef.current = paramsKey;
+  const summaryParamsKey = JSON.stringify(summaryParams);
+  const summaryKeyRef = useRef(summaryParamsKey);
+  summaryKeyRef.current = summaryParamsKey;
   const [loadedKey, setLoadedKey] = useState(null);
+  const summaryIsList = summaryParamsKey === paramsKey;
 
   const loadSummary = useCallback(async () => {
     summaryController.current?.abort();
+    const requestId = ++summarySequence.current;
+    const requestKey = summaryKeyRef.current;
     const ctl = new AbortController();
     summaryController.current = ctl;
+    const { sort, limit, cursor, ...filters } = summaryParamsRef.current; // eslint-disable-line no-unused-vars
+    setSummaryLoading(true);
+    setSummaryError(null);
+    try {
+      const next = await api.summary(filters, ctl.signal);
+      if (ctl.signal.aborted || requestId !== summarySequence.current || requestKey !== summaryKeyRef.current) return;
+      setSummary(next);
+      setSummaryLoadedKey(requestKey);
+      setSummaryError(null);
+    } catch (err) {
+      if (!ctl.signal.aborted && requestId === summarySequence.current && requestKey === summaryKeyRef.current && !isCanceled(err)) setSummaryError(err);
+    } finally {
+      if (requestId === summarySequence.current) setSummaryLoading(false);
+    }
+  }, [api]);
+
+  const loadListTotal = useCallback(async () => {
+    listTotalController.current?.abort();
+    const requestId = ++listTotalSequence.current;
+    const requestKey = keyRef.current;
+    const ctl = new AbortController();
+    listTotalController.current = ctl;
     const { sort, limit, cursor, ...filters } = paramsRef.current; // eslint-disable-line no-unused-vars
     try {
       const next = await api.summary(filters, ctl.signal);
-      if (ctl.signal.aborted) return;
-      setSummary(next);
-      setSummaryError(null);
-    } catch (err) {
-      if (!ctl.signal.aborted && !isCanceled(err)) setSummaryError(err);
-    }
+      if (!ctl.signal.aborted && requestId === listTotalSequence.current && requestKey === keyRef.current) setSeparateListTotal(next.total);
+    } catch (error) { if (!ctl.signal.aborted && !isCanceled(error)) setSeparateListTotal(null); }
   }, [api]);
 
   const load = useCallback(async ({ append = false, quiet = false } = {}) => {
@@ -91,11 +123,9 @@ export default function useServiceAlerts({ params, status, pollMs, api = default
     }
   }, [api, enabled, status]);
 
-  // Reload from scratch whenever the filters change.
+  // Reload the list from scratch whenever list filters change.
   useEffect(() => {
     setItems([]);
-    setSummary(null);
-    setSummaryError(null);
     cursorRef.current = null;
     pagesRef.current = 1;
     setNextCursor(null);
@@ -103,9 +133,23 @@ export default function useServiceAlerts({ params, status, pollMs, api = default
     setError(null);
     setStale(false);
     load();
+    return () => { sequence.current += 1; controller.current?.abort(); };
+  }, [paramsKey, load]);
+
+  // Summary filters can change independently (for example, the Alert Center header branch).
+  useEffect(() => {
+    setSummary(null);
+    setSummaryLoading(enabled);
+    setSummaryError(null);
     if (enabled) loadSummary();
-    return () => { sequence.current += 1; controller.current?.abort(); summaryController.current?.abort(); };
-  }, [paramsKey, load, loadSummary]);
+    return () => { summarySequence.current += 1; summaryController.current?.abort(); };
+  }, [summaryParamsKey, enabled, loadSummary]);
+
+  useEffect(() => {
+    if (!enabled || summaryIsList) { setSeparateListTotal(null); return undefined; }
+    loadListTotal();
+    return () => { listTotalSequence.current += 1; listTotalController.current?.abort(); };
+  }, [paramsKey, summaryIsList, enabled, loadListTotal]);
 
   // Background refresh. Timer and abort controllers are released on unmount.
   useEffect(() => {
@@ -113,6 +157,7 @@ export default function useServiceAlerts({ params, status, pollMs, api = default
     const tick = () => {
       if (document.visibilityState === 'hidden') return;
       loadSummary();
+      if (!summaryIsList) loadListTotal();
       if (pagesRef.current === 1) load({ quiet: true });
       else setStale(true);
     };
@@ -120,7 +165,7 @@ export default function useServiceAlerts({ params, status, pollMs, api = default
     const onVisible = () => { if (document.visibilityState === 'visible') tick(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
-  }, [pollMs, load, loadSummary, enabled]);
+  }, [pollMs, load, loadSummary, loadListTotal, summaryIsList, enabled]);
 
   /** Apply a server-confirmed alert update in place; remove it if it no longer matches the status filter. */
   const applyUpdate = useCallback((updated) => {
@@ -129,11 +174,18 @@ export default function useServiceAlerts({ params, status, pollMs, api = default
       ? replaceAlert(current, updated)
       : current.filter((item) => item.id !== updated.id)));
     loadSummary();
-  }, [status, loadSummary]);
+    if (!summaryIsList) loadListTotal();
+  }, [status, loadSummary, loadListTotal, summaryIsList]);
 
   return {
-    items: loadedKey === paramsKey ? items : [], nextCursor, hasMore, loading, error, summary, summaryError, stale, lastUpdated,
-    refresh: () => { setStale(false); pagesRef.current = 1; cursorRef.current = null; return Promise.all([load(), loadSummary()]); },
+    items: loadedKey === paramsKey ? items : [], nextCursor, hasMore, loading, error,
+    summary: summaryLoadedKey === summaryParamsKey ? summary : null,
+    listTotal: summaryIsList ? summary?.total ?? null : separateListTotal,
+    summaryLoading, summaryError, stale, lastUpdated,
+    refresh: () => { setStale(false); pagesRef.current = 1; cursorRef.current = null; return Promise.all([
+      load(), loadSummary(), ...(!summaryIsList ? [loadListTotal()] : []),
+    ]); },
+    refreshSummary: loadSummary,
     loadMore: () => load({ append: true }),
     applyUpdate,
   };

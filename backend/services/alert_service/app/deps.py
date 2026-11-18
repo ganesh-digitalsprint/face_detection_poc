@@ -17,6 +17,7 @@ class ProducerIdentity:
 class OperatorIdentity:
     actor_id: str
     use_cases: tuple[str, ...]
+    branch_ids: tuple[str, ...] = ()
 
 
 def get_db(request: Request):
@@ -52,10 +53,17 @@ def get_operator(request: Request, authorization: str | None = Header(default=No
     for secret, identity in credentials.items():
         if token and secrets.compare_digest(token, secret):
             scopes = tuple(str(v) for v in identity.get("use_cases", []))
-            return OperatorIdentity(str(identity["actor_id"]), scopes)
+            branch_ids = tuple(str(v) for v in identity.get("branch_ids", []))
+            return OperatorIdentity(str(identity["actor_id"]), scopes, branch_ids)
     raise HTTPException(401, detail={"code": "UNAUTHENTICATED", "message": "Valid operator bearer token required"})
 
 
 def require_scope(operator: OperatorIdentity, use_case: str) -> None:
     if "*" not in operator.use_cases and use_case not in operator.use_cases:
         raise HTTPException(403, detail={"code": "FORBIDDEN", "message": "Operator is not authorized for this use case"})
+
+
+def require_branch(operator: OperatorIdentity, branch_id: str) -> None:
+    if "*" not in operator.branch_ids and branch_id not in operator.branch_ids:
+        raise HTTPException(403, detail={"code": "BRANCH_FORBIDDEN",
+            "message": "Operator is not authorized to manage notifications for this branch"})
