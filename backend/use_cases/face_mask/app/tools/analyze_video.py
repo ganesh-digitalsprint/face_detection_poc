@@ -54,7 +54,9 @@ def main() -> int:
                     "quality_reason": obs.quality_reason, "backend_scores": {models.analyzer.name: obs.visibility.score}
                     if obs.analysis_ran and obs.visibility else {}, "zero_shot_score": None,
                     "state": obs.visibility.state if obs.visibility else None, "display": obs.display,
-                    "zone_hit": obs.in_roi, "direction": obs.direction, "direction_entering": obs.entering,
+                    "zone_hit": obs.in_roi, "zone_verified": obs.zone_verified,
+                    "coverage_state": obs.visibility.coverage_state if obs.visibility else None,
+                    "direction": obs.direction, "direction_entering": obs.entering,
                     "reason_codes": [code for code in (obs.quality_reason, "outside_zone" if not obs.in_roi else None,
                                                           "analysis_cached" if not obs.analysis_ran else None) if code],
                 }) + "\n")

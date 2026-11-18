@@ -42,7 +42,8 @@ def _light(obs: TrackObservation) -> TrackObservation:
                             head_box=obs.head_box, quality_passed=obs.quality_passed, quality_reason=obs.quality_reason,
                             quality_tier=obs.quality_tier, analysis_ran=obs.analysis_ran, direction=obs.direction,
                             visibility=obs.visibility, visibility_fresh=obs.visibility_fresh,
-                            display=obs.display, display_score=obs.display_score)
+                            display=obs.display, display_score=obs.display_score,
+                            frame_id=obs.frame_id, zone_verified=obs.zone_verified)
 
 
 def run_video(video: str, cfg: FaceMaskConfig, models: Models, rois: list[RoiSpec], *, out: str | None = None,

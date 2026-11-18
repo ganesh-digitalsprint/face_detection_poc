@@ -6,6 +6,7 @@ import { toggleTheme, useBxTheme } from '../../branch-exterior/theme.js';
 import { api } from '../api/index.js';
 import usePolling from '../hooks/usePolling.js';
 import { FmStatusProvider, useFmStatus } from './FmStatus.jsx';
+import FaceMaskPopups from './FaceMaskPopups.jsx';
 import { PrivacyNote } from './ui.jsx';
 import '../../branch-exterior/branchExterior.css';
 
@@ -52,6 +53,9 @@ function Frame() {
         </div>
       </div>
       <PrivacyNote />
+      {health?.alerts?.enabled === false && <div className="bx-diag" role="status">
+        Face Mask events are saved locally, but shared alert notifications are disabled. Start the Alert Service on port 8012 and configure the Face Mask producer on the server.
+      </div>}
       {state === 'degraded' && health && (
         <div className="bx-diag" role="status">
           Face Mask is running but not fully ready: database <b>{health.db}</b>; models
@@ -60,6 +64,7 @@ function Frame() {
         </div>
       )}
       <Suspense fallback={<Loading message="Loading…" />}><Outlet /></Suspense>
+      <FaceMaskPopups />
     </div>
   );
 }

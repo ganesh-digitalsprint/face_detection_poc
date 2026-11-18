@@ -129,6 +129,7 @@ class QualityGateConfig(_Section):
 class AnalysisConfig(_Section):
     scope: Literal["entry_roi_strict", "whole_frame"] = "whole_frame"
     alert_outside_roi: bool = False
+    zone_exit_grace_seconds: float = Field(default=2.0, ge=0.0, le=10.0)
     max_per_frame: int = Field(default=4, ge=1)
     max_per_track_fps: float = Field(default=3.0, gt=0.0)
     latch_concealed_frames: int = Field(default=3, ge=1)

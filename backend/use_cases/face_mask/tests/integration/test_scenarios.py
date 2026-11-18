@@ -106,6 +106,7 @@ def test_scenarioI_fm04_cap_hiding_face_looking_down_alerts_with_default_policy(
     gray = Person(walk_in(480), tag=128, achromatic=True)   # grey head region: Cr ~128, below the skin floor
     sink = run_scenario(cfg, [gray], _cap_analyzer(cfg, "concealed_if_frontal_body_and_no_skin"), pose=FakePose(FRONTAL_NO_FACE))
     assert len(sink.opened) == 1 and sink.opened[0].covering_type == "head_covering"
+    assert sink.opened[0].coverage_state == "PARTIALLY_COVERED"
 
 
 def test_scenarioI_fm04_head_down_policy_unable_never_alerts(cfg) -> None:

@@ -97,6 +97,7 @@ class _Track:
     roi_id: str | None = None
     roi_name: str = ""
     last_in_roi: bool = False
+    last_verified_zone_ts: float | None = None
     coverage_state: str = ""
 
 
@@ -152,6 +153,13 @@ class EventService:
             if track.state == TrackState.NEW_TRACK:
                 track.state = TrackState.IN_ENTRY_ROI
         track.last_in_roi = obs.in_roi
+        # Confirm an exiting person only from a recent, independently verified
+        # in-zone frame; a coasting tracker box must not authorize a late alert.
+        if obs.in_roi and obs.frame_id > 0 and any(
+            candidate.frame_id == obs.frame_id and candidate.in_roi and candidate.verified
+            for candidate in obs.evidence_candidates
+        ):
+            track.last_verified_zone_ts = obs.ts
         if track.event_id is not None:
             if obs.visibility is not None:
                 self._evaluate(track, obs, obs.visibility)
@@ -171,7 +179,13 @@ class EventService:
         restricted = obs.frame_id > 0 and obs.roi_id != "__default_full_frame__" and not self._analysis.alert_outside_roi
         zone_evidence = not restricted or any(candidate.in_roi and candidate.verified
                                               for candidate in obs.evidence_candidates)
-        can_alert = ((obs.in_roi and obs.zone_verified and zone_evidence) or self._analysis.alert_outside_roi)
+        just_exited_verified_zone = (
+            not obs.in_roi and track.roi_id is not None and track.last_verified_zone_ts is not None
+            and 0 <= obs.ts - track.last_verified_zone_ts <= self._analysis.zone_exit_grace_seconds
+            and zone_evidence
+        )
+        can_alert = ((obs.in_roi and obs.zone_verified and zone_evidence)
+                     or just_exited_verified_zone or self._analysis.alert_outside_roi)
         direction_ok = self._analysis.direction_mode != "strict" or obs.entering
         if can_alert and direction_ok and concealed >= self._conf.frames_to_confirm:
             self._open(track, obs)

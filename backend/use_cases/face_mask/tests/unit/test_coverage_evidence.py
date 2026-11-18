@@ -27,6 +27,10 @@ def test_three_coverage_states(cfg):
     assert (partial.state, partial.coverage_state) == ("CONCEALED", "PARTIALLY_COVERED")
     full = classify_coverage(.95, {"nose": .1, "mouth": .1, "chin": .1}, "lower_face_covering", setting)
     assert full.coverage_state == "FULLY_COVERED"
+    for covering in ("cap_concealing", "head_covering"):
+        cap = classify_coverage(.7, {}, covering, setting)
+        assert (cap.state, cap.coverage_state) == ("CONCEALED", "PARTIALLY_COVERED")
+    assert classify_coverage(.9, {}, "helmet", setting).coverage_state == "FULLY_COVERED"
 
 
 def test_low_resolution_head_never_calls_analyzer_or_alerts(cfg):
@@ -50,6 +54,52 @@ def test_low_resolution_head_never_calls_analyzer_or_alerts(cfg):
     assert not result.observations[0].evidence_candidates
 
 
+def test_pose_yaw_rejection_needs_positive_covering_evidence(cfg, monkeypatch):
+    from app.services.quality_gate import QualityResult
+
+    box = (40, 20, 140, 220)
+    class Detector:
+        def detect(self, frame):
+            return [Detection(box, .9)]
+
+    class Analyzer:
+        name = "fake"
+        def __init__(self, state):
+            self.state = state
+        def analyze(self, crop, keypoints):
+            return VisibilityResult(.7, self.state, "head_covering" if self.state == "CONCEALED" else "", {},
+                                    "PARTIALLY_COVERED" if self.state == "CONCEALED" else "")
+
+    monkeypatch.setattr('app.services.detection_pipeline.evaluate_quality',
+                        lambda *args: QualityResult(False, 'turned_away', 'UNUSABLE',
+                                                    {'head_height_px': 60.0, 'sharpness': 100.0}))
+    frame = np.full((240, 320, 3), 120, np.uint8)
+    for state, expected in [('CONCEALED', 'CONCEALED'), ('UNABLE', 'EVALUATING')]:
+        pipeline = DetectionPipeline(cfg, 'cam', Detector(), None, Analyzer(state))
+        observation = pipeline._observe(frame, .2, 1, box, (320, 240), [], True)
+        assert observation.display == expected
+        assert observation.quality_passed is (state == 'CONCEALED')
+
+
+def test_yaw_rejected_no_face_cannot_be_called_fully_covered(cfg, monkeypatch):
+    from app.services.quality_gate import QualityResult
+
+    monkeypatch.setattr('app.services.detection_pipeline.evaluate_quality',
+                        lambda *args: QualityResult(False, 'turned_away', 'UNUSABLE',
+                                                    {'head_height_px': 60.0, 'sharpness': 100.0}))
+    class Analyzer:
+        name = 'fake'
+        def analyze(self, crop, keypoints):
+            return VisibilityResult(.9, 'CONCEALED', 'full_face_covering', {}, 'FULLY_COVERED')
+
+    pipeline = DetectionPipeline(cfg, 'cam', object(), None, Analyzer())
+    frame = np.full((240, 320, 3), 120, np.uint8)
+    monkeypatch.setattr(pipeline, '_verify_box', lambda *args: True)
+    observation = pipeline._observe(frame, .2, 1, (40, 20, 140, 220), (320, 240), [], True)
+    assert observation.visibility.coverage_state == 'PARTIALLY_COVERED'
+    assert observation.visibility.covering_type == 'head_covering'
+
+
 def test_quality_failure_keeps_previous_exact_frame_evidence(cfg):
     """A later unassessable frame must not pair its box with an older image."""
     from app.services.detection_pipeline import _TrackMemory
@@ -64,6 +114,23 @@ def test_quality_failure_keeps_previous_exact_frame_evidence(cfg):
     assert not obs.quality_passed
     assert obs.evidence_candidates[0] is candidate
     assert obs.box != obs.evidence_candidates[0].person_box
+
+
+def test_verified_zone_evidence_survives_sharper_outside_candidates():
+    from app.services.detection_pipeline import _TrackMemory
+
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+    def candidate(frame_id, merit, in_roi):
+        return EvidenceCandidate(frame, (1, 1, 10, 20), (2, 2, 5, 7), frame_id, frame_id / 5,
+                                 merit, 'CONCEALED', in_roi=in_roi, verified=True)
+
+    inside = candidate(2, 10, True)
+    outside = [candidate(index, 100 + index, False) for index in range(3, 6)]
+    memory = _TrackMemory(candidates=outside, verified_candidate=outside[-1],
+                          verified_zone_candidate=inside)
+    evidence = DetectionPipeline._candidates(memory)
+    assert evidence[0] is inside
+    assert len({item.frame_id for item in evidence}) == len(evidence)
 
 
 def test_unassessed_overlay_is_dashed_not_a_concealment_box():

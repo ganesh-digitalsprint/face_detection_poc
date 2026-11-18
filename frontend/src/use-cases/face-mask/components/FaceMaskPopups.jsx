@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, fmApiUrl } from '../api/index.js';
 import { faceMaskEventLink } from '../../../layouts/routes.js';
+import { coverageTitle } from '../coverageModel.js';
 
 /** Poll Face Mask directly so a missing Alert Service never delays a local safety popup. */
 export default function FaceMaskPopups() {
@@ -59,9 +60,9 @@ export default function FaceMaskPopups() {
   return (
     <div aria-live="polite" style={{ position: 'fixed', right: 16, top: 80, zIndex: 100, width: 'min(360px, calc(100vw - 32px))' }}>
       {popups.map((event) => (
-        <div key={event.id} role="alert" style={{ background: '#fff', border: '2px solid #dc2626', borderRadius: 8, boxShadow: '0 8px 28px #0004', marginBottom: 8, padding: 12 }}>
+        <div key={event.id} role="alert" style={{ background: '#fff', color: '#0f1b33', border: `2px solid ${event.coverage_state === 'PARTIALLY_COVERED' ? '#ea8a00' : '#dc2626'}`, borderRadius: 8, boxShadow: '0 8px 28px #0004', marginBottom: 8, padding: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-            <strong>Masked person detected - Face Mask</strong>
+            <strong>{coverageTitle(event.coverage_state)} - Face Mask</strong>
             <button type="button" aria-label="Dismiss Face Mask alert" onClick={() => setPopups((items) => items.filter((item) => item.id !== event.id))}>×</button>
           </div>
           <div>{cameras[event.camera_id] || event.camera_id} · {event.covering_type || 'face covering'} · {new Date(event.first_seen).toLocaleTimeString()}</div>

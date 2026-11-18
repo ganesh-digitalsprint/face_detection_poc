@@ -37,7 +37,8 @@ CLASSIFIER_CLASSES = ("visible", "sunglasses_only", "surgical_mask", "scarf", "c
 EXTENDED_CLASSIFIER_CLASSES = CLASSIFIER_CLASSES + ("mask_below_nose", "mask_under_chin",
                                                    "half_face_covered", "hand_over_part_of_face")
 _NOT_CONCEALING = {"visible", "sunglasses_only"}
-_PARTIAL_CLASSES = {"mask_below_nose", "mask_under_chin", "half_face_covered", "hand_over_part_of_face"}
+_PARTIAL_CLASSES = {"mask_below_nose", "mask_under_chin", "half_face_covered", "hand_over_part_of_face",
+                    "cap_concealing", "head_covering"}
 
 
 def classify_coverage(score: float, parts: dict[str, float], covering_type: str,
@@ -45,7 +46,7 @@ def classify_coverage(score: float, parts: dict[str, float], covering_type: str,
     """Map measured visibility to an alertable state without changing the detector."""
     if covering_type == "sunglasses":
         return VisibilityResult(score, "VISIBLE", covering_type, parts, "VISIBLE")
-    if covering_type in {"full_face_covering", "helmet", "head_covering"}:
+    if covering_type in {"full_face_covering", "helmet"}:
         return VisibilityResult(score, "CONCEALED", covering_type, parts, "FULLY_COVERED")
     if covering_type in _PARTIAL_CLASSES:
         return VisibilityResult(score, "CONCEALED", covering_type, parts, "PARTIALLY_COVERED")

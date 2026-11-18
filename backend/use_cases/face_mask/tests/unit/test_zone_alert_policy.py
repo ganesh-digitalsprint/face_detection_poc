@@ -56,6 +56,37 @@ def test_soft_direction_does_not_block_covered_zone_entry(cfg):
     assert len(sink.opened) == 1
 
 
+def test_exiting_covered_person_can_finish_confirmation_after_leaving_verified_zone(cfg):
+    from dataclasses import replace
+    import numpy as np
+    from app.services.observation import EvidenceCandidate
+
+    sink = RecordingSink()
+    service = EventService(cfg.confirmation, cfg.cooldown, sink, cfg.analysis)
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+    candidate = EvidenceCandidate(frame, (1, 1, 10, 20), (2, 2, 5, 7), 2, .4, 10,
+                                  "CONCEALED", in_roi=True, verified=True)
+    service.process(replace(observation(1, 1, True), frame_id=1, zone_verified=False))
+    service.process(replace(observation(1, 2, True), frame_id=2, zone_verified=False,
+                            evidence_candidates=(candidate,)))
+    for index in range(3, 6):
+        service.process(replace(observation(1, index, False), frame_id=index,
+                                evidence_candidates=(candidate,)))
+    assert len(sink.opened) == 1
+    assert sink.opened[0].roi_id == "zone"
+    assert sink.opened[0].person_box == candidate.person_box
+
+
+def test_exiting_person_without_verified_zone_evidence_cannot_alert(cfg):
+    from dataclasses import replace
+    sink = RecordingSink()
+    service = EventService(cfg.confirmation, cfg.cooldown, sink, cfg.analysis)
+    for index in range(1, 8):
+        service.process(replace(observation(1, index, index <= 2), frame_id=index,
+                                zone_verified=False))
+    assert sink.opened == []
+
+
 def test_strict_direction_requires_inward_motion(cfg):
     sink = RecordingSink()
     analysis = cfg.analysis.model_copy(update={"direction_mode": "strict"})

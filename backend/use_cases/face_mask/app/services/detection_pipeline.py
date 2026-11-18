@@ -31,6 +31,7 @@ class _TrackMemory:
     best_head: tuple[float, float, float, float] | None = None
     candidates: list[EvidenceCandidate] = field(default_factory=list)
     verified_candidate: EvidenceCandidate | None = None
+    verified_zone_candidate: EvidenceCandidate | None = None
     last_analysis_ts: float = -1e9
     last_observation: TrackObservation | None = None
     latched: bool = False
@@ -135,7 +136,7 @@ class DetectionPipeline:
         quality = evaluate_quality(frame, head.box, keypoints, self._cfg.quality_gate)
         common = dict(base, head_box=head.box, quality_passed=quality.passed, quality_reason=quality.reason,
                       quality_tier=quality.tier)
-        if not quality.passed:
+        if not quality.passed and quality.reason != "turned_away":
             # Upscaling cannot recover missing facial detail. In particular a
             # LOW_RES head must never become a concealment event or evidence.
             display = quality.tier if quality.tier in {"TOO_SMALL", "LOW_RES"} else "EVALUATING"
@@ -146,6 +147,22 @@ class DetectionPipeline:
         x1, y1, x2, y2 = (int(round(v)) for v in head.box)
         crop = frame[y1:y2, x1:x2]
         result: VisibilityResult = self._analyzer.analyze(crop, keypoints)
+        if not quality.passed:
+            # Pose yaw is a coarse estimate. A cap pulled over the face or a
+            # profile mask can trip it even when the face analyzer finds a
+            # covering. Accept only a positive covering assessment; a merely
+            # invisible/turned-away face remains UNABLE, never an alert.
+            if result.state != "CONCEALED":
+                return TrackObservation(**common, display="EVALUATING",
+                                        best_crop=memory.best_crop, best_frame=memory.best_frame,
+                                        evidence_candidates=self._candidates(memory))
+            if result.covering_type == "full_face_covering":
+                # Without a detected face, pose landmarks alone cannot prove
+                # full coverage on a yaw-rejected view (including a cap or a
+                # back-of-head). Report partial/obscured, not a high-severity mask.
+                result = VisibilityResult(result.score, "CONCEALED", "head_covering", result.parts,
+                                          "PARTIALLY_COVERED")
+            common.update(quality_passed=True, quality_reason=None, quality_tier="USABLE")
         memory.window.append(result)
         if (decision.in_roi and not whole_frame and not zone_verified
                 and sum(item.state == "CONCEALED" for item in memory.window) >= self._cfg.confirmation.frames_to_confirm):
@@ -188,6 +205,9 @@ class DetectionPipeline:
                       merit > memory.verified_candidate.merit * 1.2)
             if verified and better:
                 memory.verified_candidate = candidate
+            if verified and decision.in_roi and (memory.verified_zone_candidate is None or
+                                                 merit > memory.verified_zone_candidate.merit * 1.2):
+                memory.verified_zone_candidate = candidate
             memory.candidates.append(candidate)
             memory.candidates.sort(key=lambda item: (item.coverage_state == "FULLY_COVERED", item.merit),
                                    reverse=True)
@@ -208,7 +228,13 @@ class DetectionPipeline:
 
     @staticmethod
     def _candidates(memory: _TrackMemory) -> tuple[EvidenceCandidate, ...]:
-        pinned = memory.verified_candidate
-        if pinned is None:
-            return tuple(memory.candidates)
-        return (pinned, *(item for item in memory.candidates if item.frame_id != pinned.frame_id))
+        # Preserve an exact-frame, verified in-zone candidate even when sharper
+        # outside-zone frames dominate the small general evidence cache.
+        ordered = (memory.verified_zone_candidate, memory.verified_candidate, *memory.candidates)
+        seen: set[int] = set()
+        result: list[EvidenceCandidate] = []
+        for item in ordered:
+            if item is not None and item.frame_id not in seen:
+                result.append(item)
+                seen.add(item.frame_id)
+        return tuple(result)
