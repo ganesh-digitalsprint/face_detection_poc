@@ -1,9 +1,30 @@
 .alert-center { color: #152449; background: #f4f6fc; min-height: calc(100vh - 110px); }
-.alert-center > header h2 { font-size: 28px; }
-.alert-center .center-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-.alert-center .center-summary section { min-height: 81px; padding: 16px; border: 1px solid #e3e7f4; border-radius: 17px; background: white; box-shadow: none; }
-.alert-center .center-summary section p + p { margin-top: 5px; }
-.alert-center .center-filters { padding: 14px; margin-top: 22px; border-radius: 20px; gap: 10px; border-color: #e3e7f4; }
+.alert-center > header h2 { font-size: 24px; }
+.alert-center .alert-center-header { min-height: 58px; gap: 12px 20px; }
+.alert-center .alert-center-heading { min-width: 0; }
+.alert-center .alert-center-title-line { display: flex; align-items: center; gap: 10px; }
+.alert-center .alert-center-branch-badge { display: inline-flex; max-width: 220px; align-items: center; overflow: hidden; padding: 4px 9px; border: 1px solid #dce3f4; border-radius: 999px; background: #fff; color: #455780; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.alert-center .alert-center-heading > p { margin-top: 3px; font-size: 13px; }
+.alert-center .alert-center-header-controls { flex-wrap: nowrap; gap: 8px; }
+.alert-center .alert-center-header-controls > span { margin-right: 2px; white-space: nowrap; }
+.alert-center .alert-center-branch-select { display: inline-flex; min-height: 40px; align-items: center; gap: 7px; padding: 0 9px 0 11px; border: 1px solid #d6ddef; border-radius: 10px; background: #fff; color: #536384; font-size: 11px; white-space: nowrap; }
+.alert-center .alert-center-branch-select select { width: 150px; min-height: 38px; padding: 0 20px 0 0; border: 0; border-radius: 0; background: transparent; font-size: 12px; }
+.alert-center .alert-center-header-controls > button { min-height: 40px; border-radius: 10px; }
+.alert-center .alert-center-header-controls > select { min-height: 40px; }
+.alert-center .center-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.alert-center .alert-kpi { display: flex; min-width: 0; height: 88px; align-items: center; justify-content: space-between; gap: 6px; padding: 12px 11px; border: 1px solid #e3e7f4; border-radius: 15px; background: white; box-shadow: 0 5px 14px #1824480a; }
+.alert-center .alert-kpi > div { min-width: 0; }
+.alert-center .alert-kpi p { overflow: hidden; color: #66739a; font-size: 9px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.alert-center .alert-kpi strong { display: block; margin-top: 4px; color: #172548; font-size: 23px; font-weight: 750; line-height: 1; font-variant-numeric: tabular-nums; }
+.alert-center .alert-kpi small { display: block; overflow: hidden; margin-top: 6px; color: #8b95ad; font-size: 8px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+.alert-center .alert-kpi-critical strong { color: #d91f35; }
+.alert-kpi-neutral-trend { position: relative; display: block; width: 43px; height: 25px; flex: 0 0 43px; overflow: hidden; }
+.alert-kpi-neutral-trend::after { position: absolute; inset: 10px 0 auto; border-top: 1.5px dashed #c8cedd; content: ''; }
+.alert-kpi-neutral-trend i { position: absolute; right: 0; bottom: 1px; color: #9aa4ba; font-size: 7px; }
+.alert-center .center-filters { padding: 14px; margin-top: 0; border-radius: 16px; gap: 10px; border-color: #e3e7f4; }
+.alert-center .alert-list-section { overflow: visible; padding: 10px; border: 1px solid #e3e7f4; border-radius: 16px; background: white; box-shadow: 0 5px 15px #1824480b; }
+.alert-center .alert-list-section .center-filters { padding: 2px 2px 11px; border: 0; border-bottom: 1px solid #eef1f7; border-radius: 0; }
+.alert-center .alert-list-section .center-content { padding: 0 4px; }
 .alert-center select, .alert-center input, .alert-center header button { min-height: 44px; border-color: #d6ddef; border-radius: 11px; color: #1d2b51; font-size: 13px; }
 .alert-center .center-filters [role=tablist] { gap: 8px; }
 .alert-center .center-filters [role=tab] { padding-inline: 13px; font-size: 13px; }
@@ -23,7 +44,8 @@
 .alert-center .center-list > button { float: right; width: auto; padding-inline: 16px; }
 .alert-center .center-list > p:last-child { min-height: 60px; display: flex; align-items: center; font-size: 13px; color: #65729e; }
 .alert-center .center-back { font-size: 13px; color: #343da6; text-align: left; overflow-wrap: anywhere; }
-.alert-center.showing-detail > header, .alert-center.showing-detail > .center-summary, .alert-center.showing-detail > .center-filters, .alert-center.showing-detail .center-list { display: none; }
+.alert-center.showing-detail > header, .alert-center.showing-detail > .center-summary, .alert-center.showing-detail > .alert-analytics-grid, .alert-center.showing-detail > .alert-analytics-state, .alert-center.showing-detail .center-filters, .alert-center.showing-detail .center-list { display: none; }
+.alert-center.showing-detail .alert-list-section { padding: 0; border: 0; background: transparent; box-shadow: none; }
 .alert-center.showing-detail .center-details { display: block; }
 .alert-center .center-detail { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 16px 20px; align-items: start; }
 .alert-center .center-detail > div:first-child, .alert-center .center-detail > p, .alert-center .center-detail > a { grid-column: 1 / -1; }
@@ -44,9 +66,14 @@
 .alert-center .center-detail-actions button[data-action=DISMISSED] { background: white; color: #ca201b; border-color: #ffb4b0; }
 .alert-center .center-detail-timeline { grid-column: 1; }
 @media (max-width: 1000px) {
-  .alert-center .center-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .alert-center .center-detail { grid-template-columns: 1fr; }
   .alert-center .center-detail > * { grid-column: 1 !important; grid-row: auto !important; }
+}
+@media (max-width: 700px) {
+  .alert-center .alert-center-header-controls { flex-wrap: wrap; }
+  .alert-center .alert-center-header-controls > span { width: 100%; }
+  .alert-center .center-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .alert-center .alert-kpi:last-child { grid-column: 1 / -1; }
 }
 @media (max-width: 600px) {
   .alert-center .center-alert-row > button { grid-template-columns: 64px minmax(0, 1fr) 28px !important; gap: 10px; padding-inline: 10px; }

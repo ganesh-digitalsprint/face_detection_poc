@@ -4,7 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, case, false, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -353,6 +353,9 @@ def list_alerts(db: Session, *, scopes: list[str], filters: dict, sort: str, lim
     for key in ("assignment_id", "camera_id", "branch_id", "video_job_id", "session_ref", "source_id", "registry_camera_id"):
         if filters.get(key) is not None:
             stmt = stmt.where(Alert.resource_refs[key].as_string() == filters[key])
+    if filters.get("authorized_branch_ids") is not None:
+        allowed = filters["authorized_branch_ids"]
+        stmt = stmt.where(Alert.resource_refs["branch_id"].as_string().in_(allowed) if allowed else false())
     if filters.get("source_event_subtype") is not None:
         stmt = stmt.where(func.coalesce(Alert.domain_data["source_event_subtype"].as_string(),
             Alert.domain_data["kind"].as_string()) == filters["source_event_subtype"])
@@ -374,7 +377,9 @@ def audit_for(db: Session, alert_id: str) -> list[AlertAudit]:
 
 
 def summary(db: Session, *, scopes: list[str], filters: dict) -> dict:
-    stmt = select(Alert.status, Alert.severity, func.count(Alert.id))
+    stmt = select(Alert.status.label("status"), Alert.severity.label("severity"),
+                  Alert.occurred_at.label("occurred_at"), Alert.use_case.label("use_case"),
+                  Alert.resource_refs.label("resource_refs"))
     if "*" not in scopes:
         stmt = stmt.where(Alert.use_case.in_(scopes))
     for key, col in (("use_case", Alert.use_case), ("producer", Alert.producer),
@@ -386,6 +391,9 @@ def summary(db: Session, *, scopes: list[str], filters: dict) -> dict:
     for key in ("assignment_id", "camera_id", "branch_id", "video_job_id", "session_ref", "source_id", "registry_camera_id"):
         if filters.get(key) is not None:
             stmt = stmt.where(Alert.resource_refs[key].as_string() == filters[key])
+    if filters.get("authorized_branch_ids") is not None:
+        allowed = filters["authorized_branch_ids"]
+        stmt = stmt.where(Alert.resource_refs["branch_id"].as_string().in_(allowed) if allowed else false())
     if filters.get("source_event_subtype") is not None:
         stmt = stmt.where(func.coalesce(Alert.domain_data["source_event_subtype"].as_string(),
             Alert.domain_data["kind"].as_string()) == filters["source_event_subtype"])
@@ -393,10 +401,43 @@ def summary(db: Session, *, scopes: list[str], filters: dict) -> dict:
         stmt = stmt.where(Alert.occurred_at >= filters["from_at"])
     if filters.get("to_at"):
         stmt = stmt.where(Alert.occurred_at <= filters["to_at"])
-    rows = db.execute(stmt.group_by(Alert.status, Alert.severity)).all()
-    return {"total": sum(n for _, _, n in rows),
-            "by_status": {k: sum(n for s, _, n in rows if s == k) for k in ("OPEN", "ACKNOWLEDGED", "RESOLVED", "DISMISSED")},
-            "by_severity": {k: sum(n for _, s, n in rows if s == k) for k in ("INFO", "WARNING", "HIGH", "CRITICAL")}}
+    filtered = stmt.subquery()
+    counts = db.execute(select(filtered.c.status, filtered.c.severity, func.count()).group_by(
+        filtered.c.status, filtered.c.severity)).all()
+
+    occurred_at = filtered.c.occurred_at
+    if db.get_bind().dialect.name == "postgresql":
+        day_bucket = func.date(func.timezone("UTC", occurred_at))
+    else:
+        day_bucket = func.date(occurred_at)
+    by_day = db.execute(select(day_bucket.label("date"), func.count().label("count")).group_by(
+        day_bucket).order_by(day_bucket)).all()
+
+    use_case = filtered.c.use_case
+    by_use_case = db.execute(select(use_case, func.count().label("count")).group_by(
+        use_case).order_by(func.count().desc(), use_case)).all()
+
+    refs = filtered.c.resource_refs
+    branch_id = func.nullif(refs["branch_id"].as_string(), "")
+    branch_name = func.nullif(refs["branch_name"].as_string(), "")
+    branch_code = func.nullif(refs["branch_code"].as_string(), "")
+    by_branch_rows = db.execute(select(
+        branch_id.label("branch_id"), func.max(branch_name).label("branch_name"),
+        func.max(branch_code).label("branch_code"), func.count().label("count"),
+    ).group_by(branch_id).order_by(func.count().desc(), case((branch_id.is_(None), 1), else_=0), branch_id)).all()
+    by_branch = [{"branch_id": row.branch_id,
+                  "branch_name": (row.branch_name or row.branch_id) if row.branch_id else "Unassigned",
+                  "branch_code": row.branch_code if row.branch_id else None,
+                  "count": row.count} for row in by_branch_rows]
+
+    return {"total": sum(count for _, _, count in counts),
+            "by_status": {key: sum(count for status, _, count in counts if status == key)
+                          for key in ("OPEN", "ACKNOWLEDGED", "RESOLVED", "DISMISSED")},
+            "by_severity": {key: sum(count for _, severity, count in counts if severity == key)
+                            for key in ("INFO", "WARNING", "HIGH", "CRITICAL")},
+            "by_day": [{"date": str(day), "count": count} for day, count in by_day],
+            "by_use_case": [{"use_case": value, "count": count} for value, count in by_use_case],
+            "by_branch": by_branch}
 
 
 def due_notifications(db: Session, *, now=None, limit=25):

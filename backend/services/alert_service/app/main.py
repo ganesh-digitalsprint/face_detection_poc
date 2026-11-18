@@ -11,12 +11,16 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes.alerts import router as alerts_router
 from app.api.routes.health import router as health_router
+from app.api.routes.notifications import router as notifications_router
 from app.db.database import ensure_database_exists, initialize, make_engine, make_session_factory
 from app.services.notification_manager import run_worker
+from app.services.smtp_client import send_email
+from app.services.test_email_rate_limit import TestEmailRateLimiter
 from app.settings import Settings, settings as default_settings
 
 
-def create_app(settings: Settings | None = None, *, engine=None, start_notification_worker: bool = True) -> FastAPI:
+def create_app(settings: Settings | None = None, *, engine=None, start_notification_worker: bool = True,
+               smtp_sender=send_email) -> FastAPI:
     config = settings or default_settings
     db_engine = engine or make_engine(config.database_url)
     session_factory = make_session_factory(db_engine)
@@ -44,8 +48,11 @@ def create_app(settings: Settings | None = None, *, engine=None, start_notificat
     app.state.settings = config
     app.state.engine = db_engine
     app.state.session_factory = session_factory
+    app.state.smtp_sender = smtp_sender
+    app.state.test_email_rate_limiter = TestEmailRateLimiter()
     app.include_router(health_router)
     app.include_router(alerts_router)
+    app.include_router(notifications_router)
 
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):

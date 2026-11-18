@@ -13,3 +13,8 @@ export function clearAlertCenterFilters(search) {
   for (const key of ['status', 'branch_id', 'camera_id', 'use_case', 'severity', 'evidence', 'type', 'from', 'to', 'source_event_id']) next.delete(key);
   return next;
 }
+export function buildAlertSummaryParams(params, branchId) {
+  const { branch_id: ignoredBranch, ...rest } = params; // eslint-disable-line no-unused-vars
+  return { ...rest, ...(branchId ? { branch_id: branchId } : {}) };
+}
+

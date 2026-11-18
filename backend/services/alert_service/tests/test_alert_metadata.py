@@ -18,7 +18,7 @@ from fedbank_core.events.metadata import enrich_resource_refs
 def test_metadata_survives_create_update_filters_and_replay(tmp_path, use_case, video):
     app = create_app(Settings(database_url=f"sqlite:///{(tmp_path/'metadata.db').as_posix()}",
         producer_credentials={"producer": {"use_case": use_case, "producer": "test"}},
-        operator_credentials={"operator": {"actor_id": "op", "use_cases": [use_case]}},
+        operator_credentials={"operator": {"actor_id": "op", "use_cases": [use_case], "branch_ids": ["*"]}},
         notification_webhook_url=""), start_notification_worker=False)
     refs = {"branch_id": "branch-1", "branch_name": "Known branch", "source_id": "source-7"}
     if use_case in {"grill_gate", "vault_monitoring"}:
@@ -121,7 +121,7 @@ def test_platform_metadata_requires_explicit_link_and_never_replaces_source_came
 def test_evidence_state_is_preserved_for_incidents_without_media(tmp_path, state):
     app = create_app(Settings(database_url=f"sqlite:///{(tmp_path/f'{state}.db').as_posix()}",
         producer_credentials={'producer': {'use_case':'branch_exterior','producer':'branch-exterior-monitoring'}},
-        operator_credentials={'operator': {'actor_id':'op','use_cases':['branch_exterior']}},
+        operator_credentials={'operator': {'actor_id':'op','use_cases':['branch_exterior'],'branch_ids':['*']}},
         notification_webhook_url=''), start_notification_worker=False)
     body = {'schema_version':1,'source_event_id':f'event-{state}','source_event_type':'anomaly',
         'source_event_version':1,'occurred_at':'2026-11-16T08:00:00Z','severity':'high',

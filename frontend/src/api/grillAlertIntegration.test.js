@@ -90,13 +90,14 @@ for (const sort of ['newest','oldest']) test(`combined status pagination preserv
   const datasets = { OPEN:[9,8,7,6,5], ACKNOWLEDGED:[10,4,3,2,1] };
   const fetchPage = async (params) => {
     assert.ok(['OPEN','ACKNOWLEDGED'].includes(params.status)); assert.equal(params.group,undefined);
+    assert.equal(params.branch_id, 'branch-uuid-koramangala');
     const values = [...datasets[params.status]].sort((a,b)=>sort==='newest'?b-a:a-b);
     const offset=Number(params.cursor || 0), batch=values.slice(offset,offset+2);
     return { items:batch.map((n)=>({ id:String(n),occurredAt:String(n).padStart(2,'0') })),hasMore:offset+2<values.length,nextCursor:String(offset+2) };
   };
   const ids=[]; let cursor;
   do {
-    const page=await statusGroupPage(fetchPage,{ group:'ACTIVE',limit:3,sort,cursor });
+    const page=await statusGroupPage(fetchPage,{ group:'ACTIVE',branch_id:'branch-uuid-koramangala',limit:3,sort,cursor });
     ids.push(...page.items.map((a)=>Number(a.id))); cursor=page.nextCursor;
   } while(cursor);
   assert.deepEqual(ids,sort==='newest'?[10,9,8,7,6,5,4,3,2,1]:[1,2,3,4,5,6,7,8,9,10]);

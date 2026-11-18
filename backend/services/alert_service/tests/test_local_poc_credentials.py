@@ -43,7 +43,7 @@ def test_local_authenticated_publication(tmp_path,local):
     assert {identity['use_case'] for identity in credentials.values()} == {
         'vault_monitoring', 'grill_gate', 'branch_exterior', 'face_mask'}
     app=create_app(Settings(database_url=f"sqlite:///{tmp_path / 'alerts.db'}",producer_credentials=credentials,
-        operator_credentials={'operator-test':{'actor_id':'test','use_cases':['*']}},
+        operator_credentials={'operator-test':{'actor_id':'test','use_cases':['*'],'branch_ids':['*']}},
         notification_webhook_url=''),start_notification_worker=False)
     with TestClient(app) as client:
         event_types = {'vault_monitoring': 'CAMERA_FEED_LOST', 'grill_gate': 'GATE_OPEN_TOO_LONG',
