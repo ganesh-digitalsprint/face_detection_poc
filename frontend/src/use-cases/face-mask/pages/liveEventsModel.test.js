@@ -1,12 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { incidentStatusForEvent, normalizeLiveEvents } from './liveEventsModel.js';
+import { incidentStatusForEvent, newestUnseenEvent, normalizeLiveEvents } from './liveEventsModel.js';
 import { sourceMediaUrl } from '../../../api/sourceThumbnail.js';
 
 test('live concealment events are deduplicated by source ID and sorted newest first', () => {
   const old = { id: 'old', first_seen: '2026-01-01T00:00:00Z' };
   const newest = { id: 'new', first_seen: '2026-01-02T00:00:00Z' };
   assert.deepEqual(normalizeLiveEvents([old, newest, { ...newest, camera_name: 'updated duplicate' }]), [newest, old]);
+});
+
+test('only an event arriving after initial history is announced as new', () => {
+  const old = { id: 'old', first_seen: '2026-01-01T00:00:00Z' };
+  const latest = { id: 'latest', first_seen: '2026-01-02T00:00:00Z' };
+  assert.equal(newestUnseenEvent(null, [old]), null);
+  assert.equal(newestUnseenEvent(new Set(['old']), [old]), null);
+  assert.equal(newestUnseenEvent(new Set(['old']), normalizeLiveEvents([old, latest])), latest);
+  assert.equal(newestUnseenEvent(new Set(['old', 'latest']), [{ ...latest, status: 'CLOSED' }, old]), null);
 });
 
 test('source review statuses map to the incident state shown in the list', () => {

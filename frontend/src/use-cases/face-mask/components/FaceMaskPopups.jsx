@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, fmApiUrl } from '../api/index.js';
 import { faceMaskEventLink } from '../../../layouts/routes.js';
 import { coverageTitle } from '../coverageModel.js';
+import { playFaceMaskAlertTone } from './alertTone.js';
 
 /** Poll Face Mask directly so a missing Alert Service never delays a local safety popup. */
 export default function FaceMaskPopups() {
@@ -41,14 +42,7 @@ export default function FaceMaskPopups() {
           return [...incoming.reverse(), ...updated].slice(0, 3);
         });
         if (incoming.length && soundRef.current) {
-          try {
-            const context = new AudioContext();
-            const tone = context.createOscillator();
-            tone.frequency.value = 700;
-            tone.connect(context.destination);
-            tone.start(); tone.stop(context.currentTime + 0.15);
-            tone.onended = () => context.close();
-          } catch { /* sound is optional and may be blocked until a click */ }
+          playFaceMaskAlertTone();
         }
       } catch { /* keep the shell usable while Face Mask is down */ }
     };

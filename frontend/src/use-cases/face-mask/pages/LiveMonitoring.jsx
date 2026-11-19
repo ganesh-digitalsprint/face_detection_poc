@@ -2,7 +2,7 @@ import FaceMaskConcealmentCard from '../components/FaceMaskConcealmentCard.jsx';
 import useCommonIncidentStates from '../../../hooks/useCommonIncidentStates.js';
 import { sourceMediaUrl } from '../../../api/sourceThumbnail.js';
 import { FACE_MASK_BASE_URL } from '../../../config/services.js';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, coveringLabel, fmApiUrl, timeAgo } from '../api/index.js';
 import AddCameraModal from '../components/AddCameraModal.jsx';
@@ -10,11 +10,12 @@ import { useFmStatus } from '../components/FmStatus.jsx';
 import { EventStatusBadge, PageState, ServiceDown, StateDot, StreamBadge, Empty } from '../components/ui.jsx';
 import usePolling from '../hooks/usePolling.js';
 import FaceMaskEventModal from '../components/FaceMaskEventModal.jsx';
-import { normalizeLiveEvents } from './liveEventsModel.js';
+import { newestUnseenEvent, normalizeLiveEvents } from './liveEventsModel.js';
 import SourcePicker from '../../../components/video/SourcePicker.jsx';
 import { PlaybackBadge, PlaybackProgress, StartStopControls } from '../../../components/video/PlaybackControls.jsx';
 import { playbackPlaceholder, playbackStatus } from '../../../components/video/playbackState.js';
 import { useOptionalActiveBranch } from '../../../features/branches/ActiveBranch.jsx';
+import { playFaceMaskAlertTone } from '../components/alertTone.js';
 
 const STAGE = { height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', textAlign: 'center', padding: 16 };
 const LIVE_STATES = ['ONLINE', 'PROCESSING', 'RECONNECTING', 'DONE', 'STOPPED', 'STOPPING'];
@@ -35,6 +36,12 @@ export default function LiveMonitoring() {
   const [stopping, setStopping] = useState(false);
   const [starting, setStarting] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState('');
+  const [alertSound, setAlertSound] = useState(false);
+  const [newEventAnnouncement, setNewEventAnnouncement] = useState('');
+  const alertSoundRef = useRef(alertSound);
+  const previousEventIds = useRef(null);
+  const tickerRef = useRef(null);
+  alertSoundRef.current = alertSound;
 
   const cams = usePolling(() => api.get('/cameras'), 1500);
   const events = usePolling(() => api.get('/events?limit=10'), 3000);
@@ -98,7 +105,18 @@ export default function LiveMonitoring() {
   };
 
   const trackRows = Object.entries(st.track_states || {});
-  const liveEvents = normalizeLiveEvents(events.data?.items || []);
+  const liveEvents = useMemo(() => normalizeLiveEvents(events.data?.items || []), [events.data]);
+  useEffect(() => {
+    if (!events.data) return;
+    const newEvent = newestUnseenEvent(previousEventIds.current, liveEvents);
+    // Retain IDs through a transient empty response, so old events are not
+    // announced again after the service reconnects.
+    previousEventIds.current = new Set([...(previousEventIds.current || []), ...liveEvents.map((event) => event.id)]);
+    if (!newEvent) return; // Loading existing history is not a new alert.
+    if (tickerRef.current) tickerRef.current.scrollTop = 0;
+    setNewEventAnnouncement(`New Face Mask alert: ${newEvent.camera_name || newEvent.camera_id || 'camera'}`);
+    if (alertSoundRef.current) playFaceMaskAlertTone();
+  }, [events.data, liveEvents]);
   const down = serviceState === 'offline';
 
   return (
@@ -214,13 +232,19 @@ export default function LiveMonitoring() {
           </div>
 
           <div className="bx-card">
-            <div className="bx-card-title">Concealment events <Link to="/alerts?use_case=face_mask" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></div>
-            <div className="bx-ticker" style={{ maxHeight: 480, overflowY: 'auto' }}>
+            <div className="bx-card-title bx-row bx-gap-8 bx-wrap" style={{ justifyContent: 'space-between' }}>
+              <span>Concealment events <Link to="/alerts?use_case=face_mask" style={{ fontWeight: 400, fontSize: 12 }}>(all)</Link></span>
+              <button type="button" className="bx-btn bx-btn-sm" aria-pressed={alertSound} onClick={() => setAlertSound((on) => !on)}>
+                Sound {alertSound ? 'on' : 'off'}
+              </button>
+            </div>
+            <span className="sr-only" role="status" aria-live="polite">{newEventAnnouncement}</span>
+            <div ref={tickerRef} className="bx-ticker" style={{ maxHeight: 480, overflowY: 'auto' }}>
               {events.error && events.data && <div className="bx-diag" role="status">Connection warning: showing the last loaded concealment events. {events.error.message}</div>}
               {events.error && !events.data && <ServiceDown error={events.error} onRetry={events.reload} />}
               {!events.data && !events.error && <div className="bx-hint" role="status" style={{ padding: 12 }}>Loading concealment events…</div>}
               {events.data && liveEvents.length === 0 && !events.error && <Empty icon="◷" bare>No concealment events yet.</Empty>}
-              {liveEvents.map((event) => <FaceMaskConcealmentCard key={event.id} event={event} common={incidentStates.bySource[event.id]}
+              {liveEvents.map((event, index) => <FaceMaskConcealmentCard key={event.id} event={event} latest={index === 0} common={incidentStates.bySource[event.id]}
                 thumbnailUrl={event.snapshot_path ? sourceMediaUrl(FACE_MASK_BASE_URL, event.snapshot_path, 'face_mask') : undefined}
                 onSelect={setSelectedEventId} />)}
             </div>

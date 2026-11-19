@@ -64,7 +64,7 @@ function Frame() {
         </div>
       )}
       <Suspense fallback={<Loading message="Loading…" />}><Outlet /></Suspense>
-      <FaceMaskPopups />
+      {key !== 'live' && <FaceMaskPopups />}
     </div>
   );
 }
